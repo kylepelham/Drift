@@ -3047,6 +3047,8 @@ export interface components {
             deletions: number;
             /** @description Both versions merged line by line, each line prefixed with ` `, `+` or `-`; empty unless `preview` is `lines`. */
             lines: string[];
+            /** @description The file on this computer, to open it; none when where it lives is unknown. */
+            location?: string | null;
             /** @description Relative to the workspace with `/` separators, or absolute for a file outside it. */
             path: string;
             preview: components["schemas"]["Preview"];

@@ -1630,6 +1630,7 @@ export const drift = {
     "drift.review.source.turn": "Denne runden",
     "drift.review.source.uncommitted": "Endringer som ikke er committet",
     "drift.review.refresh": "Oppdater",
+    "drift.review.openFile": "Åpne i standardappen",
     "drift.review.notRepo": "Dette arbeidsområdet er ikke et git-repository.",
     "drift.review.loading": "Laster inn endringer",
     "drift.review.empty": "Ingen endringer",

@@ -401,8 +401,12 @@ file, from before its first change to after its last, so it includes what comman
 change while they ran. Files are unified diffs whose headers stay pinned while their lines
 scroll, with three lines of context, expandable "N unmodified lines" bars and Collapse all /
 Expand all; a file's lines are built only once it scrolls near the view, since the engine
-sends both versions merged line by line (read from git in one `cat-file --batch`). While it
-is open on the desktop, the window controls move to its header.
+sends both versions merged line by line (read from git in one `cat-file --batch`). Each
+file's header has an open button, on the desktop host for files that still exist, which
+opens the file in its default app from the `location` the engine sends with it (a turn's
+files can live in a worktree, so the UI never joins paths itself). The diff text is
+selectable for copying; line numbers, change symbols and the + button stay out of a copy.
+While it is open on the desktop, the window controls move to its header.
 
 The + beside a diff line opens a note on it (Enter saves, Shift+Enter breaks the line,
 Escape gives up). Notes belong to the composer draft of the conversation beside the panel:

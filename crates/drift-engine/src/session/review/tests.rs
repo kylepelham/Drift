@@ -56,6 +56,9 @@ async fn uncommitted_lists_edits_deletions_and_untracked_files_with_every_line()
     assert_eq!(file(&review, "gone.txt").status, FileStatus::Deleted);
     assert_eq!(file(&review, "new.txt").lines, ["+fresh"]);
     assert_eq!(review.files.len(), 3);
+    let location = |path: &str| file(&review, path).location.clone().map(std::path::PathBuf::from);
+    assert_eq!(location("kept.txt"), Some(root.join("kept.txt")), "a tracked file");
+    assert_eq!(location("new.txt"), Some(root.join("new.txt")), "an untracked one");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -195,6 +198,11 @@ async fn a_turn_review_spans_the_turn_from_before_its_first_change_to_after_its_
     let first = h.engine.turn_review(&h.session.id, &prompts[0]).await.unwrap();
     assert_eq!(file(&first, "a.txt").lines, ["+one"]);
     assert_eq!(file(&first, "a.txt").status, FileStatus::Added);
+    assert_eq!(
+        file(&first, "a.txt").location.as_deref().map(std::path::Path::new),
+        Some(crate::tool::canonical(&h._dir.join("ws").join("a.txt")).as_path()),
+        "where the turn wrote it"
+    );
 
     let second = h.engine.turn_review(&h.session.id, &prompts[1]).await.unwrap();
     assert_eq!(file(&second, "a.txt").lines, ["-one", "+three"]);

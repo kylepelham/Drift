@@ -423,6 +423,7 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [ ] `/verify`: drive a change end to end (browser pane, dev server) after a review of a diff that runs
 - [ ] PR bar: CI status and open review threads for the branch, with `/watch-pr`
 - [x] Review panel beside the chat: a turn's changes, uncommitted changes, against a branch or one commit, as unified diffs with foldable unchanged lines; the edited files card opens it
+  - [x] Selectable diff text for copying, and an open button per file that opens it in its default app
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
 

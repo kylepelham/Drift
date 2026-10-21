@@ -1635,6 +1635,7 @@ export const drift = {
     "drift.review.source.turn": "Цей хід",
     "drift.review.source.uncommitted": "Незакомічені зміни",
     "drift.review.refresh": "Оновити",
+    "drift.review.openFile": "Відкрити у програмі за замовчуванням",
     "drift.review.notRepo": "Ця робоча область не є git-репозиторієм.",
     "drift.review.loading": "Завантаження змін",
     "drift.review.empty": "Змін немає",

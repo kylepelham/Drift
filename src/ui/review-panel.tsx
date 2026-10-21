@@ -6,12 +6,14 @@ import { diffIndicator, diffLineNumbers, diffWordWrap } from "../state/code";
 import { createDiffHighlight, SyntaxTokenView } from "./diff-panel";
 import { reviewRows, type ReviewRow } from "./review-rows";
 import { ReviewSourceMenu } from "./review-source-menu";
+import { IconExternalLink, IconRestore } from "./icons";
 import { activeWorkspace } from "../state/workspaces";
 import { selectedSession } from "../state/selection";
 import { samePath } from "./review-sources";
+import { openFile } from "../tool-actions";
+import { backendInvoke } from "../backend";
 import { SidePanel } from "./side-panel";
 import { FileIcon } from "./file-icon";
-import { IconRestore } from "./icons";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
@@ -102,7 +104,7 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
                     onClose={() => openReview({ ...props.panel, findings: undefined })}
                 />
             </Show>
-            <div class="review-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div class="review-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain select-text">
                 <ReviewBody
                     review={review.error ? undefined : review()}
                     loading={review.loading}
@@ -245,6 +247,8 @@ function FileDiff(props: { file: ReviewFile; fold?: Fold; findings: FindingsLaye
     const [open, setOpen] = createSignal(untrack(() => props.file.lines.length <= largeFileLines));
     const [near, setNear] = createSignal(false);
     const parts = () => splitPath(props.file.path);
+    // Opening needs the desktop host, and a deleted file has nothing left to open.
+    const openable = () => (backendInvoke() && props.file.status !== "deleted" ? props.file.location : undefined);
     const findings = createMemo(() => props.findings.forFile(props.file.path));
     // The finding being walked to opens and builds its file wherever it is.
     createEffect(() => {
@@ -278,32 +282,49 @@ function FileDiff(props: { file: ReviewFile; fold?: Fold; findings: FindingsLaye
 
     return (
         <div ref={root} class="review-file border-b border-edge/60" data-review-path={props.file.path}>
-            <button
-                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center gap-2 border-b border-transparent bg-bg px-4 py-2 text-left text-[length:calc(0.82rem*var(--ui-text-scale,1))] transition-colors hover:bg-raised"
+            <div
+                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center border-b border-transparent bg-bg text-[length:calc(0.82rem*var(--ui-text-scale,1))] transition-colors select-none hover:bg-raised"
                 classList={{ "border-edge/60": open() }}
-                aria-expanded={open()}
-                title={props.file.path}
-                onClick={() => setOpen(!open())}
             >
-                <span class="flex shrink-0 text-ink-faint">
-                    <Chevron open={open()} />
-                </span>
-                <FileIcon path={props.file.path} class="size-4" />
-                <span class="min-w-0 truncate">
-                    <span class="text-ink-faint">{parts().folder}</span>
-                    <span class="text-ink">{parts().name}</span>
-                </span>
-                <Show when={props.file.status !== "modified"}>
-                    <span class="shrink-0 text-xs text-ink-faint">
-                        {t(props.file.status === "added" ? "drift.file.created" : "drift.file.deleted")}
+                <button
+                    class="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 text-left"
+                    classList={{ "pr-4": !openable(), "pr-2": !!openable() }}
+                    aria-expanded={open()}
+                    title={props.file.path}
+                    onClick={() => setOpen(!open())}
+                >
+                    <span class="flex shrink-0 text-ink-faint">
+                        <Chevron open={open()} />
                     </span>
+                    <FileIcon path={props.file.path} class="size-4" />
+                    <span class="min-w-0 truncate">
+                        <span class="text-ink-faint">{parts().folder}</span>
+                        <span class="text-ink">{parts().name}</span>
+                    </span>
+                    <Show when={props.file.status !== "modified"}>
+                        <span class="shrink-0 text-xs text-ink-faint">
+                            {t(props.file.status === "added" ? "drift.file.created" : "drift.file.deleted")}
+                        </span>
+                    </Show>
+                    <span class="flex-1" />
+                    <span class="shrink-0 font-mono text-xs">
+                        <span class="text-ok">+{props.file.additions}</span>{" "}
+                        <span class="text-danger">-{props.file.deletions}</span>
+                    </span>
+                </button>
+                <Show when={openable()}>
+                    {(location) => (
+                        <button
+                            class="mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                            title={t("drift.review.openFile")}
+                            aria-label={t("drift.review.openFile")}
+                            onClick={() => void openFile(location()).catch(() => undefined)}
+                        >
+                            <IconExternalLink class="size-3.5" />
+                        </button>
+                    )}
                 </Show>
-                <span class="flex-1" />
-                <span class="shrink-0 font-mono text-xs">
-                    <span class="text-ok">+{props.file.additions}</span>{" "}
-                    <span class="text-danger">-{props.file.deletions}</span>
-                </span>
-            </button>
+            </div>
             <Show when={open()}>
                 <Show
                     when={props.file.preview === "lines"}

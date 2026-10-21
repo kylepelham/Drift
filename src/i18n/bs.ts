@@ -1628,6 +1628,7 @@ export const drift = {
     "drift.review.source.turn": "Ovaj krug",
     "drift.review.source.uncommitted": "Necommitane izmjene",
     "drift.review.refresh": "Osvježi",
+    "drift.review.openFile": "Otvori u podrazumijevanoj aplikaciji",
     "drift.review.notRepo": "Ovaj radni prostor nije git repozitorij.",
     "drift.review.loading": "Učitavanje izmjena",
     "drift.review.empty": "Nema izmjena",

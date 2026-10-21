@@ -1640,6 +1640,7 @@ export const drift = {
     "drift.review.source.turn": "Bu tur",
     "drift.review.source.uncommitted": "Commit edilmemiş değişiklikler",
     "drift.review.refresh": "Yenile",
+    "drift.review.openFile": "Varsayılan uygulamasında aç",
     "drift.review.notRepo": "Bu çalışma alanı bir git deposu değil.",
     "drift.review.loading": "Değişiklikler yükleniyor",
     "drift.review.empty": "Değişiklik yok",

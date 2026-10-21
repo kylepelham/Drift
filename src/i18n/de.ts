@@ -1661,6 +1661,7 @@ export const drift = {
     "drift.review.source.turn": "Dieser Durchgang",
     "drift.review.source.uncommitted": "Nicht committete Änderungen",
     "drift.review.refresh": "Aktualisieren",
+    "drift.review.openFile": "In Standard-App öffnen",
     "drift.review.notRepo": "Dieser Arbeitsbereich ist kein Git-Repository.",
     "drift.review.loading": "Änderungen werden geladen",
     "drift.review.empty": "Keine Änderungen",

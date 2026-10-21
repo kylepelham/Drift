@@ -1596,6 +1596,7 @@ export const drift = {
     "drift.review.source.turn": "هذه الجولة",
     "drift.review.source.uncommitted": "تغييرات غير مثبتة",
     "drift.review.refresh": "تحديث",
+    "drift.review.openFile": "الفتح في تطبيقه الافتراضي",
     "drift.review.notRepo": "مساحة العمل هذه ليست مستودع git.",
     "drift.review.loading": "جارٍ تحميل التغييرات",
     "drift.review.empty": "لا توجد تغييرات",

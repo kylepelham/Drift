@@ -113,9 +113,14 @@ fn path_reason(context: &Context, directory: &Path, word: &str) -> Option<Reason
     let parts = [word, value, value.rsplit_once(':').map_or(value, |(_, path)| path)];
 
     parts.iter().filter(|part| !part.is_empty()).find_map(|part| {
-        let path = canonical(&directory.join(part));
+        let joined = directory.join(part);
+        if on_network(&joined) {
+            return network_reason(context, &joined);
+        }
+
+        let path = canonical(&joined);
         // Resolve links before deciding whether a bare name refers to a workspace file.
-        let exists = std::fs::symlink_metadata(directory.join(part)).is_ok();
+        let exists = std::fs::symlink_metadata(&joined).is_ok();
         let rooted = Path::new(part).components().next().is_some_and(|component| {
             matches!(
                 component,
@@ -130,6 +135,25 @@ fn path_reason(context: &Context, directory: &Path, word: &str) -> Option<Reason
             (names_path && !context.inside_workspace(&path)).then_some(Reason::Outside)
         }
     })
+}
+
+/// A `\\host\share` path, which a URL's `//host/path` becomes on Windows.
+fn on_network(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+    )
+}
+
+/// Judged by its text alone: asking Windows about a network path contacts its host and can block for 40 seconds.
+fn network_reason(context: &Context, path: &Path) -> Option<Reason> {
+    if sensitive::is_sensitive(path) {
+        return Some(Reason::Secret);
+    }
+
+    (!context.inside_workspace(path)).then_some(Reason::Outside)
 }
 
 /// Where a call runs: its `workdir`, which must be a directory, else the workspace.

@@ -1612,6 +1612,7 @@ export const drift = {
     "drift.review.source.turn": "이번 턴",
     "drift.review.source.uncommitted": "커밋되지 않은 변경 사항",
     "drift.review.refresh": "새로 고침",
+    "drift.review.openFile": "기본 앱에서 열기",
     "drift.review.notRepo": "이 작업 공간은 git 저장소가 아닙니다.",
     "drift.review.loading": "변경 사항 불러오는 중",
     "drift.review.empty": "변경 사항 없음",

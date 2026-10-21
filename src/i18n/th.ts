@@ -1601,6 +1601,7 @@ export const drift = {
     "drift.review.source.turn": "รอบนี้",
     "drift.review.source.uncommitted": "การเปลี่ยนแปลงที่ยังไม่ได้คอมมิต",
     "drift.review.refresh": "รีเฟรช",
+    "drift.review.openFile": "เปิดในแอปเริ่มต้น",
     "drift.review.notRepo": "พื้นที่ทำงานนี้ไม่ใช่ที่เก็บ git",
     "drift.review.loading": "กำลังโหลดการเปลี่ยนแปลง",
     "drift.review.empty": "ไม่มีการเปลี่ยนแปลง",

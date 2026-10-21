@@ -1651,6 +1651,7 @@ export const drift = {
     "drift.review.source.turn": "Este turno",
     "drift.review.source.uncommitted": "Alterações não commitadas",
     "drift.review.refresh": "Atualizar",
+    "drift.review.openFile": "Abrir no aplicativo padrão",
     "drift.review.notRepo": "Este espaço de trabalho não é um repositório git.",
     "drift.review.loading": "Carregando alterações",
     "drift.review.empty": "Nenhuma alteração",

@@ -3211,7 +3211,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     not (`>~/.bashrc`, `2>../err`, `<>rw`, `</etc/passwd`; `command::redirect_target`), stream
     sinks such as `/dev/null` and `$null` excepted, and every target in `Ask::writes` is judged
     the same way. Any word that names something on disk is judged where it resolves, so
-    `cat notes`, with `notes` a link out of the workspace, asks. So `cargo test`, `rm -rf dist`,
+    `cat notes`, with `notes` a link out of the workspace, asks. A network path (`\\host\share`, which
+    a URL's `//host/path` part becomes on Windows) is judged by its text and never looked up: Windows
+    contacts the host for it, which blocked the turn, and with it Stop, for 20 to 40 seconds per URL.
+    So `cargo test`, `rm -rf dist`,
     `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`, `ls > ../x`,
     `echo x >> ~/.bashrc`, `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first.
     Undo does not make this safe on its own: it keeps the workspace's tracked and untracked files

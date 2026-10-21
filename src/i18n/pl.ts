@@ -1644,6 +1644,7 @@ export const drift = {
     "drift.review.source.turn": "Ta tura",
     "drift.review.source.uncommitted": "Niezatwierdzone zmiany",
     "drift.review.refresh": "Odśwież",
+    "drift.review.openFile": "Otwórz w aplikacji domyślnej",
     "drift.review.notRepo": "Ten obszar roboczy nie jest repozytorium git.",
     "drift.review.loading": "Wczytywanie zmian",
     "drift.review.empty": "Brak zmian",

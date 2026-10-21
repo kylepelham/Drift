@@ -1560,6 +1560,7 @@ export const drift = {
     "drift.review.source.turn": "本轮",
     "drift.review.source.uncommitted": "未提交的更改",
     "drift.review.refresh": "刷新",
+    "drift.review.openFile": "在默认应用中打开",
     "drift.review.notRepo": "此工作区不是 git 仓库。",
     "drift.review.loading": "正在加载更改",
     "drift.review.empty": "没有更改",
