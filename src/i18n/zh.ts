@@ -799,6 +799,10 @@ export const drift = {
         "Drift-Plugins registry.json 格式的 JSON 文档：每个插件带下载地址和 SHA-256。",
     "drift.registry.sources.mcpFormat": "MCP 注册表格式的 JSON 文档：一个 servers 列表，与官方注册表 API 返回的一致。",
     "drift.plugins.configRaw": "此插件的设置（JSON）；没有注册表描述它的字段。",
+    "drift.plugins.settings.add": "添加",
+    "drift.plugins.settings.remove": "移除",
+    "drift.plugins.settings.show": "显示",
+    "drift.plugins.settings.hide": "隐藏",
     "drift.plugins.saving": "正在保存...",
     "drift.plugins.saved": "已保存 {{name}} 的设置。",
     "drift.plugins.packNote":

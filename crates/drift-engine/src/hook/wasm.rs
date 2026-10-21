@@ -9,6 +9,7 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable, TypedFunc};
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store, UpdateDeadline};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+use super::settings::{Choice, Pair, Setting, SettingKind};
 use super::{
     AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent,
     PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd,
@@ -39,6 +40,8 @@ struct State {
     workspace: PathBuf,
     /// When the current call's time is up; host calls move it on by what they took.
     deadline: Instant,
+    /// What the plugin declared, so `host.config` fills in their defaults.
+    settings: Vec<Setting>,
     wasi: WasiCtx,
     table: ResourceTable,
 }
@@ -103,6 +106,7 @@ impl Runtime {
             site,
             workspace: PathBuf::new(),
             deadline: Instant::now() + CALL_BUDGET,
+            settings: Vec::new(),
             wasi: WasiCtxBuilder::new().inherit_stderr().build(),
             table: ResourceTable::new(),
         };
@@ -132,6 +136,8 @@ impl Runtime {
         }
 
         store.data_mut().name.clone_from(&name);
+        let settings = settings(&mut store, &instance).await;
+        store.data_mut().settings.clone_from(&settings);
         let replacements = replacements(&mut store, &instance).await;
         let (search_providers, search) = searching(&mut store, &instance).await;
 
@@ -139,6 +145,7 @@ impl Runtime {
             name,
             path: path.to_path_buf(),
             capabilities,
+            settings,
             replacements,
             search_providers,
             search,
@@ -148,7 +155,76 @@ impl Runtime {
     }
 }
 
-/// The host interfaces a component imports besides `host` itself: what it can reach.
+/// The `configurable` world's settings; none from a plugin built without them.
+async fn settings(store: &mut Store<State>, instance: &wasmtime::component::Instance) -> Vec<Setting> {
+    let Ok(export) = instance.get_typed_func::<(), (Vec<wit::Setting>,)>(&mut *store, "settings") else {
+        return Vec::new();
+    };
+
+    match export.call_async(&mut *store, ()).await {
+        Ok((declared,)) => declared.into_iter().map(Setting::from).collect(),
+        Err(error) => {
+            eprintln!("drift: plugin {} failed in settings: {error}", store.data().name);
+            Vec::new()
+        }
+    }
+}
+
+impl From<wit::Setting> for Setting {
+    fn from(setting: wit::Setting) -> Self {
+        Self {
+            key: setting.key,
+            label: setting.label,
+            description: setting.description,
+            kind: setting.kind.into(),
+        }
+    }
+}
+
+impl From<wit::SettingKind> for SettingKind {
+    fn from(kind: wit::SettingKind) -> Self {
+        match kind {
+            wit::SettingKind::Text(text) => Self::Text {
+                default: text.default,
+                placeholder: text.placeholder,
+                multiline: text.multiline,
+                secret: text.secret,
+            },
+            wit::SettingKind::Number(number) => Self::Number {
+                default: number.default,
+                min: number.min,
+                max: number.max,
+                integer: number.integer,
+            },
+            wit::SettingKind::Toggle(default) => Self::Toggle { default },
+            wit::SettingKind::Choice(choice) => Self::Choice {
+                default: choice.default,
+                choices: choice
+                    .choices
+                    .into_iter()
+                    .map(|(value, label)| Choice { value, label })
+                    .collect(),
+            },
+            wit::SettingKind::Items(items) => Self::Items {
+                default: items.default,
+                placeholder: items.placeholder,
+                secret: items.secret,
+            },
+            wit::SettingKind::Pairs(pairs) => Self::Pairs {
+                default: pairs
+                    .default
+                    .into_iter()
+                    .map(|(key, value)| Pair { key, value })
+                    .collect(),
+                key_label: pairs.key_label,
+                value_label: pairs.value_label,
+                secret_keys: pairs.secret_keys,
+                secret_values: pairs.secret_values,
+            },
+        }
+    }
+}
+
 /// The `masking` world's secret pairs; none from a plugin built for `plugin` alone.
 async fn replacements(store: &mut Store<State>, instance: &wasmtime::component::Instance) -> Vec<(String, String)> {
     type Pairs = (Vec<(String, String)>,);
@@ -218,6 +294,7 @@ pub struct WasmPlugin {
     name: String,
     pub path: PathBuf,
     pub capabilities: Vec<String>,
+    settings: Vec<Setting>,
     /// Secret and placeholder pairs from the `masking` world, read once at load.
     replacements: Vec<(String, String)>,
     /// Web search providers from the `searching` world, read once at load, and its search export.
@@ -247,6 +324,10 @@ impl WasmPlugin {
 impl Hook for WasmPlugin {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn settings(&self) -> Vec<Setting> {
+        self.settings.clone()
     }
 
     fn replacements(&self) -> Vec<(String, String)> {
@@ -523,6 +604,35 @@ pub(crate) mod tests {
             plain.replacements().is_empty(),
             "a plugin built before the masking world still loads"
         );
+        assert!(plain.settings().is_empty(), "and declares no settings");
+
+        let declared = plugin.settings();
+        assert_eq!(declared.len(), 1);
+        assert_eq!(declared[0].key, "replacements");
+        assert!(matches!(
+            &declared[0].kind,
+            SettingKind::Pairs { secret_keys: true, secret_values: false, key_label, .. } if key_label == "Secret"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_declared_setting_left_unset_reaches_the_plugin_as_its_default() {
+        let Some(secrets) = built("secrets") else { return };
+        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let unset = Site {
+            entry: "plugins/secrets.wasm".into(),
+            config: serde_json::json!({}),
+            engine: Weak::new(),
+        };
+
+        let plugin = Runtime::new(&cache).unwrap().load(&secrets, unset).await.unwrap();
+        let store = plugin.store.lock().await;
+        assert_eq!(
+            crate::hook::settings::with_defaults(&store.data().settings, &store.data().site.config),
+            serde_json::json!({ "replacements": {} })
+        );
+        drop(store);
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[tokio::test]

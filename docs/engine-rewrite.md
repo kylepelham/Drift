@@ -1268,6 +1268,17 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   a folder straight from disk with no climbing out, a URL with the token only on its own host.
   `GET /registries/fetch?source=` returns the document, and the install endpoints take `registry` so
   a download goes through the same source.
+- Settings (`hook::settings`): a plugin built for the `configurable` world (which `masking` and
+  `searching` include) exports `settings()`, read once at load: a key, label, description and kind
+  each, the kinds `text` (default, placeholder, multiline, secret), `number` (default, min, max,
+  integer), `toggle`, `choice` (value and label pairs), `items` (a list of strings) and `pairs` (an
+  object of strings, with labels for both columns and which side is secret). `GET /plugins`
+  reports them as `settings`; `host.config()` fills every declared key left unset with its default
+  (`with_defaults`); `PUT /plugins/config` refuses a value that does not fit its kind with 400
+  `plugin` naming the setting (`problem`) and writes nothing. Undeclared keys pass through. The UI
+  draws a field per setting with rows and `+ Add` for lists and pairs (`settings-plugin-form.tsx`,
+  drafts in `state/plugin-settings.ts`), before the registry's fields and raw JSON. The package stays
+  `@0.2.0`, since a new version would break the imports of components already built.
 - Bundles (`config::bundles`): a Claude Code plugin folder unpacked from an archive pinned to a
   commit under the config directory's `bundles/<id>/` (`config::archive` does the fetching and
   unpacking for skill packs too). `Layout::read` finds its skills, commands, agents, `.mcp.json`

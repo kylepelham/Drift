@@ -824,6 +824,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "MCP 레지스트리 형식의 JSON 문서: 공식 레지스트리 API가 반환하는 servers 목록입니다.",
     "drift.plugins.configRaw": "이 플러그인의 설정을 JSON으로 표시합니다. 필드를 설명하는 레지스트리가 없습니다.",
+    "drift.plugins.settings.add": "추가",
+    "drift.plugins.settings.remove": "제거",
+    "drift.plugins.settings.show": "표시",
+    "drift.plugins.settings.hide": "숨기기",
     "drift.plugins.saving": "저장 중...",
     "drift.plugins.saved": "{{name}} 설정을 저장했습니다.",
     "drift.plugins.packNote":

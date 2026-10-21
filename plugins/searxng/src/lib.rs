@@ -6,6 +6,7 @@ wit_bindgen::generate!({ world: "searching", path: "../../crates/drift-engine/wi
 
 use drift::plugin::host::config;
 use drift::plugin::http::fetch;
+use drift::plugin::types::{SettingKind, TextSetting};
 
 struct Searxng;
 
@@ -16,14 +17,28 @@ impl Guest for Searxng {
         "searxng".into()
     }
 
+    fn settings() -> Vec<Setting> {
+        vec![Setting {
+            key: "url".into(),
+            label: "Instance".into(),
+            description: "Its search.formats setting must allow json.".into(),
+            kind: SettingKind::Text(TextSetting {
+                default: String::new(),
+                placeholder: "https://search.example.org".into(),
+                multiline: false,
+                secret: false,
+            }),
+        }]
+    }
+
     fn search_providers() -> Vec<(String, String)> {
         vec![("searxng".into(), "SearXNG".into())]
     }
 
     fn search(_provider: String, query: String, limit: u32) -> Result<Hits, (String, Option<u32>)> {
         let config: serde_json::Value = serde_json::from_str(&config()).unwrap_or_default();
-        let Some(base) = config["url"].as_str() else {
-            return Err(("set config.url to your SearXNG instance".into(), None));
+        let Some(base) = config["url"].as_str().filter(|url| !url.trim().is_empty()) else {
+            return Err(("set the SearXNG instance in Settings > Plugins".into(), None));
         };
         let url = format!(
             "{}/search?format=json&q={}",

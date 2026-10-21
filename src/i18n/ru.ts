@@ -839,6 +839,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "JSON-документ в формате реестра MCP: список servers, как его возвращает API официального реестра.",
     "drift.plugins.configRaw": "Настройки этого плагина в JSON; ни один реестр не описывает его поля.",
+    "drift.plugins.settings.add": "Добавить",
+    "drift.plugins.settings.remove": "Удалить",
+    "drift.plugins.settings.show": "Показать",
+    "drift.plugins.settings.hide": "Скрыть",
     "drift.plugins.saving": "Сохранение...",
     "drift.plugins.saved": "Настройки {{name}} сохранены.",
     "drift.plugins.packNote":

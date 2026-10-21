@@ -821,6 +821,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "เอกสาร JSON ในรูปแบบรีจิสทรี MCP: รายการ servers แบบที่ API ของรีจิสทรีทางการส่งกลับ",
     "drift.plugins.configRaw": "การตั้งค่าของปลั๊กอินนี้ในรูปแบบ JSON ไม่มีรีจิสทรีใดอธิบายฟิลด์ของมัน",
+    "drift.plugins.settings.add": "เพิ่ม",
+    "drift.plugins.settings.remove": "ลบ",
+    "drift.plugins.settings.show": "แสดง",
+    "drift.plugins.settings.hide": "ซ่อน",
     "drift.plugins.saving": "กำลังบันทึก...",
     "drift.plugins.saved": "บันทึกการตั้งค่าของ {{name}} แล้ว",
     "drift.plugins.packNote":

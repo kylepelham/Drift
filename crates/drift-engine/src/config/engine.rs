@@ -130,12 +130,23 @@ impl Engine {
         Ok(self.reload_plugins().await)
     }
 
-    /// Replaces a plugin's config in drift.json and reloads, so it reads the new values.
+    /// Replaces a plugin's config in drift.json and reloads, so it reads the new values. A value that does not
+    /// fit a setting the plugin declares is refused, and nothing is written.
     pub async fn configure_plugin(
         &self,
         path: &str,
         config: serde_json::Value,
     ) -> Result<Vec<PluginInfo>, plugins::PluginError> {
+        let declared = self
+            .hooks
+            .loaded()
+            .into_iter()
+            .find(|plugin| plugin.path == path)
+            .map(|plugin| plugin.settings)
+            .unwrap_or_default();
+        if let Some(problem) = crate::hook::settings::problem(&declared, &config) {
+            return Err(plugins::PluginError::Setting(problem));
+        }
         let dir = plugins::config_dir()?;
         plugins::edit_plugins(&dir, |plugins| plugins::set_entry(plugins, path, config))?;
 

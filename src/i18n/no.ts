@@ -835,6 +835,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "Et JSON-dokument i MCP-registerets format: en servers-liste, slik det offisielle registerets API returnerer den.",
     "drift.plugins.configRaw": "Innstillingene til dette tillegget som JSON; ingen register beskriver feltene.",
+    "drift.plugins.settings.add": "Legg til",
+    "drift.plugins.settings.remove": "Fjern",
+    "drift.plugins.settings.show": "Vis",
+    "drift.plugins.settings.hide": "Skjul",
     "drift.plugins.saving": "Lagrer...",
     "drift.plugins.saved": "Innstillingene til {{name}} ble lagret.",
     "drift.plugins.packNote":

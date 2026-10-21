@@ -1558,7 +1558,8 @@ export interface components {
             prompt?: string;
             /**
              * @description Front matter `read_only: true`: it is offered its tools as usual, but any call that would change
-             *     something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
+             *     something (a writing tool, a task to a writing subagent, and for a primary agent a shell line that is
+             *     not only reads) is refused. A read-only subagent runs any shell command; its prompt keeps them to reading.
              */
             readOnly?: boolean;
             /** @description Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool. */
@@ -1740,6 +1741,10 @@ export interface components {
         };
         /** @enum {string} */
         CheckStatus: "passed" | "problems" | "unavailable";
+        Choice: {
+            label: string;
+            value: string;
+        };
         /** @description One answered question: what was asked and what the user chose or typed. */
         Clarified: {
             answers: string[];
@@ -2612,6 +2617,10 @@ export interface components {
             title: string;
             url: string;
         };
+        Pair: {
+            key: string;
+            value: string;
+        };
         Part: {
             text: string;
             /** @enum {string} */
@@ -2784,6 +2793,8 @@ export interface components {
             error?: string | null;
             name: string;
             path: string;
+            /** @description What it declares through the `configurable` world; Settings shows a form for them. */
+            settings?: components["schemas"]["Setting"][];
         };
         /**
          * @description Whether the file's lines are listed, and why not.
@@ -3229,6 +3240,54 @@ export interface components {
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
+        Setting: {
+            description?: string;
+            /** @description Where its value lives in the plugin's config object. */
+            key: string;
+            kind: components["schemas"]["SettingKind"];
+            label: string;
+        };
+        SettingKind: {
+            default: string;
+            multiline: boolean;
+            placeholder: string;
+            secret: boolean;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            /** Format: double */
+            default?: number | null;
+            integer: boolean;
+            /** Format: double */
+            max?: number | null;
+            /** Format: double */
+            min?: number | null;
+            /** @enum {string} */
+            type: "number";
+        } | {
+            default: boolean;
+            /** @enum {string} */
+            type: "toggle";
+        } | {
+            choices: components["schemas"]["Choice"][];
+            default: string;
+            /** @enum {string} */
+            type: "choice";
+        } | {
+            default: string[];
+            placeholder: string;
+            secret: boolean;
+            /** @enum {string} */
+            type: "items";
+        } | {
+            default: components["schemas"]["Pair"][];
+            keyLabel: string;
+            secretKeys: boolean;
+            secretValues: boolean;
+            /** @enum {string} */
+            type: "pairs";
+            valueLabel: string;
+        };
         SignInPage: {
             /** @description Open this in the browser; when the browser comes back, the server connects signed in. */
             url: string;

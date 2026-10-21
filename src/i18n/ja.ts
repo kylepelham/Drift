@@ -835,6 +835,10 @@ export const drift = {
         "MCP レジストリ形式の JSON 文書。公式レジストリ API が返す servers リストです。",
     "drift.plugins.configRaw":
         "このプラグインの設定を JSON で表示しています。フィールドを記述するレジストリがありません。",
+    "drift.plugins.settings.add": "追加",
+    "drift.plugins.settings.remove": "削除",
+    "drift.plugins.settings.show": "表示",
+    "drift.plugins.settings.hide": "隠す",
     "drift.plugins.saving": "保存中...",
     "drift.plugins.saved": "{{name}} の設定を保存しました。",
     "drift.plugins.packNote":

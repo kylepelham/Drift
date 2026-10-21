@@ -836,6 +836,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "MCP kayıt defteri biçiminde bir JSON belgesi: resmi kayıt defteri API'sinin döndürdüğü gibi bir servers listesi.",
     "drift.plugins.configRaw": "Bu eklentinin ayarları JSON olarak; hiçbir kayıt defteri alanlarını tanımlamıyor.",
+    "drift.plugins.settings.add": "Ekle",
+    "drift.plugins.settings.remove": "Kaldır",
+    "drift.plugins.settings.show": "Göster",
+    "drift.plugins.settings.hide": "Gizle",
     "drift.plugins.saving": "Kaydediliyor...",
     "drift.plugins.saved": "{{name}} ayarları kaydedildi.",
     "drift.plugins.packNote":

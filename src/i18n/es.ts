@@ -843,6 +843,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "Un documento JSON con el formato del registro MCP: una lista servers, tal como la devuelve la API del registro oficial.",
     "drift.plugins.configRaw": "Los ajustes de este plugin como JSON; ningún registro describe sus campos.",
+    "drift.plugins.settings.add": "Añadir",
+    "drift.plugins.settings.remove": "Quitar",
+    "drift.plugins.settings.show": "Mostrar",
+    "drift.plugins.settings.hide": "Ocultar",
     "drift.plugins.saving": "Guardando...",
     "drift.plugins.saved": "Se guardaron los ajustes de {{name}}.",
     "drift.plugins.packNote":

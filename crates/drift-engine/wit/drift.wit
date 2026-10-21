@@ -125,6 +125,69 @@ interface types {
         title: string,
         agent: string,
     }
+
+    /// One setting a plugin offers. Settings draws a form from them and keeps the values in the plugin's
+    /// drift.json entry, under `key` of its config object; `host.config` gives every unset one its default.
+    record setting {
+        key: string,
+        label: string,
+        /// One short line under the label; empty for none.
+        description: string,
+        kind: setting-kind,
+    }
+
+    variant setting-kind {
+        /// Kept as a string.
+        text(text-setting),
+        /// Kept as a number.
+        number(number-setting),
+        /// Kept as true or false; the payload is the default.
+        toggle(bool),
+        /// One of the values offered, kept as a string.
+        choice(choice-setting),
+        /// Any number of lines, each its own row with + to add another; kept as a list of strings.
+        items(items-setting),
+        /// Any number of pairs, each a row of two fields with + to add another; kept as an object of strings.
+        pairs(pairs-setting),
+    }
+
+    record text-setting {
+        default: string,
+        placeholder: string,
+        /// A box of several lines instead of one.
+        multiline: bool,
+        /// Hidden as it is typed, with a button to show it.
+        secret: bool,
+    }
+
+    record number-setting {
+        default: option<f64>,
+        min: option<f64>,
+        max: option<f64>,
+        /// Whole numbers only.
+        integer: bool,
+    }
+
+    record choice-setting {
+        default: string,
+        /// Each a value and the label shown for it.
+        choices: list<tuple<string, string>>,
+    }
+
+    record items-setting {
+        default: list<string>,
+        placeholder: string,
+        secret: bool,
+    }
+
+    record pairs-setting {
+        default: list<tuple<string, string>>,
+        /// What each column holds, as headings and empty-field hints.
+        key-label: string,
+        value-label: string,
+        secret-keys: bool,
+        secret-values: bool,
+    }
 }
 
 interface host {
@@ -189,13 +252,21 @@ world plugin {
     export session: func(session: session, kind: session-kind);
 }
 
+/// A plugin with settings: Settings shows a form for them instead of its raw JSON config. Asked once
+/// when the plugin loads, before anything else it exports; a plugin built for `plugin` alone keeps working.
+world configurable {
+    include plugin;
+    use types.{setting};
+    export settings: func() -> list<setting>;
+}
+
 /// A plugin that also keeps secrets from the model. Each pair is a secret and the placeholder the model
 /// sees instead: in prompts, text files, instructions, tool output and errors, all text sent to a model.
 /// Image and PDF data are sent as they are, so a secret inside one still reaches the model.
 /// Placeholders the model writes in a tool call become the secrets again before the call runs. Asked
 /// once when the plugin loads; a plugin built for `plugin` alone keeps working.
 world masking {
-    include plugin;
+    include configurable;
     export replacements: func() -> list<tuple<string, string>>;
 }
 
@@ -203,7 +274,7 @@ world masking {
 /// names it answers for, asked once at load; Settings lists them beside the built-in ones. `search` gives
 /// each hit as a url, a title and a snippet, or an error with, when rate limited, the seconds to wait.
 world searching {
-    include plugin;
+    include configurable;
     export search-providers: func() -> list<tuple<string, string>>;
     export search: func(provider: string, query: string, limit: u32) -> result<list<tuple<string, string, string>>, tuple<string, option<u32>>>;
 }

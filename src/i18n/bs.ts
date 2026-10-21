@@ -833,6 +833,10 @@ export const drift = {
     "drift.registry.sources.mcpFormat":
         "JSON dokument u formatu MCP registra: lista servers, kakvu vraća API službenog registra.",
     "drift.plugins.configRaw": "Postavke ovog dodatka kao JSON; nijedan registar ne opisuje njegova polja.",
+    "drift.plugins.settings.add": "Dodaj",
+    "drift.plugins.settings.remove": "Ukloni",
+    "drift.plugins.settings.show": "Prikaži",
+    "drift.plugins.settings.hide": "Sakrij",
     "drift.plugins.saving": "Spremanje...",
     "drift.plugins.saved": "Postavke za {{name}} su spremljene.",
     "drift.plugins.packNote":

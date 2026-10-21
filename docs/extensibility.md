@@ -175,7 +175,30 @@ Output cut at the engine's bound can end partway through a secret, and that frag
 recognised.
 
 `plugins/secrets` is that plugin: its config is `{ "replacements": { "<secret>": "<placeholder>" } }`
-and it does nothing else.
+and it does nothing else. It declares that object as a pairs setting, so Settings shows one row per
+secret, the secret hidden until you press its eye, and `+ Add` for another.
+
+### Settings a plugin declares
+
+A plugin built for the `configurable` world (the `plugin` world plus `settings()`; `masking` and
+`searching` include it) describes its config, and Settings > Plugins draws a form from that instead
+of a JSON box:
+
+- `text`: one line or several, with a placeholder; a secret one is hidden until shown.
+- `number`: with an optional default, minimum, maximum and whether it is a whole number.
+- `toggle`: on or off.
+- `choice`: one of a list of values, each with its label.
+- `items`: a list of strings, a row each, `+ Add` for another and `x` to remove one.
+- `pairs`: an object of strings, a row of two fields each, both columns labelled, either side
+  optionally secret.
+
+Each setting has a key (where its value lives in the config object), a label and a description.
+Drift reads them once, when the plugin loads. `host.config()` returns the stored object with every
+declared key you left unset filled in with its default, so the plugin need not repeat its defaults.
+Saving refuses a value that does not fit its kind ("Limit is a whole number") and writes nothing;
+keys the plugin does not declare are kept as they are. Empty rows are dropped when you save. A
+plugin built for `plugin` alone has no form: its registry entry's fields are shown if it has them,
+its raw JSON otherwise.
 
 ### Answering web searches
 

@@ -800,6 +800,10 @@ export const drift = {
         "Drift-Plugins registry.json 格式的 JSON 文件：每個外掛附下載網址與 SHA-256。",
     "drift.registry.sources.mcpFormat": "MCP 登錄庫格式的 JSON 文件：一個 servers 清單，與官方登錄庫 API 回傳的相同。",
     "drift.plugins.configRaw": "此外掛的設定（JSON）；沒有登錄庫描述它的欄位。",
+    "drift.plugins.settings.add": "新增",
+    "drift.plugins.settings.remove": "移除",
+    "drift.plugins.settings.show": "顯示",
+    "drift.plugins.settings.hide": "隱藏",
     "drift.plugins.saving": "儲存中...",
     "drift.plugins.saved": "已儲存 {{name}} 的設定。",
     "drift.plugins.packNote":

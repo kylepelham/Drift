@@ -818,6 +818,10 @@ export const drift = {
         "مستند JSON بصيغة registry.json الخاصة بـ Drift-Plugins: كل إضافة مع رابط تنزيلها وتجزئة SHA-256.",
     "drift.registry.sources.mcpFormat": "مستند JSON بصيغة سجل MCP: قائمة servers كما تعيدها واجهة السجل الرسمي.",
     "drift.plugins.configRaw": "إعدادات هذه الإضافة بصيغة JSON؛ لا يصف أي سجل حقولها.",
+    "drift.plugins.settings.add": "إضافة",
+    "drift.plugins.settings.remove": "إزالة",
+    "drift.plugins.settings.show": "إظهار",
+    "drift.plugins.settings.hide": "إخفاء",
     "drift.plugins.saving": "جارٍ الحفظ...",
     "drift.plugins.saved": "تم حفظ إعدادات {{name}}.",
     "drift.plugins.packNote":
