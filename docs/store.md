@@ -7,9 +7,14 @@ shell's, which hold what the app adds on top.
 ## Performance posture
 
 - WAL journal, `synchronous=NORMAL`, 128MB mmap.
-- One connection behind a mutex: single writer, no contention games.
+- One connection behind a mutex: single writer, no contention games. Every statement holds the
+  whole store while it runs, so a query that scans `part` (gigabytes of JSON on a long-used
+  install) stalls every turn, answer and request behind it.
 - All statements go through `prepare_cached`.
-- STRICT tables, indexes only where reads demand them (`session_meta.workspace_id`).
+- STRICT tables, indexes only where reads demand them (`session_meta.workspace_id`). Lookups into
+  `part` by a field inside its JSON use partial expression indexes that name the same condition as
+  the query: `idx_part_call` (a call by id), `idx_part_image` (a prompt numbering its pasted images)
+  and `idx_part_changes` (snapshot pruning, read from the index alone).
 
 ## Schema
 

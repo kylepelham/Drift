@@ -3,6 +3,13 @@ use crate::id;
 use crate::session::types::{Part, PartRow};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+// Both name the partial index's condition so SQLite answers from `idx_part_image` instead of scanning every part.
+const LAST_IMAGE_NUMBER: &str = "SELECT COALESCE(MAX(json_extract(json, '$.image')), 0) FROM part
+     WHERE session_id = ?1 AND json_extract(json, '$.image') IS NOT NULL";
+const IMAGE_NUMBERED: &str = "SELECT json FROM part
+     WHERE session_id = ?1 AND json_extract(json, '$.image') IS NOT NULL AND json_extract(json, '$.image') = ?2
+     ORDER BY id DESC LIMIT 1";
+
 impl Store {
     /// Finds one call through its session/call-id index, without loading the transcript.
     pub fn call_part(&self, session_id: &str, call_id: &str) -> rusqlite::Result<Option<PartRow>> {
@@ -55,12 +62,8 @@ impl Store {
 
     /// The highest number a pasted image of the session was given; 0 before the first.
     pub fn last_image_number(&self, session_id: &str) -> rusqlite::Result<u32> {
-        // The tag is serialized first, so the prefix keeps the scan to file parts.
         self.lock()
-            .prepare_cached(
-                "SELECT COALESCE(MAX(json_extract(json, '$.image')), 0) FROM part
-                 WHERE session_id = ?1 AND json LIKE '{\"type\":\"file\"%'",
-            )?
+            .prepare_cached(LAST_IMAGE_NUMBER)?
             .query_row(params![session_id], |row| row.get(0))
     }
 
@@ -68,10 +71,7 @@ impl Store {
     pub fn image_numbered(&self, session_id: &str, number: u32) -> rusqlite::Result<Option<Part>> {
         let json: Option<String> = self
             .lock()
-            .prepare_cached(
-                "SELECT json FROM part WHERE session_id = ?1 AND json LIKE '{\"type\":\"file\"%'
-                 AND json_extract(json, '$.image') = ?2 ORDER BY id DESC LIMIT 1",
-            )?
+            .prepare_cached(IMAGE_NUMBERED)?
             .query_row(params![session_id, number], |row| row.get(0))
             .optional()?;
 
@@ -128,4 +128,27 @@ pub(super) fn map_part(row: &Row, message_id: &str) -> rusqlite::Result<PartRow>
         provider_signature: row.get(4)?,
         part: Part::from_stored(&row.get::<_, String>(2)?),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::store::tests::store;
+    use crate::store::tree::tests::plan;
+
+    #[test]
+    fn numbering_a_prompts_images_looks_up_the_session_in_its_index() {
+        let store = store();
+
+        let last = plan(&store, super::LAST_IMAGE_NUMBER, ["ses"]);
+        let named = plan(&store, super::IMAGE_NUMBERED, rusqlite::params!["ses", 2]);
+
+        assert!(
+            last.iter().any(|step| step.contains("COVERING INDEX idx_part_image")),
+            "{last:?}"
+        );
+        assert!(
+            named.iter().any(|step| step.contains("INDEX idx_part_image")),
+            "{named:?}"
+        );
+    }
 }
