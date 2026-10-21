@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 48] = [
+pub(super) const MIGRATIONS: [&str; 49] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -228,6 +228,8 @@ pub(super) const MIGRATIONS: [&str; 48] = [
     "CREATE INDEX idx_part_image ON part(session_id, json_extract(json, '$.image')) WHERE json_extract(json, '$.image') IS NOT NULL;
     CREATE INDEX idx_part_changes ON part(session_id, json_extract(json, '$.metadata.owner'), json_extract(json, '$.metadata.changes'))
         WHERE json_extract(json, '$.metadata.changes') IS NOT NULL;",
+    // Replies still streaming, for startup to close without reading every message.
+    "CREATE INDEX idx_message_streaming ON message(id) WHERE status = 'streaming';",
 ];
 
 #[cfg(test)]

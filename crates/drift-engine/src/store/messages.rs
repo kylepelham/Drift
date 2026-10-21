@@ -32,6 +32,9 @@ impl<'a> NewMessage<'a> {
     }
 }
 
+/// Read through `idx_message_streaming`, which holds only the replies still streaming.
+const ABANDON_STREAMING: &str = "UPDATE message SET status = 'aborted', finished_at = ?1 WHERE status = 'streaming'";
+
 impl Store {
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
         insert_message(&self.lock(), NewMessage::new(session_id, role, model))
@@ -254,10 +257,7 @@ impl Store {
 
     /// Anything still streaming when the engine last stopped did not finish.
     pub fn abandon_streaming_messages(&self) -> rusqlite::Result<usize> {
-        self.lock().execute(
-            "UPDATE message SET status = 'aborted', finished_at = ?1 WHERE status = 'streaming'",
-            [id::now_ms()],
-        )
+        self.lock().execute(ABANDON_STREAMING, [id::now_ms()])
     }
 }
 
