@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn settings_pin_clear_and_replace_agent_fields() {
-        let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
+        let mut config = Config::load(&crate::platform::temp::test_run().join("drift-no-such-workspace"));
         let overrides = HashMap::from([
             (
                 "title".to_string(),
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn settings_rules_resolve_like_file_rules_and_keep_their_written_order() {
         use crate::permission::Decision;
-        let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
+        let mut config = Config::load(&crate::platform::temp::test_run().join("drift-no-such-workspace"));
         let written = json!([{ "kind": "bash", "pattern": "*", "decision": "ask" }, { "kind": "bash", "pattern": "git *", "decision": "allow" }]);
         config.apply_overrides(&HashMap::from([(
             "build".to_string(),
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn settings_set_an_agents_tools() {
-        let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
+        let mut config = Config::load(&crate::platform::temp::test_run().join("drift-no-such-workspace"));
         let overrides = HashMap::from([
             (
                 "general".to_string(),

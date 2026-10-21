@@ -8,7 +8,7 @@ use super::*;
 use crate::mcp::ServerConfig;
 
 fn temp(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("drift-bundle-{name}-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-bundle-{name}-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

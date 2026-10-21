@@ -583,7 +583,7 @@ pub(crate) mod tests {
         let (Some(secrets), Some(guard)) = (built("secrets"), guard()) else {
             return;
         };
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let runtime = Runtime::new(&cache).unwrap();
         let configured = Site {
             entry: "plugins/secrets.wasm".into(),
@@ -618,7 +618,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_declared_setting_left_unset_reaches_the_plugin_as_its_default() {
         let Some(secrets) = built("secrets") else { return };
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let unset = Site {
             entry: "plugins/secrets.wasm".into(),
             config: serde_json::json!({}),
@@ -638,7 +638,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn the_guard_plugin_refuses_history_rewrites_and_notes_failures() {
         let Some(path) = guard() else { return };
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let runtime = Runtime::new(&cache).unwrap();
         let plugin = runtime.load(&path, site()).await.unwrap();
 
@@ -700,9 +700,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn the_guard_plugin_runs_the_workspaces_tests_on_request_and_keeps_the_turn_going_when_they_fail() {
         let Some(path) = guard() else { return };
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         // Outside the cache: wasmtime's cache worker deletes files it does not recognise there.
-        let workspace = std::env::temp_dir().join(format!("drift-guard-ws-{}", crate::random_hex(4)));
+        let workspace = crate::platform::temp::test_run().join(format!("drift-guard-ws-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&workspace).unwrap();
         let runtime = Runtime::new(&cache).unwrap();
         let mut site = site();
@@ -748,7 +748,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_file_that_is_not_a_component_reports_why() {
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let bad = cache.join("bad.wasm");
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(&bad, b"not wasm").unwrap();
@@ -771,7 +771,7 @@ mod load_tests {
     #[tokio::test]
     async fn a_plugin_switched_off_is_listed_and_runs_nothing_and_a_bad_entry_keeps_its_error() {
         let Some(path) = super::tests::guard() else { return };
-        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let hooks = Hooks::default();
         let entries = || {
             vec![

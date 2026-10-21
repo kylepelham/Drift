@@ -6,8 +6,9 @@ async fn a_stdio_server_runs_where_it_is_told_and_a_call_past_its_timeout_fails(
     let ServerConfig::Stdio { command, args, .. } = echo_config() else {
         unreachable!()
     };
-    let directory =
-        crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-cwd-{}", crate::random_hex(4))));
+    let directory = crate::tool::canonical(
+        &crate::platform::temp::test_run().join(format!("drift-mcp-cwd-{}", crate::random_hex(4))),
+    );
     std::fs::create_dir_all(&directory).unwrap();
     let config = ServerConfig::Stdio {
         command,
@@ -48,8 +49,12 @@ async fn a_stdio_server_runs_where_it_is_told_and_a_call_past_its_timeout_fails(
 async fn a_stdio_server_runs_in_each_workspace_that_uses_it_and_is_told_it_as_its_root() {
     let engine = engine();
     let row = saved(&engine, "echo", &echo_config()).await;
-    let one = crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-ws1-{}", crate::random_hex(3))));
-    let two = crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-ws2-{}", crate::random_hex(3))));
+    let one = crate::tool::canonical(
+        &crate::platform::temp::test_run().join(format!("drift-mcp-ws1-{}", crate::random_hex(3))),
+    );
+    let two = crate::tool::canonical(
+        &crate::platform::temp::test_run().join(format!("drift-mcp-ws2-{}", crate::random_hex(3))),
+    );
     for directory in [&one, &two] {
         std::fs::create_dir_all(directory).unwrap();
         engine.start_workspace_mcp(directory);
@@ -106,8 +111,9 @@ async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_clos
         "no shared stdio connection, where Drift runs"
     );
     engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
-    let elsewhere =
-        crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-other-{}", crate::random_hex(3))));
+    let elsewhere = crate::tool::canonical(
+        &crate::platform::temp::test_run().join(format!("drift-mcp-other-{}", crate::random_hex(3))),
+    );
     assert!(
         engine.mcp.tools(&engine.store, Some(&elsewhere)).is_empty(),
         "another workspace waits for its own"

@@ -86,7 +86,7 @@ impl Drop for Harness {
 
 pub(crate) async fn harness() -> Harness {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let dir = std::env::temp_dir().join(format!("drift-turn-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-turn-{}", crate::random_hex(4)));
     let workspace = dir.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
     let engine = Engine::open_with(

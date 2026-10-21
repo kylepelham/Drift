@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn file_backend_round_trips_and_indexes() {
-        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let path = crate::platform::temp::test_run().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Credentials::in_file(path.clone());
         assert!(store.get("anthropic").is_none());
         store
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn replace_if_yields_to_a_newer_login_or_logout() {
-        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let path = crate::platform::temp::test_run().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Credentials::in_file(path.clone());
         let stale = Credential::OAuth {
             access: "old".into(),
@@ -423,7 +423,7 @@ mod tests {
     fn concurrent_logins_and_refreshes_never_resurrect_a_replaced_credential() {
         use std::sync::Arc;
 
-        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let path = crate::platform::temp::test_run().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Arc::new(Credentials::in_file(path.clone()));
         let stale = Credential::OAuth {
             access: "old".into(),
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn a_cloud_routes_variables_are_never_taken_for_an_api_key() {
-        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let path = crate::platform::temp::test_run().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Credentials::in_file(path.clone());
         let env = [
             "AWS_ACCESS_KEY_ID".to_string(),
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn env_var_is_the_fallback() {
-        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let path = crate::platform::temp::test_run().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Credentials::in_file(path);
         let unset = format!("DRIFT_TEST_KEY_{}", crate::random_hex(2));
         assert!(store.resolve("x", std::slice::from_ref(&unset)).is_none());

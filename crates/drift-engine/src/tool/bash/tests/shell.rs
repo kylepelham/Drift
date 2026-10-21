@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn git_bash_is_found_beside_any_git_and_a_named_shell_is_taken_at_its_word() {
-    let root = std::env::temp_dir().join(format!("drift-git-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-git-{}", crate::random_hex(4)));
     for directory in ["cmd", "bin", "mingw64/bin"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
@@ -16,7 +16,10 @@ fn git_bash_is_found_beside_any_git_and_a_named_shell_is_taken_at_its_word() {
             "{git}"
         );
     }
-    assert_eq!(bash_beside(&std::env::temp_dir().join("elsewhere/git.exe")), None);
+    assert_eq!(
+        bash_beside(&crate::platform::temp::test_run().join("elsewhere/git.exe")),
+        None
+    );
     std::fs::remove_dir_all(&root).unwrap();
     assert!(matches!(shell_for("D:/tools/Git/bin/bash.exe".into()), Shell::Bash(_)));
     assert!(matches!(shell_for("/usr/bin/zsh".into()), Shell::Bash(_)));

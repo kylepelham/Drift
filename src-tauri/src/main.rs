@@ -212,6 +212,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    std::thread::spawn(updater::clear_finished_installers);
     startup::mark("setup-complete");
 
     // Recover if the preload script never observes paint or cannot invoke the reveal.

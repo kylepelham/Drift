@@ -105,7 +105,7 @@ fn numstat_counts_text_and_binary_files() {
 
 #[tokio::test]
 async fn the_scope_is_the_branch_work_and_uncommitted_files() {
-    let root = std::env::temp_dir().join(format!("drift-code-review-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-code-review-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&root).unwrap();
     assert_eq!(resolve(&root).await, Scope::NotRepo);
 

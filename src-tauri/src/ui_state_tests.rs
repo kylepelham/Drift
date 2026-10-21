@@ -27,7 +27,7 @@ fn snapshot(workspace_id: Option<&str>) -> UiMirrorSnapshot {
 }
 
 fn test_store(name: &str) -> (std::path::PathBuf, Store) {
-    let dir = std::env::temp_dir().join(format!("drift-ui-state-{name}-{}", std::process::id()));
+    let dir = drift_engine::platform::temp::test_run().join(format!("drift-ui-state-{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
     let store = crate::store::open(&dir).unwrap();

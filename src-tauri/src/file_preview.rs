@@ -162,7 +162,7 @@ mod tests {
         fn new() -> Self {
             let mut random = [0u8; 16];
             getrandom::fill(&mut random).unwrap();
-            let root = std::env::temp_dir().join(format!("drift-file-preview-{random:x?}"));
+            let root = drift_engine::platform::temp::test_run().join(format!("drift-file-preview-{random:x?}"));
             fs::create_dir(&root).unwrap();
             fs::create_dir(root.join("workspace")).unwrap();
             Self(root)

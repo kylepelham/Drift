@@ -91,7 +91,7 @@ mod tests {
     #[tokio::test]
     async fn each_line_is_answered_with_its_id_and_a_bad_one_says_why() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let data = std::env::temp_dir().join(format!("drift-complete-{}", std::process::id()));
+        let data = drift_engine::platform::temp::test_run().join(format!("drift-complete-{}", std::process::id()));
         let options = drift_engine::Options {
             file_credentials: true,
             ..Default::default()

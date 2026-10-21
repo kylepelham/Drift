@@ -38,7 +38,7 @@ static EDITORS: AtomicU64 = AtomicU64::new(0);
 async fn editor() -> Editor {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let unique = format!("{}-{}", std::process::id(), EDITORS.fetch_add(1, Ordering::SeqCst));
-    let dir = std::env::temp_dir().join(format!("drift-acp-{unique}"));
+    let dir = drift_engine::platform::temp::test_run().join(format!("drift-acp-{unique}"));
     let workspace = dir.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
     let options = drift_engine::Options {

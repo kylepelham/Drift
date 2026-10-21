@@ -1,5 +1,6 @@
-import { closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { extractDestination, findOffsets, inspect, parsePe, readAt, readableRuns } from "../scripts/inspect-claude";
+import { closeSync, mkdirSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tempFolder } from "../scripts/temp";
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -62,7 +63,7 @@ test("Latin1 matching returns byte offsets, including across chunk boundaries", 
 });
 
 test("stream scan owns matches once and hashes matching source regions", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "drift-inspect-test-"));
+    const directory = tempFolder("tests", "inspect-test-");
     try {
         const bytes = Buffer.alloc(1024 * 1024 + 11000);
         fixture().copy(bytes);
@@ -86,7 +87,7 @@ test("stream scan owns matches once and hashes matching source regions", () => {
 });
 
 test("short reads fail rather than returning partial bytes", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "drift-inspect-read-"));
+    const directory = tempFolder("tests", "inspect-read-");
     try {
         const file = path.join(directory, "short.bin");
         writeFileSync(file, Buffer.from("ABCDE"));
@@ -103,7 +104,7 @@ test("short reads fail rather than returning partial bytes", () => {
 });
 
 test("identifier boundary checks use preceding bytes and marker labels are unique", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "drift-inspect-boundary-"));
+    const directory = tempFolder("tests", "inspect-boundary-");
     try {
         const bytes = Buffer.alloc(2 * 1024 * 1024 + 100);
         fixture().copy(bytes);
@@ -123,7 +124,7 @@ test("identifier boundary checks use preceding bytes and marker labels are uniqu
 });
 
 test("extraction checks the real destination parent against its temp root", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "drift-inspect-root-"));
+    const directory = tempFolder("tests", "inspect-root-");
     try {
         const root = path.join(directory, "opencode");
         const outside = path.join(directory, "other");

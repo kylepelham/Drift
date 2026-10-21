@@ -10,7 +10,7 @@ pub(super) struct Seen {
 
 /// Runs echo in one protocol era and logs every received method.
 fn era_echo(era: &str) -> (ServerConfig, std::path::PathBuf) {
-    let log = std::env::temp_dir().join(format!("drift-mcp-methods-{}.log", crate::random_hex(4)));
+    let log = crate::platform::temp::test_run().join(format!("drift-mcp-methods-{}.log", crate::random_hex(4)));
     let ServerConfig::Stdio { command, args, .. } = echo_config() else {
         unreachable!()
     };

@@ -456,7 +456,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn failed_ownership_never_resumes_the_child() {
-        let root = std::env::temp_dir().join(format!("drift-owned-fail-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-owned-fail-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&root).unwrap();
         let marker = root.join("ran.txt");
         let mut command = tokio::process::Command::new("cmd.exe");
@@ -474,7 +474,7 @@ mod tests {
     #[tokio::test]
     async fn tree_cleanup_waits_for_a_descendant_after_its_parent_exits() {
         use std::process::Stdio;
-        let root = std::env::temp_dir().join(format!("drift-owned-tree-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-owned-tree-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
         let mut command = tokio::process::Command::new("cmd.exe");
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn a_program_is_found_where_a_shell_would_find_it() {
-        let dir = std::env::temp_dir().join(format!("drift-which-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-which-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let shim = if cfg!(windows) { "lint.cmd" } else { "lint" };
         std::fs::write(dir.join(shim), "").unwrap();
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn a_bundles_programs_come_after_the_users_own_on_path() {
-        let bin = std::env::temp_dir().join("drift-bundle-bin");
+        let bin = crate::platform::temp::test_run().join("drift-bundle-bin");
         let path = super::path_with(std::slice::from_ref(&bin));
         let dirs: Vec<_> = std::env::split_paths(&path).collect();
         let current: Vec<_> = std::env::split_paths(&super::current_path()).collect();

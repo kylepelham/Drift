@@ -5,7 +5,7 @@ fn logged_echo() -> (ServerConfig, std::path::PathBuf) {
     let ServerConfig::Stdio { command, args, .. } = echo_config() else {
         unreachable!()
     };
-    let directory = std::env::temp_dir().join(format!("drift-mcp-log-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-mcp-log-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&directory).unwrap();
     let env = [
         ("CALL_LOG", directory.join("calls")),

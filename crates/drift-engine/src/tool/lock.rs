@@ -132,7 +132,7 @@ mod tests {
     use super::*;
 
     fn root() -> PathBuf {
-        std::env::temp_dir().join(format!("drift-lock-{}", crate::random_hex(4)))
+        crate::platform::temp::test_run().join(format!("drift-lock-{}", crate::random_hex(4)))
     }
 
     #[tokio::test]

@@ -336,7 +336,7 @@ mod tests {
 
     #[tokio::test]
     async fn runs_the_matching_formatter_and_ignores_failures() {
-        let dir = std::env::temp_dir().join(format!("drift-fmt-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-fmt-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.txt");
         std::fs::write(&file, "x").unwrap();
@@ -366,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_formatter_installed_as_a_script_shim_runs() {
-        let dir = std::env::temp_dir().join(format!("drift-fmt-shim-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-fmt-shim-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.txt");
         std::fs::write(&file, "x").unwrap();
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn a_built_in_applies_only_where_the_project_uses_it() {
-        let root = std::env::temp_dir().join(format!("drift-fmt-uses-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-fmt-uses-{}", crate::random_hex(4)));
         let (repo, web, api) = (root.join("repo"), root.join("repo/web"), root.join("repo/api"));
         for dir in [&web, &api] {
             std::fs::create_dir_all(dir).unwrap();
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn a_projects_own_install_is_found_only_when_allowed_and_named_for_approval() {
-        let root = std::env::temp_dir().join(format!("drift-fmt-local-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-fmt-local-{}", crate::random_hex(4)));
         let bin = root.join("node_modules").join(".bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
@@ -515,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stdin_formatter_rewrites_only_the_file_it_was_given() {
-        let dir = std::env::temp_dir().join(format!("drift-fmt-stdin-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-fmt-stdin-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.txt");
         std::fs::write(&file, "b\na\n").unwrap();

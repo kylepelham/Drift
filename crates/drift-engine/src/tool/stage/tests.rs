@@ -32,7 +32,7 @@ pub(super) fn fault(fault: Fault, path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn sandbox(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("drift-stage-{name}-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-stage-{name}-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

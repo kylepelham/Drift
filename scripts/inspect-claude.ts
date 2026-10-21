@@ -7,7 +7,7 @@ export type Range = { start: number; end: number };
 const chunkSize = 1024 * 1024;
 const overlap = 4096;
 const markerLimit = 8;
-const tempRoot = path.join(tmpdir(), "opencode");
+const tempRoot = path.join(tmpdir(), "Drift", "inspect-claude");
 const identifierPattern = /\b(?:CLAUDE_CODE_|ANTHROPIC_|BUN_|DISABLE_|ENABLE_)[A-Z][A-Z0-9_]{2,80}\b/g;
 const prefixes = ["CLAUDE_CODE_", "ANTHROPIC_", "BUN_", "DISABLE_", "ENABLE_"];
 

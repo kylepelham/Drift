@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_check_reports_what_it_printed_and_a_passing_one_is_quiet() {
-        let dir = std::env::temp_dir().join(format!("drift-check-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-check-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.ts"), dir.join("b.md"));
         let checks = vec![
@@ -277,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn per_file_runs_go_side_by_side_and_the_steps_budget_bounds_them_all() {
-        let dir = std::env::temp_dir().join(format!("drift-check-par-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-check-par-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let files: Vec<PathBuf> = (0..4).map(|index| dir.join(format!("f{index}.ts"))).collect();
         let pause = if cfg!(windows) {

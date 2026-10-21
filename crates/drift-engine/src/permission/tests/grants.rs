@@ -84,7 +84,7 @@ fn redirection_grants_are_exact_and_explicit_rules_still_decide() {
 
 #[test]
 fn always_widens_a_fetch_to_its_site_and_an_outside_path_to_its_folder_but_never_a_secret() {
-    let sibling = std::env::temp_dir().join(format!("drift-sibling-{}", crate::random_hex(4)));
+    let sibling = crate::platform::temp::test_run().join(format!("drift-sibling-{}", crate::random_hex(4)));
     std::fs::create_dir_all(sibling.join("src")).unwrap();
     let file = sibling.join("src").join("lib.rs");
     std::fs::write(&file, "").unwrap();

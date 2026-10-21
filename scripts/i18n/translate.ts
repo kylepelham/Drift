@@ -1,7 +1,7 @@
 // English interface strings into one locale, sent through a headless engine on the user's saved credentials.
-import { mkdtempSync, rmSync } from "node:fs";
+import { tempFolder } from "../temp";
+import { rmSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const placeholder = /\{\{\w+\}\}/g;
@@ -20,7 +20,7 @@ export async function startModel(model: string): Promise<Model> {
     const built = Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stderr: "inherit" });
     if (built.exitCode !== 0) throw new Error("drift-engined did not build");
 
-    const data = mkdtempSync(path.join(os.tmpdir(), "drift-i18n-"));
+    const data = tempFolder("i18n", "run-");
     const binary = path.join(
         root,
         "target",

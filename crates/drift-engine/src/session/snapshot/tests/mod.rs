@@ -8,7 +8,7 @@ mod repository;
 mod trees;
 
 fn dirs() -> (PathBuf, PathBuf) {
-    let base = std::env::temp_dir().join(format!("drift-snap-{}", crate::random_hex(4)));
+    let base = crate::platform::temp::test_run().join(format!("drift-snap-{}", crate::random_hex(4)));
     let workspace = base.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
 

@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn a_change_anywhere_in_the_package_or_its_dependencies_changes_the_hash() {
-        let root = std::env::temp_dir().join(format!("drift-pkg-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-pkg-{}", crate::random_hex(4)));
         let modules = root.join("node_modules");
         write(
             &modules.join(".bin/fmt.cmd"),

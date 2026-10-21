@@ -21,7 +21,7 @@ fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
         "the route's own defaults apply when it is built"
     );
 
-    let dir = std::env::temp_dir().join(format!("drift-timeouts-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-timeouts-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("drift.json"),

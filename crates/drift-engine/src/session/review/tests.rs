@@ -21,7 +21,7 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 fn repo() -> std::path::PathBuf {
-    let root = std::env::temp_dir().join(format!("drift-review-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-review-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&root).unwrap();
     git(&root, &["init", "-q", "-b", "main"]);
     std::fs::write(root.join("kept.txt"), "one\ntwo\nthree\n").unwrap();
@@ -139,7 +139,7 @@ async fn a_target_that_is_an_option_or_unknown_is_refused() {
 
 #[tokio::test]
 async fn outside_a_repository_there_is_nothing_to_pick() {
-    let root = std::env::temp_dir().join(format!("drift-review-plain-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-review-plain-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&root).unwrap();
 
     assert!(!git_refs(&root).await.repo);

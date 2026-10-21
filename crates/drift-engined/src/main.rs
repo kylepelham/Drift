@@ -40,15 +40,16 @@ enum ArgumentError {
     Unknown(String),
 }
 
-/// Defaults to `$XDG_DATA_HOME/drift`, then `~/.local/share/drift`, falling back to the temp directory without a home.
+/// Defaults to `$XDG_DATA_HOME/drift`, then `~/.local/share/drift`, falling back to Drift's temporary folder without a home.
 fn default_data_dir() -> PathBuf {
     let home = || drift_engine::config::home().map(|home| home.join(".local").join("share"));
-    let base = std::env::var_os("XDG_DATA_HOME")
+    std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(home)
-        .unwrap_or_else(std::env::temp_dir);
-
-    base.join("drift")
+        .map_or_else(
+            || drift_engine::platform::temp::folder("engined"),
+            |base| base.join("drift"),
+        )
 }
 
 fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Args, ArgumentError> {

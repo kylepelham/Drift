@@ -30,7 +30,7 @@ fn model_ids_are_unique() {
 
 #[test]
 fn the_wav_header_describes_16khz_mono_pcm() {
-    let path = std::env::temp_dir().join(format!("drift-voice-header-{}.wav", std::process::id()));
+    let path = drift_engine::platform::temp::test_run().join(format!("drift-voice-header-{}.wav", std::process::id()));
     let samples = vec![0u8; 8];
 
     write_wav(&path, &samples).expect("wav should be written");

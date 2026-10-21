@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn a_workspaces_own_skills_list_beside_the_users_and_a_switch_never_touches_their_files() {
-        let root = std::env::temp_dir().join(format!("drift-skill-list-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-skill-list-{}", crate::random_hex(4)));
         let ws = root.join("ws");
         std::fs::create_dir_all(ws.join(".drift/skills/triage")).unwrap();
         std::fs::write(
@@ -352,7 +352,7 @@ body",
 
     #[test]
     fn only_the_asked_folders_land_the_top_folder_is_stripped_and_escapes_are_dropped() {
-        let into = std::env::temp_dir().join(format!("drift-pack-{}", crate::random_hex(4)));
+        let into = crate::platform::temp::test_run().join(format!("drift-pack-{}", crate::random_hex(4)));
         let bytes = archive(&[
             ("repo-main/README.md", "# hi"),
             ("repo-main/skills/grill-me/SKILL.md", "---\nname: grill-me\n---\nask"),

@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn automatic_checkpoints_pause_for_an_import_and_resume_after_it() {
-        let dir = std::env::temp_dir().join(format!("drift-import-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-import-{}", crate::random_hex(4)));
         let store = crate::store::open(&dir).unwrap();
         let automatic = |store: &Store| {
             store

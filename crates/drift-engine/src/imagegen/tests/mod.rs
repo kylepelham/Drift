@@ -259,7 +259,7 @@ pub(crate) fn choose(engine: &Engine, provider: &str, model: &str) {
 
 async fn engine() -> (Arc<Engine>, Server) {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let directory = std::env::temp_dir().join(format!("drift-imagegen-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-imagegen-{}", crate::random_hex(4)));
     let options = crate::Options {
         file_credentials: true,
         ..Default::default()

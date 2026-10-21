@@ -1,8 +1,8 @@
 // Drives a real drift-engined over HTTP and WS against a fake Anthropic that replays recorded streams.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tempFolder } from "../../scripts/temp";
+import { readFileSync, rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import os from "node:os";
 
 const root = path.resolve(import.meta.dir, "../..");
 const binary = path.join(root, "target", "debug", process.platform === "win32" ? "drift-engined.exe" : "drift-engined");
@@ -97,10 +97,7 @@ export function fakeAnthropic() {
 export type Engine = Awaited<ReturnType<typeof startEngine>>;
 const credentialKeys = new Map<string, string>();
 
-export async function startEngine(
-    providerUrl: string,
-    dataDir = mkdtempSync(path.join(os.tmpdir(), "drift-conformance-")),
-) {
+export async function startEngine(providerUrl: string, dataDir = tempFolder("tests", "conformance-")) {
     const credentialKey = credentialKeys.get(dataDir) ?? randomBytes(32).toString("base64");
     credentialKeys.set(dataDir, credentialKey);
     const proc = Bun.spawn([binary, "--data-dir", dataDir, "--file-credentials"], {
@@ -119,7 +116,7 @@ export async function startEngine(
         const json = (await response.json().catch(() => null)) as T;
         return { status: response.status, json };
     };
-    const workspace = mkdtempSync(path.join(os.tmpdir(), "drift-conformance-ws-"));
+    const workspace = tempFolder("tests", "conformance-ws-");
     return {
         url,
         token,

@@ -320,8 +320,8 @@ fn run_whisper(
     language: &str,
     prompt: &str,
 ) -> Result<String, VoiceError> {
-    let wav = std::env::temp_dir().join(format!(
-        "drift-voice-{}-{:?}.wav",
+    let wav = drift_engine::platform::temp::folder("voice").join(format!(
+        "{}-{:?}.wav",
         std::process::id(),
         std::thread::current().id()
     ));

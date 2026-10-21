@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn includes_identity_environment_and_agents_file() {
-        let workspace = std::env::temp_dir().join(format!("drift-prompt-{}", crate::random_hex(4)));
+        let workspace = crate::platform::temp::test_run().join(format!("drift-prompt-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::write(workspace.join("CLAUDE.md"), "claude rules").unwrap();
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn only_skills_and_subagents_the_agent_can_use_are_listed() {
-        let mut config = Config::load_with_home(&std::env::temp_dir().join("drift-no-such-ws"), None);
+        let mut config = Config::load_with_home(&crate::platform::temp::test_run().join("drift-no-such-ws"), None);
         let skill = |name: &str| crate::config::Skill {
             name: name.into(),
             description: format!("{name} skill"),
@@ -487,7 +487,7 @@ mod tests {
 
         config.skills = vec![skill("review"), skill("deploy")];
 
-        let workspace = std::env::temp_dir();
+        let workspace = crate::platform::temp::test_run();
         let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
         let built = |loads_skills: bool, denied: &dyn Fn(&str, &str) -> bool| {
             system(&Setting {
@@ -528,7 +528,7 @@ mod tests {
     #[test]
     fn every_family_has_its_own_prompt_and_all_keep_the_shared_rules() {
         let config = Config::default();
-        let workspace = std::env::temp_dir();
+        let workspace = crate::platform::temp::test_run();
         let built = |family| {
             system(&Setting {
                 base: family_prompt(family),
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn each_prompt_keeps_the_reminder_of_the_agent_its_turn_ran_as() {
-        let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);
+        let config = Config::load_with_home(&crate::platform::temp::test_run().join("drift-prompt-none"), None);
         let mut transcript = numbered(vec![
             message(Role::User, None),
             message(Role::Assistant, Some("plan")),
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn a_compacted_prompt_keeps_its_agent_reminder() {
-        let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);
+        let config = Config::load_with_home(&crate::platform::temp::test_run().join("drift-prompt-none"), None);
         let mut boundary = message(Role::User, None);
         boundary.parts.push(PartRow {
             id: String::new(),

@@ -3459,7 +3459,7 @@ engine's start is what 1.3 waited on.
   prompt follows as before. The environment section
   gives the working directory, whether it is a git repository, platform, the date (local, as
   opencode gives it: `platform::clock`, so a US evening is not already tomorrow) and the model's
-  catalog name, and the scratch directory (`tool::scratch_dir`: `Drift` in the system temp
+  catalog name, and the scratch directory (`tool::scratch_dir`: `Drift/scratch` in the system temp
   directory, made when the engine opens), where reading, writing, editing and patching ask
   nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
   asks the model to say whether a subagent should change code or only report, how to check its

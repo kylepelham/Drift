@@ -59,3 +59,35 @@ pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> 
 
     app.restart();
 }
+
+/// Removes the folders earlier updates downloaded their installers into, which the plugin leaves in the
+/// temporary directory; a running Drift means their install has finished.
+pub(crate) fn clear_finished_installers() {
+    clear_installers_in(&std::env::temp_dir());
+}
+
+fn clear_installers_in(temp: &Path) {
+    for entry in std::fs::read_dir(temp).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("Drift-") && name.contains("-updater-") {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_the_updaters_own_installer_folders_are_cleared() {
+        let temp = drift_engine::platform::temp::test_run().join(format!("updater-{}", std::process::id()));
+        for name in ["Drift-2.2.1-updater-9DLfhx", "Drift", "Other-1.0-updater-x"] {
+            std::fs::create_dir_all(temp.join(name)).unwrap();
+        }
+
+        super::clear_installers_in(&temp);
+
+        assert!(!temp.join("Drift-2.2.1-updater-9DLfhx").exists());
+        assert!(temp.join("Drift").exists() && temp.join("Other-1.0-updater-x").exists());
+    }
+}

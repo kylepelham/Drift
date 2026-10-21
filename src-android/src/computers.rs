@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn linking_again_keeps_known_addresses_and_the_list_survives_a_restart() {
-        let path = std::env::temp_dir().join(format!("drift-computers-{}.json", std::process::id()));
+        let path = crate::test_dir().join(format!("drift-computers-{}.json", std::process::id()));
         let mut computers = Computers::load(path.clone());
         computers.upsert(computer("aa", &["192.168.1.20"])).unwrap();
         computers.upsert(computer("bb", &["10.0.0.5"])).unwrap();
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn what_the_pc_reports_replaces_its_addresses_and_tunnel_with_the_answering_address_first() {
-        let path = std::env::temp_dir().join(format!("drift-refresh-{}.json", std::process::id()));
+        let path = crate::test_dir().join(format!("drift-refresh-{}.json", std::process::id()));
         let mut computers = Computers::load(path.clone());
         let mut known = computer("aa", &["192.168.1.20", "10.9.9.9"]);
         known.tunnel = Some(tunnel());

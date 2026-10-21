@@ -5,7 +5,7 @@ use super::buffer::{Buffer, READ_BYTES, url_in};
 use super::*;
 
 fn log() -> PathBuf {
-    std::env::temp_dir()
+    crate::platform::temp::test_run()
         .join(format!("drift-background-{}", crate::random_hex(4)))
         .join("p.log")
 }

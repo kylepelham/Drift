@@ -14,7 +14,7 @@ fn fake(mode: &[&str]) -> BTreeMap<String, LspConfig> {
 }
 
 fn workspace(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("drift-lsp-{name}-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-lsp-{name}-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

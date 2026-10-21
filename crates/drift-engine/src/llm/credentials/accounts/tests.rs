@@ -1,7 +1,7 @@
 use super::*;
 
 fn store() -> (Credentials, std::path::PathBuf) {
-    let path = std::env::temp_dir().join(format!("drift-accounts-{}.json", crate::random_hex(4)));
+    let path = crate::platform::temp::test_run().join(format!("drift-accounts-{}.json", crate::random_hex(4)));
 
     (Credentials::in_file(path.clone()), path)
 }

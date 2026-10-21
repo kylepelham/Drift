@@ -21,7 +21,7 @@ struct WorkspaceServer {
 
 fn workspace_server() -> WorkspaceServer {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let dir = std::env::temp_dir().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
     let (re_dir, web_dir) = (dir.join("re"), dir.join("web"));
     std::fs::create_dir_all(&re_dir).unwrap();
     std::fs::create_dir_all(&web_dir).unwrap();
@@ -157,7 +157,7 @@ fn assert_workspace_choice_saved(dir: &std::path::Path, re_path: &std::path::Pat
 
 #[tokio::test]
 async fn switches_on_a_server_that_does_not_parse_write_nothing() {
-    let dir = std::env::temp_dir().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
     let engine = Engine::open_with(
         &dir,
         crate::Options {

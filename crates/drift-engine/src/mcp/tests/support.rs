@@ -19,7 +19,7 @@ pub(super) fn method_not_found(id: &serde_json::Value) -> serde_json::Value {
 
 pub(super) fn engine() -> Arc<crate::Engine> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let directory = std::env::temp_dir().join(format!("drift-mcp-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-mcp-{}", crate::random_hex(4)));
     let options = crate::Options {
         file_credentials: true,
         ..Default::default()
@@ -30,7 +30,7 @@ pub(super) fn engine() -> Arc<crate::Engine> {
 
 /// The workspace the tests' stdio servers run in.
 pub(super) fn here() -> std::path::PathBuf {
-    crate::tool::canonical(&std::env::temp_dir())
+    crate::tool::canonical(&crate::platform::temp::test_run())
 }
 
 pub(super) fn context(engine: &Arc<crate::Engine>) -> Context {

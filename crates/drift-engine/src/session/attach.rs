@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn a_large_file_is_read_only_up_to_the_bound() {
-        let dir = std::env::temp_dir().join(format!("drift-mention-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-mention-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let big = dir.join("big.txt");
         std::fs::write(&big, "line\n".repeat(MAX_MENTION_BYTES)).unwrap();

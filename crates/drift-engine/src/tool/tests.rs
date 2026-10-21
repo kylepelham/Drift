@@ -11,7 +11,7 @@ pub(crate) struct Sandbox {
 impl Sandbox {
     pub(crate) fn new(name: &str) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let root = std::env::temp_dir().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
         let workspace = root.join("ws");
         std::fs::create_dir_all(&workspace).unwrap();
         let workspace = canonical(&workspace);
@@ -164,7 +164,7 @@ fn registry_exposes_every_builtin_with_a_schema() {
 fn the_scratch_directory_is_free_to_read_and_write_and_the_rest_of_temp_is_not() {
     let sandbox = Sandbox::new("scratch");
     let scratch = scratch_dir().join(format!("notes-{}.txt", crate::random_hex(4)));
-    let elsewhere = canonical(&std::env::temp_dir().join("not-drift").join("notes.txt"));
+    let elsewhere = canonical(&crate::platform::temp::test_run().join("not-drift").join("notes.txt"));
 
     assert!(
         sandbox.ctx.ask_to_write(&scratch, "Write").unwrap().default_allow

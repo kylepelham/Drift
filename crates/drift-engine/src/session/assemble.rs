@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn call_signatures_survive_storage_reopen_fork_and_model_replay() {
-        let dir = std::env::temp_dir().join(format!("drift-signature-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-signature-{}", crate::random_hex(4)));
         let store = crate::store::open(&dir).unwrap();
         let workspace = store.add_workspace("ws", "ws", "").unwrap();
         let session = session(&store, &workspace.id);
