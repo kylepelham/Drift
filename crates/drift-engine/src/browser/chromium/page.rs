@@ -124,6 +124,11 @@ impl Page {
         self.cdp.call(method, params, Some(&self.session)).await
     }
 
+    /// The tab closed or left Chromium: nothing waits for it to load any more.
+    pub(crate) fn closed(&self) {
+        self.loads.send_replace(u64::MAX);
+    }
+
     pub(crate) fn send(&self, method: &str, params: Value) {
         self.cdp.send(method, params, Some(&self.session));
     }
@@ -254,7 +259,7 @@ impl Page {
         drop(state);
 
         if !started {
-            self.loads.send_modify(|count| *count += 1);
+            self.loads.send_modify(|count| *count = count.saturating_add(1));
         }
     }
 

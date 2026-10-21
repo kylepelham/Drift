@@ -365,6 +365,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] Screenshots capped at 1280x800's worth of pixels in the page's shape, clicks scaled back; `zoom` enlarges a region of one
   - [x] Project browser config in `drift.json` (engine, base address, engine by address, profile, window, integrated sign-in, `login`, notes), keychain credentials the model never sees, passwords hidden from every result
   - [x] IE mode through IEDriverServer (downloaded when missing): frames walked by one snapshot, VBScript `eval`, popups as tabs; web-test's per-app helpers replaced by project notes
+  - [x] IE mode with a machine's Enterprise Mode site list: one Edge without a debugging port, so the list routes pages to IE mode or Chromium and shares its cookies; Chromium tabs through Drift's `chrome.debugger` relay extension, IE mode tabs through IEDriverServer attached to the same Edge; one pane and tab list for both
   - [x] Firefox and Camoufox over WebDriver BiDi (Camoufox needed only its BiDi preference, so no Playwright driver); Camoufox downloaded from Settings
   - [x] Settings > Browser tab: defaults, each engine's status, path and download, the workspace's drift.json section and stored sign-ins
   - [x] Performance: `trace` (reload, or start and stop around an interaction; optional throttling) saves the trace and summarises load timings, layout shift, long tasks, network and interactions; `audit` runs Lighthouse (installed with npm on first use) for accessibility, best practices and SEO

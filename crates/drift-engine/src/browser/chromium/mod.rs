@@ -2,9 +2,10 @@
 //! screencast a pane watches.
 
 mod agent;
-mod cdp;
+pub(crate) mod cdp;
 pub(crate) mod launch;
 mod page;
+pub(crate) mod relay;
 mod tab;
 mod trace;
 
@@ -39,8 +40,10 @@ pub(crate) struct Chromium {
     me: Weak<Chromium>,
     agents: Arc<Agents>,
     cdp: Arc<Connection>,
-    port: u16,
-    tree: Tree,
+    /// The debugging port, when the browser opened one.
+    port: Option<u16>,
+    /// The browser's processes, when this driver started it.
+    tree: Option<Tree>,
     pages: Mutex<Vec<Arc<Page>>>,
     active: Mutex<Option<String>>,
     /// The page the stream shows, while a pane watches.
@@ -48,6 +51,13 @@ pub(crate) struct Chromium {
     page_added: Notify,
     pane_fit: PaneFit,
     pointer: Pointer,
+}
+
+/// A browser this driver started and ends.
+pub(crate) struct Owned {
+    pub(crate) child: tokio::process::Child,
+    pub(crate) tree: Tree,
+    pub(crate) port: u16,
 }
 
 impl Chromium {
@@ -65,7 +75,25 @@ impl Chromium {
         let (cdp, events) = Connection::connect(&url, port)
             .await
             .map_err(|error| format!("could not connect to {}: {error}", kind.label()))?;
+
+        Self::drive(engine, spec, cdp, events, Some(Owned { child, tree, port })).await
+    }
+
+    /// Drives a browser over an open connection and waits for its first tab; `owned` is the browser's process
+    /// when this driver started it, and none when another driver owns the browser.
+    pub(crate) async fn drive(
+        engine: Weak<Engine>,
+        spec: Spec,
+        cdp: Arc<Connection>,
+        events: mpsc::UnboundedReceiver<Event>,
+        owned: Option<Owned>,
+    ) -> Result<Arc<Self>, String> {
+        let kind = spec.kind;
         let agents = Arc::new(agent::agents(&cdp, kind, spec.window == Window::Hidden).await);
+        let (child, tree, port) = match owned {
+            Some(Owned { child, tree, port }) => (Some(child), Some(tree), Some(port)),
+            None => (None, None, None),
+        };
 
         let chromium = Arc::new_cyclic(|me| Self {
             common: Common::new(engine, spec),
@@ -201,7 +229,11 @@ impl Chromium {
         tokio::spawn(async move { chromium.refresh().await });
     }
 
-    async fn run(self: Arc<Self>, mut events: mpsc::UnboundedReceiver<Event>, mut child: tokio::process::Child) {
+    async fn run(
+        self: Arc<Self>,
+        mut events: mpsc::UnboundedReceiver<Event>,
+        mut child: Option<tokio::process::Child>,
+    ) {
         let mut titles = tokio::time::interval(TITLE_CHECK);
         loop {
             tokio::select! {
@@ -214,20 +246,29 @@ impl Chromium {
                         self.refresh_soon();
                     }
                 }
-                _ = child.wait() => break,
+                () = exited(&mut child) => break,
                 () = self.common.stopping.cancelled() => break,
             }
         }
 
         self.common.mark_ended();
         self.pages.lock().unwrap().clear();
-        self.tree.kill();
-        let _ = child.wait().await;
-        self.tree.stop().await;
+        self.end_process(child).await;
 
         if let (Some(engine), Some(driver)) = (self.common.engine.upgrade(), self.as_driver()) {
             engine.browser_ended(&driver).await;
         }
+    }
+
+    /// Ends the browser's processes, when this driver started them.
+    async fn end_process(&self, child: Option<tokio::process::Child>) {
+        let (Some(tree), Some(mut child)) = (&self.tree, child) else {
+            return;
+        };
+
+        tree.kill();
+        let _ = child.wait().await;
+        tree.stop().await;
     }
 
     fn dispatch(&self, event: Event) {
@@ -340,10 +381,13 @@ impl Chromium {
         let Some(index) = pages.iter().position(|page| gone(page)) else {
             return;
         };
-        let target = pages.remove(index).target.clone();
+        let gone_page = pages.remove(index);
+        let target = gone_page.target.clone();
         let still_open = pages.iter().any(|page| page.target == target);
         let fallback = pages.last().map(|page| page.target.clone());
         drop(pages);
+        // An action waiting on the page's next load would otherwise wait out its limit.
+        gone_page.closed();
 
         if !still_open {
             let mut active = self.active.lock().unwrap();
@@ -456,6 +500,16 @@ impl Chromium {
                 }
             }
         });
+    }
+}
+
+/// Returns when the browser process exits; never when another driver owns it.
+async fn exited(child: &mut Option<tokio::process::Child>) {
+    match child {
+        Some(child) => {
+            let _ = child.wait().await;
+        }
+        None => std::future::pending().await,
     }
 }
 
@@ -573,7 +627,7 @@ impl Driver for Chromium {
     }
 
     fn devtools_port(&self) -> Option<u16> {
-        Some(self.port)
+        self.port
     }
 
     fn desktop_agent(&self) -> Option<String> {
@@ -583,7 +637,9 @@ impl Driver for Chromium {
     }
 
     fn kill(&self) {
-        self.tree.kill();
+        if let Some(tree) = &self.tree {
+            tree.kill();
+        }
         self.common.stopping.cancel();
     }
 

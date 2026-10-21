@@ -17,7 +17,7 @@ const DISK_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Background work no test needs: model and component downloads, translation, casting, sync, and window
 /// occlusion, which would stop an off-screen window from painting.
-const DISABLED_FEATURES: &str = "Translate,OptimizationHints,OptimizationHintsFetching,OptimizationTargetPrediction,\
+pub(crate) const DISABLED_FEATURES: &str = "Translate,OptimizationHints,OptimizationHintsFetching,OptimizationTargetPrediction,\
 OptimizationGuideModelDownloading,OptimizationGuideOnDeviceModel,MediaRouter,CalculateNativeWinOcclusion,\
 AutofillServerCommunication,InterestFeedContentSuggestions,PrivacySandboxSettings4";
 

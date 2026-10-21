@@ -985,6 +985,7 @@ export const drift = {
     "drift.process.stopFailed": "프로세스를 중지하지 못했습니다",
     "drift.browser.view": "브라우저 페이지",
     "drift.browser.waiting": "페이지 대기 중...",
+    "drift.browser.loading": "탭 로딩 중",
     "drift.browser.newTab": "새 탭",
     "drift.browser.closeTab": "탭 닫기",
     "drift.browser.stop": "브라우저 중지",

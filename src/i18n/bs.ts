@@ -995,6 +995,7 @@ export const drift = {
     "drift.process.stopFailed": "Proces nije moguće zaustaviti",
     "drift.browser.view": "Stranica preglednika",
     "drift.browser.waiting": "Čekanje na stranicu...",
+    "drift.browser.loading": "Učitavanje taba",
     "drift.browser.newTab": "Novi tab",
     "drift.browser.closeTab": "Zatvori tab",
     "drift.browser.stop": "Zaustavi preglednik",

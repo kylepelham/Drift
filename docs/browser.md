@@ -17,12 +17,14 @@ desktop, nothing outlives Drift, remote devices see the same pane, and projects 
 | Firefox | WebDriver BiDi | Screenshots about 30 times a second while watched (every 8th tick once the page is still), sent when they change | Always headless; no response bodies |
 | Camoufox | WebDriver BiDi | As Firefox | Hardened Firefox for sites that block automated browsers |
 | IE mode | Classic WebDriver through IEDriverServer | Screenshots every 0.8 s while watched | Edge in IE mode, window off-screen; no console or network logs |
+| IE mode with a site list | IEDriverServer for IE mode tabs, DevTools Protocol through Drift's extension for Edge tabs | Each tab as its engine sends it | One Edge, routed by the machine's Enterprise Mode site list |
 
 The engine module is `crates/drift-engine/src/browser`: `driver.rs` holds the `Driver` (a browser) and `Tab`
 (a page) traits every engine implements, so the tool, the pane and the API never ask which one runs.
-`chromium/`, `firefox.rs` (with `bidi.rs`) and `ie.rs` (with `webdriver.rs`) are the three drivers. They
-use the engine's existing `tokio-tungstenite`, `reqwest` and `image`; nothing new is linked and nothing
-runs beside the browsers but IEDriverServer for IE mode.
+`chromium/`, `firefox.rs` (with `bidi.rs`) and `ie.rs` (with `webdriver.rs`) are the three drivers, and
+`mixed.rs` joins the first and last into one browser for IE mode with a site list (`site_list.rs` reads the
+list). They use the engine's existing `tokio-tungstenite`, `reqwest` and `image`; nothing new is linked and
+nothing runs beside the browsers but IEDriverServer for IE mode.
 
 Which engine opens, first match wins: the `engine` the agent passes to `open`; the project's `engines`
 patterns for the address; the project's `engine`; Settings. Chrome and Edge stand in for each other when
@@ -71,7 +73,12 @@ IEDriverServer starts on a free port inside the browser's job, and a session ask
 with the settings it needs: `ie.edgechromium`, Edge's path, an `initialBrowserUrl` on IEDriverServer itself
 (Edge only creates the IE window for a page Trident renders), `ie.ignoreprocessmatch` (Edge's window belongs
 to another process than the one started), no `forceShellWindowsApi`, and dialogs left for the agent to answer.
-Edge's window is moved off-screen, since IE mode cannot run hidden.
+Edge's window is moved off-screen, since IE mode cannot run hidden. A window the page opens is moved off-screen
+too as soon as it is found; windows are looked for every 0.8 s even when no pane watches. IEDriverServer's own
+start window is left out of the tabs, since it cannot be scripted or pictured.
+
+A watching pane gets a picture every 0.8 s, and at once when the user switches tabs or acts on the page; the
+picture is taken before the windows are read again, so a switch shows in about half a second.
 
 The page is driven by script in IE's own manner, as web-test did: a helper written for IE's oldest document
 modes walks every same-site frame, so one snapshot covers a frameset and its refs reach elements in any
@@ -79,6 +86,53 @@ frame. Clicks fire mouseover, mousedown, mouseup and `click()`, which runs VBScr
 `language: vbscript` runs VBScript through `execScript`. A window the page opens is a new tab. IEDriverServer
 can drive one IE mode browser at a time, so a second conversation asking for IE mode is told to stop the
 first.
+
+### IE mode with a site list
+
+Classic ASP apps run in IE mode but hand some pages to Edge (an MVC screen, a card payment page). On the users'
+machines a group policy gives Edge an Enterprise Mode site list (`InternetExplorerIntegrationLevel` 1 and
+`InternetExplorerIntegrationSiteList`) that names, per host and path, which engine opens a page, and which
+session cookies the engines share (`<shared-cookie>`). IEDriverServer starts Edge with `--ie-mode-force`, which
+keeps every page of every tab in IE mode, and Edge turns IE mode off altogether when it is started with
+`--remote-debugging-port` or `--remote-debugging-pipe`, so neither driver alone can run such an app.
+
+When the policy is set and the first address is one the list names (or there is none yet), `open` with
+`engine: ie` starts one Edge itself, as the users' Edge runs:
+
+- No debugging switch, so the site list routes every navigation and window and Edge shares the cookies it
+  names, both ways, as it does for users. Drift never copies a cookie; IE mode's session cookies are HttpOnly
+  and IEDriverServer cannot read cookies in Edge at all.
+- Drift's extension (`chromium/relay/`) is loaded with `--load-extension` and connects to a loopback socket at a
+  secret path. It speaks the browser end of the DevTools Protocol through `chrome.debugger`, so the Chrome
+  driver drives Edge's Chromium tabs unchanged: `Target.setAutoAttach` attaches each tab once it has loaded,
+  `Target.createTarget` opens a tab in a window of its own (started minimized and restored off-screen, so it
+  never covers an IE mode tab, which shows nothing while covered), and events come back per tab session.
+  `--silent-debugger-extension-api` keeps Edge's "is debugging this browser" bar off the pages.
+- Edge refuses the debugger on a tab IE mode hosts, and says nothing when a tab moves into IE mode, so the
+  extension looks at its tabs every second and reports one in IE mode. IEDriverServer then attaches to it:
+  its "Edge" is a command that does nothing (`cmd /c rem`, with forward slashes since IEDriverServer drops
+  backslashes), and with `ie.ignoreprocessmatch` it takes the first IE mode window in z-order, so Drift lifts
+  its Edge's windows above all others for that moment. Edge is started with `--edge-skip-compat-layer-relaunch`
+  so the process Drift starts is the browser. Windows the IE mode tabs open are then IEDriverServer's as usual;
+  once the last one closes it lets go, and attaches again when a tab next enters IE mode.
+- A new profile has no site list until Edge downloads it (about 4 s); an address loaded before that would open
+  in Chromium, so the browser waits for `Default/DualEngine/SiteList-Enterprise.json`. Drift reads the same
+  file to know where an address goes: the host with its port, then the host, then its parent domains, and
+  within the site the longest matching path.
+- The agent and the pane see one browser. Tabs of both engines are listed together; the active tab is the
+  last one either engine brought forward, and the pane gets the frames of the engine that has it. An address
+  of the other engine moves the tab there, as Edge would: the page opens in the other engine (through
+  IEDriverServer's `window.open` for IE mode, so it keeps track of it) and the old tab closes. The first IE
+  mode page is the exception: the Chromium tab itself loads it, and IEDriverServer attaches to what it became.
+  A tab that left one engine as one appeared in the other within 10 s is taken to be the same tab, so an
+  action's result follows a click that moved it.
+- Every 250 ms any window of the Edge that came onto a screen is moved off it.
+
+A Chromium tab that a click sends into IE mode while IEDriverServer already drives other IE mode tabs is not
+reachable: IEDriverServer only learns of windows its own pages open. None of the apps on the dev drive do this;
+their hand-offs open Edge pages from IE mode (`window.open` of `/Edge/...`, `PciPal.asp`,
+`PaymentIQCashier.asp`, `ServerPayment.asp`), and those pages report back through a shared cookie the IE mode
+page polls. Traces and Lighthouse need a debugging port, so they are not available in this browser.
 
 ## Lifecycle
 
@@ -114,7 +168,8 @@ browsers/
 - When a shared profile's browser ends, its caches are deleted; cookies, local storage and IndexedDB stay.
 - At startup, isolated profiles with no running browser (left by a crash) are deleted, as are shared profiles
   of workspaces Drift no longer has.
-- IE mode's profile belongs to IEDriverServer, which makes and removes it.
+- IE mode's profile belongs to IEDriverServer, which makes and removes it. IE mode with a site list starts its
+  own Edge on an isolated profile, which also holds Drift's extension.
 
 ## Getting blocked less
 
@@ -286,8 +341,11 @@ the credential is refused.
 - The globe button in the chat header opens a browser when the conversation has none, then shows or hides
   the pane.
 - The engine's name, tabs for the browser's pages (popups included), an address bar with back, forward and
-  reload, a new-tab button, and Stop; the collapse button only hides the pane.
+  reload, a new-tab button, and Stop; the collapse button only hides the pane. Tabs take the room the header
+  has, narrow to 80 px before the strip scrolls, and scroll with the mouse wheel.
 - A dialog on the page shows as a bar with its message, a field for a prompt, and OK and Cancel.
+- Until a picture of the active tab arrives (a tab switch in IE mode takes about half a second), the old
+  picture dims under a sliding bar; it shows only after 150 ms, so a quick switch does not flicker.
 - The page is laid out to fill the pane (Chrome, Edge, Firefox and Camoufox): the pane sends the size of its
   page area (`fit`,
   again 150 ms after each resize settles), and the page gets a viewport at least 1280 CSS pixels wide in the

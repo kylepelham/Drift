@@ -1003,6 +1003,7 @@ export const drift = {
     "drift.process.stopFailed": "Nie udało się zatrzymać procesu",
     "drift.browser.view": "Strona przeglądarki",
     "drift.browser.waiting": "Oczekiwanie na stronę...",
+    "drift.browser.loading": "Ładowanie karty",
     "drift.browser.newTab": "Nowa karta",
     "drift.browser.closeTab": "Zamknij kartę",
     "drift.browser.stop": "Zatrzymaj przeglądarkę",

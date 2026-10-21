@@ -999,6 +999,7 @@ export const drift = {
     "drift.process.stopFailed": "Prosessen kunne ikke stoppes",
     "drift.browser.view": "Nettleserside",
     "drift.browser.waiting": "Venter på siden...",
+    "drift.browser.loading": "Laster fanen",
     "drift.browser.newTab": "Ny fane",
     "drift.browser.closeTab": "Lukk fane",
     "drift.browser.stop": "Stopp nettleseren",

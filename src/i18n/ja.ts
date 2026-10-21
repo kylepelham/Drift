@@ -999,6 +999,7 @@ export const drift = {
     "drift.process.stopFailed": "プロセスを停止できませんでした",
     "drift.browser.view": "ブラウザーページ",
     "drift.browser.waiting": "ページを待機中...",
+    "drift.browser.loading": "タブを読み込み中",
     "drift.browser.newTab": "新しいタブ",
     "drift.browser.closeTab": "タブを閉じる",
     "drift.browser.stop": "ブラウザーを停止",

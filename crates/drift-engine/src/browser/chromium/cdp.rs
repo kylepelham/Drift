@@ -1,5 +1,6 @@
-//! A DevTools Protocol connection: one WebSocket to the browser, each call matched to its reply by id, and
-//! events handed on in the order they arrive. Pages are reached through flat sessions on the same socket.
+//! A DevTools Protocol connection: one WebSocket to the browser (or to Drift's relay extension in it), each call
+//! matched to its reply by id, and events handed on in the order they arrive. Pages are reached through flat
+//! sessions on the same socket.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,14 +9,24 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Callback, ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 /// A call the browser has not answered in this long has failed; waits for a page are bounded separately.
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// Full-page screenshots and response bodies are the largest messages.
 const MAX_MESSAGE: usize = 128 * 1024 * 1024;
+
+fn config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_MESSAGE))
+        .max_frame_size(Some(MAX_MESSAGE))
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CdpError {
@@ -47,12 +58,31 @@ impl Connection {
     /// Connects to a browser's `webSocketDebuggerUrl`; the receiver gets every event until the socket closes.
     pub(crate) async fn connect(url: &str, port: u16) -> std::io::Result<(Arc<Self>, mpsc::UnboundedReceiver<Event>)> {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_MESSAGE))
-            .max_frame_size(Some(MAX_MESSAGE));
-        let (socket, _) = tokio_tungstenite::client_async_with_config(url, stream, Some(config))
+        let (socket, _) = tokio_tungstenite::client_async_with_config(url, stream, Some(config()))
             .await
             .map_err(std::io::Error::other)?;
+
+        Ok(Self::over(socket))
+    }
+
+    /// Waits for Drift's relay extension to connect at `path`; anything else that knocks is turned away.
+    pub(crate) async fn accept(
+        listener: tokio::net::TcpListener,
+        path: &str,
+    ) -> std::io::Result<(Arc<Self>, mpsc::UnboundedReceiver<Event>)> {
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let check = PathCheck(path);
+            if let Ok(socket) = tokio_tungstenite::accept_hdr_async_with_config(stream, check, Some(config())).await {
+                return Ok(Self::over(socket));
+            }
+        }
+    }
+
+    fn over<S>(socket: WebSocketStream<S>) -> (Arc<Self>, mpsc::UnboundedReceiver<Event>)
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let (mut sink, mut source) = socket.split();
 
         let (outgoing, mut queued) = mpsc::unbounded_channel::<Message>();
@@ -84,7 +114,7 @@ impl Connection {
             outgoing,
         });
 
-        Ok((connection, received))
+        (connection, received)
     }
 
     /// Calls `method` on the browser, or on a page when `session` names one.
@@ -125,6 +155,21 @@ impl Connection {
         }
 
         let _ = self.outgoing.send(Message::Text(message.to_string().into()));
+    }
+}
+
+/// Accepts a WebSocket handshake only at the secret path the extension was given.
+struct PathCheck<'a>(&'a str);
+
+impl Callback for PathCheck<'_> {
+    fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+        if request.uri().path() == self.0 {
+            return Ok(response);
+        }
+
+        let mut refused = ErrorResponse::new(None);
+        *refused.status_mut() = StatusCode::NOT_FOUND;
+        Err(refused)
     }
 }
 

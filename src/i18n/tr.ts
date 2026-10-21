@@ -1001,6 +1001,7 @@ export const drift = {
     "drift.process.stopFailed": "İşlem durdurulamadı",
     "drift.browser.view": "Tarayıcı sayfası",
     "drift.browser.waiting": "Sayfa bekleniyor...",
+    "drift.browser.loading": "Sekme yükleniyor",
     "drift.browser.newTab": "Yeni sekme",
     "drift.browser.closeTab": "Sekmeyi kapat",
     "drift.browser.stop": "Tarayıcıyı durdur",

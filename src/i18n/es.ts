@@ -1007,6 +1007,7 @@ export const drift = {
     "drift.process.stopFailed": "No se pudo detener el proceso",
     "drift.browser.view": "Página del navegador",
     "drift.browser.waiting": "Esperando a la página...",
+    "drift.browser.loading": "Cargando la pestaña",
     "drift.browser.newTab": "Nueva pestaña",
     "drift.browser.closeTab": "Cerrar pestaña",
     "drift.browser.stop": "Detener el navegador",

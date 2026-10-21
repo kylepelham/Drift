@@ -976,6 +976,7 @@ export const drift = {
     "drift.process.stopFailed": "تعذر إيقاف العملية",
     "drift.browser.view": "صفحة المتصفح",
     "drift.browser.waiting": "بانتظار الصفحة...",
+    "drift.browser.loading": "جارٍ تحميل علامة التبويب",
     "drift.browser.newTab": "علامة تبويب جديدة",
     "drift.browser.closeTab": "إغلاق علامة التبويب",
     "drift.browser.stop": "إيقاف المتصفح",

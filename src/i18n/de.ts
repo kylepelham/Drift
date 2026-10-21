@@ -1013,6 +1013,7 @@ export const drift = {
     "drift.process.stopFailed": "Der Prozess konnte nicht gestoppt werden",
     "drift.browser.view": "Browserseite",
     "drift.browser.waiting": "Warten auf die Seite...",
+    "drift.browser.loading": "Tab wird geladen",
     "drift.browser.newTab": "Neuer Tab",
     "drift.browser.closeTab": "Tab schließen",
     "drift.browser.stop": "Browser stoppen",

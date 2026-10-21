@@ -254,7 +254,74 @@ async fn drives(engine: &str) {
 
     fills_the_form(&sandbox, engine).await;
     fits_the_pane_and_follows_the_cursor(&sandbox, engine).await;
+    if engine == "ie" {
+        hides_a_window_the_page_opens(&sandbox, &url).await;
+    }
     watches_and_stops(&sandbox).await;
+}
+
+/// IE mode's window is off-screen, and so is a window its page opens, wherever the page asked for it.
+async fn hides_a_window_the_page_opens(sandbox: &Sandbox, url: &str) {
+    let open = format!("window.open('{url}', 'details', 'left=100,top=100,width=500,height=400'); 'opened'");
+    call(sandbox, json!({ "action": "eval", "expression": open }))
+        .await
+        .unwrap();
+
+    let mut left = String::new();
+    for _ in 0..50 {
+        let pages = sandbox.ctx.engine.browsers.record("ses_test").unwrap().pages;
+        if pages.iter().any(|page| page.popup && page.active) {
+            let measured = call(sandbox, json!({ "action": "eval", "expression": "window.screenLeft" }));
+            left = measured.await.unwrap().output;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let left: f64 = left
+        .parse()
+        .unwrap_or_else(|_| panic!("the popup became the active page: {left:?}"));
+    assert!(left < -10_000.0, "the popup is off-screen, at {left}");
+
+    // A watching pane gets the tab it switches to at once, not at the next tick.
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let pages = driver.record().pages;
+    let first = pages
+        .iter()
+        .find(|page| !page.active && page.url.starts_with(url))
+        .unwrap_or_else(|| panic!("the form's tab beside the popup: {pages:?}"))
+        .id
+        .clone();
+    let mut viewer = crate::browser::driver::watch(driver.clone());
+    tokio::time::timeout(std::time::Duration::from_secs(5), viewer.frames.recv())
+        .await
+        .expect("a first picture within 5 s")
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    let switched = std::time::Instant::now();
+    driver
+        .input(crate::browser::ViewInput::Select { page: first.clone() })
+        .await
+        .unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), viewer.frames.recv())
+            .await
+            .expect("a picture of the tab within 5 s")
+            .unwrap();
+        if frame.page == first {
+            break;
+        }
+    }
+    let took = switched.elapsed();
+    eprintln!("IE mode tab switch shown after {took:?}");
+    assert!(took < std::time::Duration::from_millis(1500), "{took:?}");
+    drop(viewer);
+    let popup = pages.iter().find(|page| page.active).unwrap().id.clone();
+    driver
+        .input(crate::browser::ViewInput::Select { page: popup })
+        .await
+        .unwrap();
+
+    call(sandbox, json!({ "action": "close" })).await.unwrap();
 }
 
 /// A pane of 1400x900 lays the page out at that size, and the pointer over the button shows the page's cursor.
@@ -395,6 +462,101 @@ async fn camoufox_fills_a_form_over_bidi() {
 async fn ie_mode_fills_a_form_through_iedriver() {
     if std::env::var_os("DRIFT_TEST_IE").is_some() {
         drives("ie").await;
+    }
+}
+
+/// Needs Edge's IE mode site list from a group policy: `DRIFT_TEST_SITE_LIST_IE` an address it opens in IE mode and
+/// `DRIFT_TEST_SITE_LIST_EDGE` one of the same site it sends back to Edge.
+#[tokio::test(flavor = "multi_thread")]
+async fn ie_mode_follows_the_site_list_into_edge_and_back() {
+    let (Ok(ie_url), Ok(edge_url)) = (
+        std::env::var("DRIFT_TEST_SITE_LIST_IE"),
+        std::env::var("DRIFT_TEST_SITE_LIST_EDGE"),
+    ) else {
+        return;
+    };
+    let sandbox = Sandbox::new("browser-site-list");
+    let eval = |expression: &str| call(&sandbox, json!({ "action": "eval", "expression": expression }));
+
+    let opened = call(&sandbox, json!({ "action": "open", "url": ie_url, "engine": "ie" }))
+        .await
+        .unwrap();
+    assert!(opened.output.contains("site list"), "{}", opened.output);
+    assert_eq!(eval("typeof document.documentMode").await.unwrap().output, "number");
+    let ie_page = active_page(&sandbox);
+
+    let open = format!("window.open('{edge_url}', 'edgeside', 'width=600,height=500'); 'opened'");
+    eval(&open).await.unwrap();
+    let mut edge_page = String::new();
+    for _ in 0..100 {
+        edge_page = active_page(&sandbox);
+        if edge_page != ie_page {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_ne!(edge_page, ie_page, "the Edge page became the active tab");
+    assert_eq!(eval("typeof document.documentMode").await.unwrap().output, "undefined");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    let left: f64 = eval("window.screenX").await.unwrap().output.parse().unwrap();
+    assert!(left < -10_000.0, "the Edge window is off-screen, at {left}");
+
+    shows_each_engine_in_the_pane(&sandbox, &ie_page, &edge_page).await;
+    call(&sandbox, json!({ "action": "select", "page": ie_page }))
+        .await
+        .unwrap();
+    assert_eq!(eval("typeof document.documentMode").await.unwrap().output, "number");
+
+    // A tab the agent opens has a window of its own, restored off-screen from minimized.
+    call(&sandbox, json!({ "action": "open", "url": edge_url }))
+        .await
+        .unwrap();
+    assert_eq!(eval("typeof document.documentMode").await.unwrap().output, "undefined");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    let size = eval("window.screenX + ' ' + innerWidth").await.unwrap().output;
+    let (left, width) = size.split_once(' ').unwrap();
+    assert!(
+        left.parse::<f64>().unwrap() < -10_000.0,
+        "the agent's tab is off-screen: {size}"
+    );
+    assert!(
+        width.parse::<f64>().unwrap() > 500.0,
+        "the agent's tab is restored: {size}"
+    );
+    watches_and_stops(&sandbox).await;
+}
+
+fn active_page(sandbox: &Sandbox) -> String {
+    let pages = sandbox.ctx.engine.browsers.record("ses_test").unwrap().pages;
+
+    pages
+        .into_iter()
+        .find(|page| page.active)
+        .map(|page| page.id)
+        .unwrap_or_default()
+}
+
+/// The pane gets pictures of whichever engine's tab it switches to.
+async fn shows_each_engine_in_the_pane(sandbox: &Sandbox, ie_page: &str, edge_page: &str) {
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let mut viewer = crate::browser::driver::watch(driver.clone());
+
+    for page in [ie_page, edge_page, ie_page] {
+        let switched = std::time::Instant::now();
+        driver
+            .input(crate::browser::ViewInput::Select { page: page.into() })
+            .await
+            .unwrap();
+        loop {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(5), viewer.frames.recv())
+                .await
+                .unwrap_or_else(|_| panic!("a picture of {page} within 5 s"))
+                .unwrap();
+            if frame.page == page {
+                break;
+            }
+        }
+        eprintln!("{page} shown after {:?}", switched.elapsed());
     }
 }
 

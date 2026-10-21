@@ -37,6 +37,10 @@ pub(crate) struct Ie {
     /// The window the session is switched to now.
     current: Mutex<Option<String>>,
     last_frame: Mutex<u64>,
+    /// IEDriverServer's own address, where its start window sits.
+    start_url: String,
+    /// The pane should get a picture now, not at the next tick: the user switched tabs or acted on the page.
+    frame_now: tokio::sync::Notify,
 }
 
 pub(crate) struct IeTab {
@@ -83,8 +87,19 @@ fn capabilities(edge: &str, port: u16) -> Value {
     })
 }
 
+/// What IEDriverServer starts when it should attach to an Edge Drift started: nothing, so the attach that follows
+/// finds the IE mode window of the Edge already open.
+fn no_launch() -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:/Windows".into());
+
+    // IEDriverServer drops the backslashes of a path it is given, so this one has none.
+    format!("{}/System32/cmd.exe /c rem", root.replace('\\', "/"))
+}
+
 impl Ie {
-    pub(crate) async fn start(engine: Weak<Engine>, spec: Spec) -> Result<Arc<Self>, String> {
+    /// Starts IEDriverServer and opens Edge in IE mode, or with `attach_to` attaches to the IE mode tab of the
+    /// Edge with that process id instead.
+    pub(crate) async fn start(engine: Weak<Engine>, spec: Spec, attach_to: Option<u32>) -> Result<Arc<Self>, String> {
         let driver = spec.driver.clone().ok_or("IEDriverServer was not found")?;
         let port = free_port()?;
         let mut command = tokio::process::Command::new(&driver);
@@ -103,10 +118,19 @@ impl Ie {
 
         let server = format!("http://127.0.0.1:{port}");
         wait_ready(&server, START_WAIT).await?;
-        let edge = spec.program.display().to_string();
-        let session = Session::create(&server, capabilities(&edge, port))
-            .await
-            .map_err(|error| format!("Edge did not open in IE mode: {error}"))?;
+        let edge = match attach_to {
+            Some(_) => no_launch(),
+            None => spec.program.display().to_string(),
+        };
+        // IEDriverServer takes the first IE mode window in z-order, so the Edge to attach to is put above the rest.
+        if let Some(pid) = attach_to {
+            crate::platform::window::set_topmost(pid, true);
+        }
+        let created = Session::create(&server, capabilities(&edge, port)).await;
+        if let Some(pid) = attach_to {
+            crate::platform::window::set_topmost(pid, false);
+        }
+        let session = created.map_err(|error| format!("Edge did not open in IE mode: {error}"))?;
         let timeouts = json!({ "pageLoad": 30000, "script": 30000, "implicit": 0 });
         let _ = session.post("/timeouts", timeouts).await;
         // IE mode cannot run without a window, so it is kept out of sight.
@@ -123,6 +147,8 @@ impl Ie {
             active: Mutex::default(),
             current: Mutex::default(),
             last_frame: Mutex::new(0),
+            start_url: format!("{server}/"),
+            frame_now: tokio::sync::Notify::new(),
         });
         {
             let _held = ie.lock.lock().await;
@@ -172,18 +198,21 @@ impl Ie {
         let _held = self.lock.lock().await;
         self.focus(handle).await?;
 
-        let installed = self
+        // One round trip when the helpers are there, which is nearly always; an array tells a result from none.
+        let script = format!("if (!window.__drift) return null; return [window.__drift.{call}];");
+        let first = self
             .session
-            .execute("return typeof window.__drift;", json!([]))
+            .execute(&script, args.clone())
             .await
             .map_err(|error| self.blocked(handle, error))?;
-        if installed != "object" {
-            self.session
-                .execute(PAGE_JS, json!([]))
-                .await
-                .map_err(|error| self.blocked(handle, error))?;
+        if let Some(value) = first.as_array().and_then(|values| values.first()) {
+            return Ok(value.clone());
         }
 
+        self.session
+            .execute(PAGE_JS, json!([]))
+            .await
+            .map_err(|error| self.blocked(handle, error))?;
         self.session
             .execute(&format!("return window.__drift.{call};"), args)
             .await
@@ -208,19 +237,32 @@ impl Ie {
         error.into()
     }
 
-    /// Reads the windows again: a new one is a popup and becomes the active page; a closed one is forgotten.
-    async fn sync_windows(&self) {
-        let Ok(handles) = self.session.get("/window/handles").await else {
-            return;
+    /// The session's windows, none once it has ended; nothing when the driver could not say.
+    async fn window_handles(&self) -> Option<Vec<String>> {
+        // A session whose last window closed is gone, and so are its windows.
+        let handles = match self.session.get("/window/handles").await {
+            Ok(handles) => handles,
+            Err(error) if error.code == "invalid session id" => json!([]),
+            Err(_) => return None,
         };
-        let handles: Vec<String> = handles
+
+        let handles = handles
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|handle| handle.as_str().map(str::to_string))
             .collect();
+        Some(handles)
+    }
 
-        let mut added = None;
+    /// Reads the windows again: a new one is a popup and becomes the active page; a closed one is forgotten.
+    async fn sync_windows(&self) {
+        let Some(handles) = self.window_handles().await else {
+            return;
+        };
+        let before = self.as_driver().map(|driver| driver.record().pages);
+
+        let mut added = Vec::new();
         {
             let mut tabs = self.tabs.lock().unwrap();
             let first = tabs.is_empty();
@@ -235,7 +277,19 @@ impl Ie {
                     owner: self.me.clone(),
                     state: Mutex::default(),
                 }));
-                added = Some(handle.clone());
+                if !first {
+                    added.push(handle.clone());
+                }
+            }
+        }
+
+        // A window the page opens takes the place and size it asked for, on screen, so it is moved out of sight.
+        for handle in &added {
+            if self.focus(handle).await.is_ok() {
+                let _ = self
+                    .session
+                    .post("/window/rect", json!({ "x": -32000, "y": -32000 }))
+                    .await;
             }
         }
 
@@ -245,7 +299,10 @@ impl Ie {
             .unwrap()
             .as_ref()
             .is_none_or(|active| !handles.contains(active));
-        let next = added.or_else(|| active_gone.then(|| handles.last().cloned()).flatten());
+        let next = added
+            .last()
+            .cloned()
+            .or_else(|| active_gone.then(|| handles.last().cloned()).flatten());
         if let Some(handle) = next {
             *self.active.lock().unwrap() = Some(handle);
         }
@@ -253,7 +310,10 @@ impl Ie {
             let _ = self.focus(&active).await;
             self.sync_page(&active).await;
         }
-        self.changed();
+        // This runs every tick, so only a change is reported.
+        if self.as_driver().map(|driver| driver.record().pages) != before {
+            self.changed();
+        }
     }
 
     /// The address, title and any dialog of the window the session is on; the lock must be held.
@@ -301,13 +361,26 @@ impl Ie {
         Ok((shot, (css_width, css_height)))
     }
 
+    /// A picture for a watching pane; windows are looked for even unwatched, so one a page's timer opens is hidden
+    /// at once.
+    async fn tick(&self) {
+        if self.common.watched() {
+            self.send_frame().await;
+            return;
+        }
+        let _held = self.lock.lock().await;
+        self.sync_windows().await;
+    }
+
     async fn run(self: Arc<Self>, mut child: tokio::process::Child) {
         let mut every = tokio::time::interval(FRAME_EVERY);
         loop {
             tokio::select! {
-                _ = every.tick() => {
+                _ = every.tick() => self.tick().await,
+                () = self.frame_now.notified() => {
                     if self.common.watched() {
                         self.send_frame().await;
+                        every.reset();
                     }
                 }
                 _ = child.wait() => break,
@@ -327,32 +400,31 @@ impl Ie {
         }
     }
 
-    /// The active window's picture, sent only when it changed.
+    /// The active window's picture, sent only when it changed; the windows are read again after it, so a tab
+    /// switch shows at once and a new popup asks for its own picture.
     async fn send_frame(&self) {
         let Some(active) = self.active() else {
             return;
         };
-        {
-            let _held = self.lock.lock().await;
-            self.sync_windows().await;
+        if let Ok((shot, (width, height))) = self.picture(&active).await {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            shot.jpeg.hash(&mut hasher);
+            let hash = hasher.finish();
+            if std::mem::replace(&mut *self.last_frame.lock().unwrap(), hash) != hash {
+                self.common.send_frame(Frame {
+                    page: active.clone(),
+                    width,
+                    height,
+                    jpeg: shot.jpeg,
+                });
+            }
         }
-        let Ok((shot, (width, height))) = self.picture(&active).await else {
-            return;
-        };
 
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        shot.jpeg.hash(&mut hasher);
-        let hash = hasher.finish();
-        if std::mem::replace(&mut *self.last_frame.lock().unwrap(), hash) == hash {
-            return;
+        let _held = self.lock.lock().await;
+        self.sync_windows().await;
+        if self.active().as_deref() != Some(active.as_str()) {
+            self.frame_now.notify_one();
         }
-
-        self.common.send_frame(Frame {
-            page: active,
-            width,
-            height,
-            jpeg: shot.jpeg,
-        });
     }
 
     async fn pane_key(&self, tab: &IeTab, key: &super::KeyInput) -> Result<(), String> {
@@ -371,6 +443,7 @@ impl Ie {
     async fn page_input(&self, input: ViewInput) -> Result<(), String> {
         let active = self.active().ok_or("the browser has no page open")?;
         let tab = self.tab(&active).ok_or("the active page has closed")?;
+        let acts = !matches!(&input, ViewInput::Mouse(mouse) if mouse.event == "move" || mouse.event == "down");
         match input {
             ViewInput::Mouse(mouse) if mouse.event == "up" => {
                 let count = mouse.click_count.unwrap_or(1);
@@ -386,6 +459,10 @@ impl Ie {
             ViewInput::Navigate { url } => tab.go(&url).await?,
             ViewInput::Dialog { accept, text } => tab.answer_dialog(accept, text.as_deref()).await?,
             _ => {}
+        }
+        // What the input did shows now, not at the next tick.
+        if acts {
+            self.frame_now.notify_one();
         }
 
         Ok(())
@@ -667,10 +744,16 @@ impl Driver for Ie {
     }
 
     fn tabs(&self) -> Vec<Arc<dyn Tab>> {
+        let active = self.active();
+
+        // IEDriverServer's own start window cannot be scripted or pictured, so it is no page to show.
         self.tabs
             .lock()
             .unwrap()
             .iter()
+            .filter(|tab| {
+                Some(&tab.handle) == active.as_ref() || !tab.state.lock().unwrap().url.starts_with(&self.start_url)
+            })
             .map(|tab| tab.clone() as Arc<dyn Tab>)
             .collect()
     }
@@ -716,6 +799,7 @@ impl Driver for Ie {
         *self.active.lock().unwrap() = Some(id.to_string());
         *self.last_frame.lock().unwrap() = 0;
         self.changed();
+        self.frame_now.notify_one();
 
         Ok(())
     }
@@ -743,6 +827,7 @@ impl Driver for Ie {
 
     fn viewers_changed(&self) {
         *self.last_frame.lock().unwrap() = 0;
+        self.frame_now.notify_one();
     }
 
     fn stop(&self) {

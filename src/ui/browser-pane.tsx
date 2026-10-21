@@ -84,14 +84,21 @@ function BrowserPane(props: { sessionId: string }) {
         >
             <AddressBar page={active()} onSend={send} />
             <Show when={active()?.dialog}>{(dialog) => <DialogBar dialog={dialog()} onSend={send} />}</Show>
-            <BrowserView sessionId={props.sessionId} onReady={(ready) => (view = ready)} />
+            <BrowserView sessionId={props.sessionId} activePage={active()?.id} onReady={(ready) => (view = ready)} />
         </SidePanel>
     );
 }
 
+/** Tabs narrow as a browser's do before the strip scrolls; the wheel scrolls it, as it has no bar. */
 function Tabs(props: { engine?: BrowserKind; pages: BrowserPage[]; onSend: ViewSocket["send"] }) {
     return (
-        <div class="browser-tabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div
+            class="browser-tabs flex min-w-0 flex-[0_1_auto] items-center gap-1 overflow-x-auto"
+            onWheel={(event) => {
+                if (event.deltaY === 0) return;
+                event.currentTarget.scrollLeft += event.deltaY;
+            }}
+        >
             <span class="flex shrink-0 items-center gap-1 pr-1 text-xs text-ink-faint">
                 <IconGlobe class="size-3.5" />
                 <Show when={props.engine}>{(engine) => engineLabel(engine())}</Show>
@@ -99,7 +106,7 @@ function Tabs(props: { engine?: BrowserKind; pages: BrowserPage[]; onSend: ViewS
             <For each={props.pages}>
                 {(page) => (
                     <div
-                        class="group flex h-7 max-w-44 min-w-0 shrink-0 items-center gap-1 rounded-md pr-0.5 pl-2 text-xs transition-colors"
+                        class="group flex h-7 w-44 min-w-20 shrink items-center gap-1 rounded-md pr-0.5 pl-2 text-xs transition-colors"
                         classList={{
                             "bg-raised text-ink": page.active,
                             "text-ink-muted hover:bg-raised/60 hover:text-ink": !page.active,

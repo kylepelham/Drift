@@ -957,6 +957,7 @@ export const drift = {
     "drift.process.stopFailed": "无法停止进程",
     "drift.browser.view": "浏览器页面",
     "drift.browser.waiting": "正在等待页面...",
+    "drift.browser.loading": "正在加载标签页",
     "drift.browser.newTab": "新建标签页",
     "drift.browser.closeTab": "关闭标签页",
     "drift.browser.stop": "停止浏览器",

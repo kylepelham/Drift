@@ -999,6 +999,7 @@ export const drift = {
     "drift.process.stopFailed": "Не вдалося зупинити процес",
     "drift.browser.view": "Сторінка браузера",
     "drift.browser.waiting": "Очікування сторінки...",
+    "drift.browser.loading": "Завантаження вкладки",
     "drift.browser.newTab": "Нова вкладка",
     "drift.browser.closeTab": "Закрити вкладку",
     "drift.browser.stop": "Зупинити браузер",

@@ -959,6 +959,7 @@ export const drift = {
     "drift.process.stopFailed": "無法停止程序",
     "drift.browser.view": "瀏覽器頁面",
     "drift.browser.waiting": "正在等待頁面...",
+    "drift.browser.loading": "正在載入分頁",
     "drift.browser.newTab": "新增分頁",
     "drift.browser.closeTab": "關閉分頁",
     "drift.browser.stop": "停止瀏覽器",

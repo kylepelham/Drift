@@ -11,10 +11,17 @@ type PageSize = { width: number; height: number };
 const FIT_DELAY_MS = 150;
 
 /** The browser's active page as the engine streams it; clicks, scrolling and typing here go to the page. */
-export function BrowserView(props: { sessionId: string; onReady: (view: ViewSocket) => void }) {
+export function BrowserView(props: {
+    sessionId: string;
+    /** The tab the user or agent made active; until a picture of it arrives the pane shows it is on its way. */
+    activePage?: string;
+    onReady: (view: ViewSocket) => void;
+}) {
     const engine = useEngine();
     const [size, setSize] = createSignal<PageSize>();
+    const [shownPage, setShownPage] = createSignal<string>();
     const [cursor, setCursor] = createSignal("default");
+    const switching = () => !!size() && !!props.activePage && shownPage() !== props.activePage;
     let area!: HTMLDivElement;
     let canvas!: HTMLCanvasElement;
     let latest: BrowserFrame | undefined;
@@ -35,6 +42,7 @@ export function BrowserView(props: { sessionId: string; onReady: (view: ViewSock
             canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
             bitmap.close();
             setSize({ width: frame.width, height: frame.height });
+            setShownPage(frame.page);
         }
         drawing = false;
     }
@@ -165,6 +173,17 @@ export function BrowserView(props: { sessionId: string; onReady: (view: ViewSock
                 <p class="absolute inset-x-0 top-1/3 text-center text-sm text-ink-faint">
                     {t("drift.browser.waiting")}
                 </p>
+            </Show>
+            <Show when={switching()}>
+                <div
+                    class="browser-loading pointer-events-none absolute inset-0 bg-bg/40"
+                    role="status"
+                    aria-label={t("drift.browser.loading")}
+                >
+                    <div class="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-accent/20">
+                        <div class="browser-loading-bar h-full w-2/5 bg-accent" />
+                    </div>
+                </div>
             </Show>
         </div>
     );

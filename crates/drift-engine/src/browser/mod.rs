@@ -9,9 +9,11 @@ mod firefox;
 mod ie;
 pub(crate) mod input;
 pub(crate) mod lighthouse;
+mod mixed;
 pub(crate) mod performance;
 mod profiles;
 pub mod project;
+mod site_list;
 mod view;
 mod webdriver;
 
@@ -212,6 +214,19 @@ pub fn installed() -> Option<Kind> {
         .find(|kind| engines::executable(*kind).is_some())
 }
 
+/// IE mode follows the machine's site list when a group policy sets one up and the first address is one it names
+/// (or there is none yet); an address it does not name is opened in IE mode alone, as the agent asked.
+fn follows_site_list(url: Option<&str>) -> bool {
+    if !site_list::in_force() {
+        return false;
+    }
+
+    match url.filter(|url| *url != "about:blank") {
+        None => true,
+        Some(url) => site_list::SiteList::users().is_some_and(|list| list.route(&with_scheme(url)).is_some()),
+    }
+}
+
 /// The running browsers, one per conversation at most.
 #[derive(Default)]
 pub struct Browsers {
@@ -281,6 +296,8 @@ struct Profiled<'a> {
 struct Plan {
     spec: Spec,
     notes: Vec<String>,
+    /// IE mode follows the machine's site list, with Chromium tabs beside its IE mode ones.
+    site_list: bool,
 }
 
 impl Engine {
@@ -304,7 +321,11 @@ impl Engine {
 
         if let Some(running) = self.running_browser(session_id).await {
             let running_kind = running.common().kind;
-            let Some(asked) = self.asked_kind(session_id, &wanted, running_kind) else {
+            // IE mode that follows a site list opens Chrome's and Edge's addresses itself, beside its IE mode tabs.
+            let asked = self.asked_kind(session_id, &wanted, running_kind).filter(|asked| {
+                wanted.kind.is_some() || !(running.mixes_engines() && asked.family() == Family::Chromium)
+            });
+            let Some(asked) = asked else {
                 return Ok((running, notes));
             };
             notes.push(format!(
@@ -322,7 +343,8 @@ impl Engine {
         let driver: Arc<dyn Driver> = match plan.spec.kind.family() {
             Family::Chromium => chromium::Chromium::start(self.me.clone(), plan.spec).await?,
             Family::Gecko => firefox::Firefox::start(self.me.clone(), plan.spec).await?,
-            Family::Ie => ie::Ie::start(self.me.clone(), plan.spec).await?,
+            Family::Ie if plan.site_list => mixed::Mixed::start(self.me.clone(), plan.spec).await?,
+            Family::Ie => ie::Ie::start(self.me.clone(), plan.spec, None).await?,
         };
 
         self.browsers
@@ -435,7 +457,13 @@ impl Engine {
             kind,
             storage: project.storage.unwrap_or(settings.storage),
         };
-        let (storage, profile) = self.profile_for(&wanted_profile, &mut notes);
+        let (storage, mut profile) = self.profile_for(&wanted_profile, &mut notes);
+        let site_list = kind == Kind::Ie && follows_site_list(wanted.url);
+        let mut window = project.window.unwrap_or(settings.window);
+        if site_list {
+            profile = Some(profiles::isolated(&self.data_dir, session_id, kind));
+            window = Window::Offscreen;
+        }
         let (integrated_auth, refused) = project.integrated_auth_hosts();
         if !refused.is_empty() {
             notes.push(format!(
@@ -453,12 +481,12 @@ impl Engine {
             program,
             driver: (kind == Kind::Ie).then(|| self.ie_driver()).flatten(),
             storage,
-            window: project.window.unwrap_or(settings.window),
+            window,
             profile,
             integrated_auth,
         };
 
-        Ok(Plan { spec, notes })
+        Ok(Plan { spec, notes, site_list })
     }
 
     /// The engine asked for when it can run here; Chrome and Edge stand in for each other.

@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -296,6 +296,12 @@ pub(crate) trait Driver: Send + Sync {
     fn opening_note(&self) -> Option<String> {
         None
     }
+
+    /// Whether this browser opens Chrome's and Edge's addresses beside its own engine's, as IE mode with a site
+    /// list does.
+    fn mixes_engines(&self) -> bool {
+        false
+    }
 }
 
 impl dyn Driver {
@@ -344,6 +350,10 @@ impl dyn Driver {
     /// Something the pane shows changed.
     pub(crate) fn changed(&self) {
         let common = self.common();
+        if let Some(on_change) = common.on_change.get() {
+            on_change();
+            return;
+        }
         if !common.listed.load(Ordering::SeqCst) {
             return;
         }
@@ -376,6 +386,7 @@ impl Drop for Viewer {
 }
 
 /// What a browser is and the state every engine keeps the same way.
+#[derive(Clone)]
 pub(crate) struct Spec {
     pub(crate) session_id: String,
     pub(crate) kind: Kind,
@@ -408,6 +419,8 @@ pub(crate) struct Common {
     viewers: AtomicUsize,
     /// Set once the engine lists it, so no client hears of a browser the API cannot yet return.
     listed: AtomicBool,
+    /// Set when this browser drives one engine of another browser, which is told of its changes instead of clients.
+    pub(crate) on_change: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Common {
@@ -427,6 +440,7 @@ impl Common {
             used: Mutex::new(Instant::now()),
             viewers: AtomicUsize::new(0),
             listed: AtomicBool::new(false),
+            on_change: OnceLock::new(),
         }
     }
 

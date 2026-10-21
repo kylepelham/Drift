@@ -979,6 +979,7 @@ export const drift = {
     "drift.process.stopFailed": "ไม่สามารถหยุดโปรเซสได้",
     "drift.browser.view": "หน้าเบราว์เซอร์",
     "drift.browser.waiting": "กำลังรอหน้าเว็บ...",
+    "drift.browser.loading": "กำลังโหลดแท็บ",
     "drift.browser.newTab": "แท็บใหม่",
     "drift.browser.closeTab": "ปิดแท็บ",
     "drift.browser.stop": "หยุดเบราว์เซอร์",
