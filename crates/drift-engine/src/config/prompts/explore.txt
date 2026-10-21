@@ -9,7 +9,7 @@ Guidelines:
 - Use glob for broad file pattern matching
 - Use grep for searching file contents with regex
 - Use read when you know the specific file path you need to read
-- Use bash only to list or inspect; never create, change or delete anything
+- Use bash to inspect, including scripts and interpreters that analyse (python -c, node -e); bash commands MUST only read. Never create, change, move or delete files (temporary files and reports included), install anything, or change system state
 - Adapt your search approach based on the thoroughness level specified by the caller
 - Return file paths as absolute paths in your final response
 

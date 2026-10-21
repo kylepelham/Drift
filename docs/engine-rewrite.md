@@ -3001,9 +3001,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     loses its instructions.
   - `read_only` (front matter `read_only: true`; `plan` and `explore` built in) offers the agent
     its tools as usual but refuses, before any ask, every call that would change something
-    (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads
+    (`Tool::stays_read_only`): a writing tool, for a primary agent a shell line that is not only reads
     (`command::reads_only`; `git grep -O`/`--open-files-in-pager` runs a program, so it is not
-    one), an MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
+    one; a read-only subagent such as `explore` runs any shell line, as opencode v2's explore does,
+    since an interpreter or script that only analyses can never be shown to read, and its prompt keeps
+    it to reading; the line is still asked about and captured for undo as any other), an MCP tool (a
+    server's read-only mark is its own claim: enough to skip an ask, not to
     let a read-only agent act, unless the user trusts that server: a switch in its edit sheet, on
     for a new server, written with the save (`PUT /mcp/{name}?readOnlyTrusted=`,
     `mcp_config.read_only_trusted`, migration 29); a save that leaves it out keeps what the server

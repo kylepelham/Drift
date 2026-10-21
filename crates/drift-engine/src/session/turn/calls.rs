@@ -1,3 +1,4 @@
+use crate::config::AgentKind;
 use crate::session::changes::Capture;
 use crate::tool::{Output, Tool, ToolError};
 use serde_json::Value;
@@ -389,11 +390,14 @@ fn unparsed(input: &Value) -> String {
 }
 
 /// Why a read-only agent may not make this call, if it may not. A read-only primary agent (plan) may
-/// still write Markdown plans in its workspace's plans folder, and nowhere else.
+/// still write Markdown plans in its workspace's plans folder, and nowhere else. A read-only subagent runs any
+/// shell command, as opencode's explore does: an interpreter or script cannot be shown to only read, and its
+/// prompt keeps it to reading.
 fn read_only_refusal(plan: &Plan, context: &crate::tool::Context, tool: &dyn Tool, input: &Value) -> Option<String> {
     let agent = &plan.session.agent;
     let found = plan.config.agent(agent).filter(|found| found.read_only)?;
-    if tool.stays_read_only(context, input) {
+    let trusted_shell = found.kind == AgentKind::Subagent && tool.permissions().contains(&"bash");
+    if trusted_shell || tool.stays_read_only(context, input) {
         return None;
     }
     let plans = context.plans_dir().filter(|_| found.kind.runs_conversations());
