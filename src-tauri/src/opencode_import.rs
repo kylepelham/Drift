@@ -83,7 +83,7 @@ pub(crate) fn start(app: &AppHandle) -> Importer {
 }
 
 /// The last import's summary, once: a second call returns nothing until another run brings something in.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summary> {
     importer.summary.lock().unwrap().take()
 }

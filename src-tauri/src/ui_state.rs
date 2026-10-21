@@ -226,7 +226,7 @@ impl UiStateAuthority {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn ui_state_initialize(
     authority: tauri::State<'_, UiStateAuthority>,
     store: tauri::State<'_, Store>,
@@ -237,12 +237,12 @@ pub(crate) fn ui_state_initialize(
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn ui_state_snapshot(authority: tauri::State<'_, UiStateAuthority>) -> Result<UiMirrorSnapshot, String> {
     authority.snapshot().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn ui_state_update(
     app: tauri::AppHandle,
     authority: tauri::State<'_, UiStateAuthority>,

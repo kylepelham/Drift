@@ -301,7 +301,7 @@ impl Store {
     }
 
     fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
-        let connection = self.0.lock();
+        let connection = self.0.read();
         let query = format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}");
         let mut statement = connection.prepare_cached(&query)?;
         let rows = statement.query_map([], map_workspace)?;
@@ -446,7 +446,7 @@ impl Store {
     }
 
     pub(crate) fn archived(&self) -> rusqlite::Result<Vec<ArchivedSession>> {
-        let connection = self.0.lock();
+        let connection = self.0.read();
         let mut statement = connection.prepare_cached(
             "SELECT session_id, workspace_id, archived_at FROM session_meta WHERE archived_at IS NOT NULL",
         )?;
@@ -483,7 +483,7 @@ impl Store {
     /// Tombstones are removed via unarchive_session only after the engine confirms session deletion.
     /// Failed deletions are therefore retried on a later purge.
     pub(crate) fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
-        let connection = self.0.lock();
+        let connection = self.0.read();
         let mut statement = connection
             .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?;
         let rows = statement.query_map([before], |row| row.get(0))?;
@@ -491,7 +491,7 @@ impl Store {
     }
 
     pub(crate) fn mcp_state(&self) -> rusqlite::Result<McpState> {
-        let connection = self.0.lock();
+        let connection = self.0.read();
         let servers = connection
             .prepare_cached("SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE")?
             .query_map([], |row| {

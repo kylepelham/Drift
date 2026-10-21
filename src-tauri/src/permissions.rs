@@ -51,7 +51,7 @@ pub(crate) fn permission_decision(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn voice_dictation_set_enabled(
     consent: State<DictationConsent>,
     store: State<Store>,

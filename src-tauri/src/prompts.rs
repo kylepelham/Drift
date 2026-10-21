@@ -38,14 +38,14 @@ pub(crate) struct PromptSnapshot {
     overrides: Vec<PromptOverride>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn prompt_snapshot(store: State<Store>) -> Result<PromptSnapshot, String> {
     Ok(PromptSnapshot {
         overrides: store.prompt_overrides().map_err(|error| error.to_string())?,
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn prompt_save(
     app: AppHandle,
     store: State<Store>,
@@ -70,7 +70,7 @@ pub(crate) fn prompt_save(
     crate::native::push_agent_overrides(&app, &store).map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn prompt_reset(app: AppHandle, store: State<Store>, key: String) -> Result<(), String> {
     agent_name(&key).map_err(|error| error.to_string())?;
     store.reset_prompt_override(&key).map_err(|error| error.to_string())?;

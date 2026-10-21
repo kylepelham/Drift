@@ -69,17 +69,17 @@ pub(crate) async fn storage_compact(native: State<'_, crate::native::Native>) ->
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {
     store.workspaces().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_removed_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {
     store.removed_workspaces().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[expect(
     clippy::too_many_arguments,
     reason = "Tauri fills each parameter from the IPC call's named arguments"
@@ -100,7 +100,7 @@ pub(crate) fn store_add_workspace(
     Ok(workspace)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_save_workspace(
     store: State<Store>,
     id: String,
@@ -113,12 +113,12 @@ pub(crate) fn store_save_workspace(
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_touch_workspace(store: State<Store>, id: String) -> Result<(), String> {
     store.touch_workspace(&id).map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_remove_workspace(
     store: State<Store>,
     native: State<crate::native::Native>,
@@ -128,7 +128,7 @@ pub(crate) fn store_remove_workspace(
     store.remove_workspace(&id).map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_expired_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<Workspace>, String> {
     store
         .expired_removed_workspaces(before)
@@ -137,7 +137,7 @@ pub(crate) fn store_expired_removed_workspaces(store: State<Store>, before: i64)
 
 /// Forgets the removed workspace's engine grants and trusted commands, then its shell records.
 /// Engine records go first so a failure leaves the shell row available for a retry.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_forget_workspace(
     store: State<Store>,
     native: State<crate::native::Native>,
@@ -161,12 +161,12 @@ pub(crate) fn store_forget_workspace(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_archived(store: State<Store>) -> Result<Vec<ArchivedSession>, String> {
     store.archived().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_archive_session(
     store: State<Store>,
     session_id: String,
@@ -177,12 +177,12 @@ pub(crate) fn store_archive_session(
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<(), String> {
     store.unarchive_session(&session_id).map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn store_expired_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
     store.expired_archived(before).map_err(|error| error.to_string())
 }

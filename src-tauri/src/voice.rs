@@ -154,7 +154,7 @@ pub(crate) fn voice_acceleration() -> bool {
     vulkan_ready() && sidecar("whisper-cli-vulkan").is_some()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn voice_models(app: tauri::AppHandle) -> Result<Vec<VoiceModel>, String> {
     let dir = model_dir(&app).map_err(|error| error.to_string())?;
 
@@ -168,7 +168,7 @@ pub(crate) fn voice_models(app: tauri::AppHandle) -> Result<Vec<VoiceModel>, Str
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn voice_model_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let model = spec(&id).map_err(|error| error.to_string())?;
     let path = model_path(&app, model).map_err(|error| error.to_string())?;
