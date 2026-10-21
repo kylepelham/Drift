@@ -96,17 +96,17 @@ impl Store {
     }
 
     pub fn task(&self, task_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
-        query_one(&self.lock(), "id = ?1", &[task_id])
+        query_one(&self.read(), "id = ?1", &[task_id])
     }
 
     /// The worker whose transcript is `session_id`, if it is one; the latest, when a worker was resumed.
     pub fn task_for_session(&self, session_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
-        query_one(&self.lock(), "session_id = ?1 ORDER BY id DESC LIMIT 1", &[session_id])
+        query_one(&self.read(), "session_id = ?1 ORDER BY id DESC LIMIT 1", &[session_id])
     }
 
     /// Every worker a session launched, oldest first.
     pub fn tasks_of(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 ORDER BY id"
             ))?
@@ -166,7 +166,7 @@ impl Store {
 
     /// Finished background results still owed to `parent` (or to anyone) that may wake it.
     pub fn owed_background(&self, parent: Option<&str>) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {COLUMNS} FROM task WHERE (?1 IS NULL OR parent_session_id = ?1) AND mode = 'background' AND delivered = 0 AND held = 0 AND state NOT IN ('queued', 'running') ORDER BY id"
             ))?
@@ -176,7 +176,7 @@ impl Store {
 
     /// Finished background results held back from `parent`, oldest first.
     pub fn held_tasks(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 AND held = 1 AND delivered = 0 AND mode = 'background' ORDER BY id"))?
             .query_map([parent], row)?
             .collect()
@@ -222,7 +222,7 @@ impl Store {
 
     /// Finished workers whose result has not reached the parent and is not held back from waking it.
     pub fn undelivered_tasks(&self) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE delivered = 0 AND held = 0 AND state NOT IN ('queued', 'running') ORDER BY id"))?
             .query_map([], row)?
             .collect()

@@ -1,7 +1,8 @@
-//! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
+//! One SQLite database, one writer, and readers beside it. Schema changes are numbered migrations.
 
 mod admission;
 mod blobs;
+mod connections;
 mod import;
 mod instructions;
 mod mcp;
@@ -19,6 +20,7 @@ mod tree;
 mod turn_claims;
 
 pub use admission::{Admission, Admit, Admitted, Handover, Pick};
+pub use connections::blocking;
 pub use import::ImportCheckpoints;
 pub use instructions::{Instruction, Value as InstructionValue};
 pub use mcp::Renamed;
@@ -30,6 +32,8 @@ pub use turn_claims::TurnClaim;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
+
+use connections::Readers;
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -44,14 +48,16 @@ const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used";
 
 pub struct Store {
     conn: Mutex<Connection>,
+    readers: Readers,
     /// Open text and reasoning parts for transcript reads between disk checkpoints.
     streaming: Mutex<std::collections::HashMap<String, crate::session::types::PartRow>>,
 }
 
 impl Store {
-    fn new(conn: Connection) -> Self {
+    fn new(conn: Connection, readers: Readers) -> Self {
         Self {
             conn: Mutex::new(conn),
+            readers,
             streaming: Mutex::default(),
         }
     }
@@ -80,25 +86,32 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     migrations::apply(&conn)?;
+    let readers = Readers::open(file)?;
 
-    Ok(Store::new(conn))
+    Ok(Store::new(conn, readers))
 }
 
 impl Store {
-    /// The one connection. Hold the guard for the whole unit of work and no longer.
+    /// The writer. Hold the guard for the whole unit of work and no longer.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        connections::acquire(&self.conn)
+    }
+
+    /// A reader, for work that only reads: it sees every committed write and never waits on the writer.
+    /// An in-memory store has no readers and reads on the writer.
+    pub fn read(&self) -> MutexGuard<'_, Connection> {
+        self.readers.take().unwrap_or_else(|| self.lock())
     }
 
     pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"))?
             .query_row([id], map_workspace)
             .optional()
     }
 
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
-        let conn = self.lock();
+        let conn = self.read();
         let mut stmt = conn.prepare_cached(&format!(
             "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC"
         ))?;
@@ -146,7 +159,7 @@ impl Store {
 impl Store {
     /// The workspace's conversations, archived and subagents included; `None` when it is not a removed workspace.
     pub fn removed_workspace_sessions(&self, id: &str) -> rusqlite::Result<Option<Vec<String>>> {
-        let conn = self.lock();
+        let conn = self.read();
         let removed: Option<bool> = conn
             .prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?
             .query_row([id], |row| row.get(0))
@@ -207,7 +220,7 @@ pub(crate) mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", true).unwrap();
         migrations::apply(&conn).unwrap();
-        Store::new(conn)
+        Store::new(conn, Readers::none())
     }
 
     #[test]

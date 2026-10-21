@@ -143,7 +143,7 @@ impl Store {
     }
 
     pub fn submission(&self, id: &str) -> rusqlite::Result<Option<Submission>> {
-        submission_in(&self.lock(), id)
+        submission_in(&self.read(), id)
     }
 }
 

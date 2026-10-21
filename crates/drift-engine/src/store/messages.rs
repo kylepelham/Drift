@@ -113,7 +113,7 @@ impl Store {
     }
 
     pub fn message(&self, id: &str) -> rusqlite::Result<Option<Message>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?
             .query_row([id], map_message)
             .optional()
@@ -126,23 +126,26 @@ impl Store {
         before: Option<&str>,
         limit: usize,
     ) -> rusqlite::Result<Vec<MessageWithParts>> {
-        let connection = self.lock();
-        let mut statement = connection.prepare_cached(&format!(
-            "SELECT {MESSAGE_COLUMNS} FROM (
-                SELECT * FROM message WHERE session_id = ?1 AND (?2 IS NULL OR id < ?2)
-                ORDER BY id DESC LIMIT ?3
-             ) ORDER BY id ASC"
-        ))?;
-        let messages = statement
-            .query_map(params![session_id, before, limit as i64], map_message)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        // A whole transcript can be a hundred megabytes; it is read as blocking work.
+        super::blocking(|| {
+            let connection = self.read();
+            let mut statement = connection.prepare_cached(&format!(
+                "SELECT {MESSAGE_COLUMNS} FROM (
+                    SELECT * FROM message WHERE session_id = ?1 AND (?2 IS NULL OR id < ?2)
+                    ORDER BY id DESC LIMIT ?3
+                 ) ORDER BY id ASC"
+            ))?;
+            let messages = statement
+                .query_map(params![session_id, before, limit as i64], map_message)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        with_parts_in(self, &connection, session_id, messages)
+            with_parts_in(self, &connection, session_id, messages)
+        })
     }
 
     /// A session's messages in order without their parts: for deciding about a long history without loading it.
     pub fn message_infos(&self, session_id: &str) -> rusqlite::Result<Vec<Message>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 ORDER BY id"
             ))?
@@ -157,21 +160,23 @@ impl Store {
 
     /// The messages from `from` on, in order.
     pub fn messages_from(&self, session_id: &str, from: &str) -> rusqlite::Result<Vec<MessageWithParts>> {
-        let connection = self.lock();
-        let messages = connection
-            .prepare_cached(&format!(
-                "SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND id >= ?2 ORDER BY id"
-            ))?
-            .query_map(params![session_id, from], map_message)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        super::blocking(|| {
+            let connection = self.read();
+            let messages = connection
+                .prepare_cached(&format!(
+                    "SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND id >= ?2 ORDER BY id"
+                ))?
+                .query_map(params![session_id, from], map_message)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        with_parts_in(self, &connection, session_id, messages)
+            with_parts_in(self, &connection, session_id, messages)
+        })
     }
 
     /// Where the model's view of a compacted session starts: the kept tail of the latest finished
     /// summary, else its compaction boundary. `None` when nothing has been summarised.
     pub fn view_start(&self, session_id: &str) -> rusqlite::Result<Option<String>> {
-        let connection = self.lock();
+        let connection = self.read();
         let summary: Option<String> = connection
             .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND summary = 1 AND status = 'done' ORDER BY id DESC LIMIT 1")?
             .query_row([session_id], |row| row.get(0)).optional()?;
@@ -193,7 +198,7 @@ impl Store {
 
     /// The id of the session's newest user message.
     pub fn newest_prompt(&self, session_id: &str) -> rusqlite::Result<Option<String>> {
-        self.lock()
+        self.read()
             .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND role = 'user' ORDER BY id DESC LIMIT 1")?
             .query_row([session_id], |row| row.get(0))
             .optional()
@@ -201,7 +206,7 @@ impl Store {
 
     /// Nudges the engine sent since the user's newest prompt of their own (one with text or a file).
     pub fn nudges_since_prompt(&self, session_id: &str) -> rusqlite::Result<usize> {
-        self.lock().prepare_cached(
+        self.read().prepare_cached(
             "SELECT COUNT(DISTINCT m.id) FROM message m JOIN part p ON p.message_id = m.id
              WHERE m.session_id = ?1 AND m.role = 'user' AND json_extract(p.json, '$.type') = 'nudge'
              AND m.id > COALESCE((SELECT MAX(u.id) FROM message u JOIN part q ON q.message_id = u.id
@@ -211,7 +216,7 @@ impl Store {
 
     /// The session's newest assistant message, without loading the rest of the conversation.
     pub fn last_reply(&self, session_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
-        let connection = self.lock();
+        let connection = self.read();
         let message = connection
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND role = 'assistant' ORDER BY id DESC LIMIT 1"))?
             .query_row([session_id], map_message).optional()?;
@@ -221,7 +226,7 @@ impl Store {
 
     /// The session's newest assistant message whose request reached the provider's prompt cache, without its parts.
     pub fn last_cached_reply(&self, session_id: &str) -> rusqlite::Result<Option<Message>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND role = 'assistant' AND finished_at IS NOT NULL
                  AND json_extract(usage_json, '$.input') + json_extract(usage_json, '$.cacheRead') + json_extract(usage_json, '$.cacheWrite') > 0
@@ -233,7 +238,7 @@ impl Store {
 
     /// The user's prompt the turn holding `message_id` answers: the newest user message before it that is not a compaction boundary.
     pub fn prompt_before(&self, session_id: &str, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
-        let connection = self.lock();
+        let connection = self.read();
         let message = connection.prepare_cached(&format!(
             "SELECT {MESSAGE_COLUMNS} FROM message m WHERE session_id = ?1 AND id < ?2 AND role = 'user' AND summary = 0
              AND NOT EXISTS (SELECT 1 FROM part p WHERE p.message_id = m.id AND json_extract(p.json, '$.type') = 'compaction') ORDER BY id DESC LIMIT 1"
@@ -244,7 +249,7 @@ impl Store {
 
     /// One message and its parts.
     pub fn with_parts(&self, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
-        let connection = self.lock();
+        let connection = self.read();
         let message = connection
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?
             .query_row([message_id], map_message)

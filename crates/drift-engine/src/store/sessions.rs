@@ -50,12 +50,12 @@ impl Store {
     }
 
     pub fn session(&self, id: &str) -> rusqlite::Result<Option<Session>> {
-        session_in(&self.lock(), id)
+        session_in(&self.read(), id)
     }
 
     /// Listed newest first, subagents included; the UI nests them under their parent.
     pub fn sessions(&self, filter: SessionFilter) -> rusqlite::Result<Vec<Session>> {
-        let connection = self.lock();
+        let connection = self.read();
         let mut statement = connection.prepare_cached(&format!(
             "SELECT {SESSION_COLUMNS} FROM session
              WHERE (?1 IS NULL OR workspace_id = ?1)
@@ -160,7 +160,7 @@ impl Store {
 
     /// The sessions of a workspace working in its worktree `name`, archived ones included.
     pub fn sessions_in_worktree(&self, workspace_id: &str, name: &str) -> rusqlite::Result<Vec<Session>> {
-        let connection = self.lock();
+        let connection = self.read();
         let mut statement = connection.prepare_cached(&format!(
             "SELECT {SESSION_COLUMNS} FROM session WHERE workspace_id = ?1 AND worktree = ?2 ORDER BY id"
         ))?;

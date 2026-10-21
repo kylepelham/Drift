@@ -43,7 +43,7 @@ const INSTRUCTION_UPDATES: &str = "SELECT part.json FROM message JOIN part ON pa
 impl Store {
     /// What the session knows of its sources, in baseline order; empty before its first request.
     pub fn instructions(&self, session_id: &str) -> rusqlite::Result<Vec<Instruction>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "SELECT key, position, baseline, current, generation FROM instruction WHERE session_id = ?1 ORDER BY position",
             )?

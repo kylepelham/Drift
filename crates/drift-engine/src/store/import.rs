@@ -56,14 +56,14 @@ impl Store {
 
     /// Whether a conversation with this id was fully imported, even if it has since been deleted.
     pub fn was_imported(&self, session_id: &str) -> rusqlite::Result<bool> {
-        self.lock()
+        self.read()
             .prepare_cached("SELECT 1 FROM imported_session WHERE id = ?1 AND complete = 1")?
             .exists([session_id])
     }
 
     /// Whether a conversation is here and is not an import an earlier run left unfinished.
     pub fn holds_session(&self, session_id: &str) -> rusqlite::Result<bool> {
-        let conn = self.lock();
+        let conn = self.read();
         let unfinished = conn
             .prepare_cached("SELECT 1 FROM imported_session WHERE id = ?1 AND complete = 0")?
             .exists([session_id])?;

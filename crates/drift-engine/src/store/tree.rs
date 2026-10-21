@@ -42,7 +42,7 @@ fn root_of(conn: &Connection, session_id: &str) -> rusqlite::Result<String> {
 impl Store {
     /// The root of `session_id`'s tree, whose id keys its prompt cache.
     pub fn cache_root(&self, session_id: &str) -> rusqlite::Result<String> {
-        root_of(&self.lock(), session_id)
+        root_of(&self.read(), session_id)
     }
 
     /// Copies finished history in pages; `None` means a selected message disappeared and the copy was removed.
@@ -121,7 +121,7 @@ impl Store {
 
     /// The session and its subagents, at any depth. Branches are independent and stay behind.
     pub fn session_tree(&self, id: &str) -> rusqlite::Result<Vec<String>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "WITH RECURSIVE tree(id) AS (
                      SELECT id FROM session WHERE id = ?1
@@ -138,7 +138,7 @@ impl Store {
     /// `idx_part_changes`, under the database lock; they are parsed after it is released.
     pub fn recorded_blobs(&self) -> rusqlite::Result<HashMap<String, Vec<String>>> {
         let rows: Vec<(String, Option<String>, String)> = {
-            let conn = self.lock();
+            let conn = self.read();
             let mut statement = conn.prepare_cached(RECORDED_CHANGES)?;
             let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
             rows.collect::<rusqlite::Result<_>>()?

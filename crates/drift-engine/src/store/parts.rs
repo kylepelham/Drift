@@ -13,7 +13,7 @@ const IMAGE_NUMBERED: &str = "SELECT json FROM part
 impl Store {
     /// Finds one call through its session/call-id index, without loading the transcript.
     pub fn call_part(&self, session_id: &str, call_id: &str) -> rusqlite::Result<Option<PartRow>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "SELECT id, session_id, json, message_id, provider_signature FROM part
                  WHERE session_id = ?1 AND json_extract(json, '$.callId') = ?2
@@ -62,7 +62,7 @@ impl Store {
 
     /// The highest number a pasted image of the session was given; 0 before the first.
     pub fn last_image_number(&self, session_id: &str) -> rusqlite::Result<u32> {
-        self.lock()
+        self.read()
             .prepare_cached(LAST_IMAGE_NUMBER)?
             .query_row(params![session_id], |row| row.get(0))
     }
@@ -70,7 +70,7 @@ impl Store {
     /// The pasted image the session knows by `number`; the newest when a race gave two the same.
     pub fn image_numbered(&self, session_id: &str, number: u32) -> rusqlite::Result<Option<Part>> {
         let json: Option<String> = self
-            .lock()
+            .read()
             .prepare_cached(IMAGE_NUMBERED)?
             .query_row(params![session_id, number], |row| row.get(0))
             .optional()?;
@@ -80,7 +80,7 @@ impl Store {
 
     /// The session's messages with a tool call still pending or running.
     pub fn messages_with_open_calls(&self, session_id: &str) -> rusqlite::Result<std::collections::HashSet<String>> {
-        let connection = self.lock();
+        let connection = self.read();
         let mut statement = connection.prepare_cached(
             "SELECT DISTINCT message_id FROM part WHERE session_id = ?1 AND json_extract(json, '$.type') = 'tool_call'
              AND json_extract(json, '$.status') IN ('pending', 'running')",
