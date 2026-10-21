@@ -1,5 +1,5 @@
 import { keybindLabels } from "./settings-shortcuts";
-import { themeMeta } from "./settings-appearance";
+import { themeLabels } from "./settings-theme";
 import { t } from "../state/i18n";
 
 export const sections = [
@@ -10,6 +10,7 @@ export const sections = [
     "Voice",
     "Shortcuts",
     "Tools",
+    "Browser",
     "Providers",
     "Usage",
     "Skills",
@@ -34,6 +35,7 @@ export const sectionLabels: Record<Section, string> = {
     Voice: "drift.voice",
     Shortcuts: "settings.tab.shortcuts",
     Tools: "drift.settings.execution",
+    Browser: "drift.settings.browser.title",
     Providers: "settings.providers.title",
     Usage: "drift.usage.title",
     Skills: "drift.settings.skills",
@@ -52,7 +54,7 @@ export const sectionGroups: { label: string; items: Section[] }[] = [
     },
     {
         label: "settings.section.server",
-        items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
+        items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
     },
     { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ];
@@ -80,6 +82,7 @@ const settingsSearchDefinitions = {
         { title: "drift.settings.groupTools.title", description: "drift.settings.groupTools.description" },
         { title: "drift.settings.editedFiles.title", description: "drift.settings.editedFiles.description" },
         { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
+        { title: "drift.settings.compactAt.title", description: "drift.settings.compactAt.description" },
         {
             title: "drift.settings.summaries.collapsible.title",
             description: "drift.settings.summaries.collapsible.description",
@@ -92,9 +95,20 @@ const settingsSearchDefinitions = {
     ],
     Appearance: [
         { title: "settings.general.row.theme.title" },
-        ...Object.values(themeMeta).map((item) => ({ title: item.label })),
+        ...Object.values(themeLabels).map((label) => ({ title: label })),
         { title: "drift.settings.customPalette" },
+        { title: "drift.accent.title", description: "drift.accent.description" },
+        { title: "drift.backdrop.title", description: "drift.backdrop.description" },
+        { title: "drift.corners.title", description: "drift.corners.description" },
+        { title: "drift.textSize.interface", description: "drift.textSize.interface.description" },
+        { title: "drift.textSize.conversation", description: "drift.textSize.conversation.description" },
+        { title: "drift.textSize.sidebar", description: "drift.textSize.sidebar.description" },
+        { title: "drift.textSize.composer", description: "drift.textSize.composer.description" },
+        { title: "drift.textSize.ui", description: "drift.textSize.ui.description" },
+        { title: "drift.textSize.settings", description: "drift.textSize.settings.description" },
+        { title: "drift.textSize.icons", description: "drift.textSize.icons.description" },
         { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
+        { title: "drift.settings.thinking", description: "drift.settings.thinking.preview.description" },
         { title: "startup.settings.show.title", description: "startup.settings.show.description" },
         { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
         { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },
@@ -142,6 +156,15 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
+        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
+    ],
+    Browser: [
+        { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
+        { title: "drift.settings.browser.engine.title", description: "drift.settings.browser.engine.description" },
+        { title: "drift.settings.browser.storage.title", description: "drift.settings.browser.storage.description" },
+        { title: "drift.settings.browser.window.title", description: "drift.settings.browser.window.description" },
+        { title: "drift.settings.browser.engines" },
+        { title: "drift.settings.browser.credentials", description: "drift.settings.browser.credentialsHint" },
     ],
     Providers: [
         { title: "dialog.provider.search.placeholder" },
@@ -150,6 +173,10 @@ const settingsSearchDefinitions = {
         { title: "provider.connect.oauth.code.placeholder" },
         { title: "drift.lmStudio.apiToken", description: "drift.lmStudio.description" },
         { title: "drift.lmStudio.refresh" },
+        {
+            title: "drift.providers.options.hourCache.title",
+            description: "drift.providers.options.hourCache.description",
+        },
     ],
     Usage: [
         { title: "drift.usage.title", description: "drift.usage.settingsDescription" },
@@ -208,9 +235,10 @@ const settingsSearchDefinitions = {
     ],
     "Remote Access": [
         { title: "drift.remote.enable", description: "drift.remote.enableDescription" },
-        { title: "drift.remote.connect.title", description: "drift.remote.connect.open" },
+        { title: "drift.remote.app.link", description: "drift.remote.app.description" },
+        { title: "drift.remote.tunnel.title", description: "drift.remote.tunnel.description" },
+        { title: "drift.remote.browser.title", description: "drift.remote.browser.description" },
         { title: "drift.remote.devices.title", description: "drift.remote.devices.revokeAll" },
-        { title: "drift.remote.password.title", description: "drift.remote.password.description" },
         { title: "drift.remote.certificate.title", description: "drift.remote.certificate.description" },
     ],
     About: [

@@ -94,6 +94,8 @@ function reduceContentEvent(
             return dropQuestion(set, event.sessionId, event.requestId);
         case "todo.updated":
             return set("todos", event.sessionId, event.todos);
+        case "queue.updated":
+            return set("queued", event.sessionId, event.queued);
         case "plugin.notice":
             return pushNotice(set, {
                 id: `notice-${Date.now()}-${noticeSequence++}`,
@@ -126,6 +128,7 @@ function purgeSession(draft: EngineState, id: string) {
     delete draft.permissions[id];
     delete draft.questions[id];
     delete draft.todos[id];
+    delete draft.queued[id];
     delete draft.tasks[id];
     delete draft.status[id];
     delete draft.activity[id];

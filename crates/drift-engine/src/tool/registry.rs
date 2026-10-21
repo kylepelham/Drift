@@ -1,5 +1,6 @@
 use super::{
-    Tool, apply_patch, bash, edit, glob, grep, process, question, read, save_image, skill, task, todo, webfetch, write,
+    Tool, apply_patch, bash, browser, edit, findings, generate_image, glob, grep, process, question, read, save_image,
+    skill, task, todo, webfetch, websearch, worktree, write,
 };
 use crate::llm::ToolSpec;
 use crate::llm::catalog::ToolProfile;
@@ -12,25 +13,34 @@ pub struct Registry {
 
 impl Registry {
     pub fn builtin() -> Self {
+        let bash = bash::Bash::detect();
         Self {
             builtin: vec![
                 Arc::new(read::Read),
                 Arc::new(write::Write),
                 Arc::new(edit::Edit),
                 Arc::new(apply_patch::ApplyPatch),
-                Arc::new(bash::Bash::detect()),
+                Arc::new(bash.clone()),
                 Arc::new(process::Process),
+                Arc::new(browser::Browser),
                 Arc::new(save_image::SaveImage),
+                Arc::new(generate_image::GenerateImage),
                 Arc::new(glob::Glob),
                 Arc::new(grep::Grep),
                 Arc::new(webfetch::WebFetch),
+                Arc::new(websearch::WebSearch),
                 Arc::new(todo::TodoWrite),
                 Arc::new(question::Question),
                 Arc::new(skill::Skill),
+                Arc::new(findings::ReportFindings),
                 Arc::new(task::Task),
                 Arc::new(task::TaskOutput),
                 Arc::new(task::TaskStop),
                 Arc::new(task::ReadThread),
+                Arc::new(worktree::Create::new(bash)),
+                Arc::new(worktree::List),
+                Arc::new(worktree::Remove),
+                Arc::new(worktree::Move),
             ],
         }
     }

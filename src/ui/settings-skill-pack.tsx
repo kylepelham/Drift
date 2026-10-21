@@ -48,7 +48,7 @@ export function PackSheet(props: {
                 <LogoTile image={props.pack.image} title={props.pack.name} large />
                 <div class="min-w-0 flex-1">
                     <div class="text-base font-semibold text-ink">{props.pack.name}</div>
-                    <div class="text-[0.7rem] text-ink-faint">
+                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                         {props.pack.author} · {props.pack.version}
                     </div>
                     <div class="mt-2 text-sm text-ink-muted">{props.pack.description}</div>
@@ -90,7 +90,9 @@ export function PackSheet(props: {
                             onClick={() => toggleSkill(skill.name)}
                         >
                             <div class="min-w-0 flex-1">
-                                <div class="truncate text-[0.82rem] font-medium text-ink">{skill.name}</div>
+                                <div class="truncate text-[length:calc(0.82rem*var(--settings-scale,1))] font-medium text-ink">
+                                    {skill.name}
+                                </div>
                                 <Show when={skill.description}>
                                     <div class="truncate text-xs text-ink-faint" title={skill.description}>
                                         {skill.description}
@@ -108,7 +110,7 @@ export function PackSheet(props: {
                     )}
                 </For>
             </div>
-            <div class="text-[0.7rem] text-ink-faint">
+            <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                 {t("drift.plugins.packNote", { folder: `${skillsFolder}/${props.pack.id}` })}
             </div>
             <div class="flex items-center justify-end gap-2">

@@ -76,7 +76,7 @@ fn tool_definition(tool: &ToolSpec) -> Value {
     let function = json!({
         "name": tool.name,
         "description": tool.description,
-        "parameters": tool.input_schema,
+        "parameters": tool.parameters(),
     });
 
     json!({ "type": "function", "function": function })
@@ -106,7 +106,7 @@ pub(super) fn message_values(message: &ChatMessage, names: &HashMap<&str, &str>)
     for block in &message.blocks {
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(said) => text.push(said),
+            Block::Text(said) | Block::Reminder(said) => text.push(said),
             Block::Image { base64, .. } => images.push(base64),
             Block::Reasoning { text: thought, .. } => thinking.push(thought),
             Block::ToolUse { name, input, .. } => calls.push(tool_call(name, input)),
@@ -114,7 +114,7 @@ pub(super) fn message_values(message: &ChatMessage, names: &HashMap<&str, &str>)
                 let name = names.get(call_id.as_str()).copied().unwrap_or_default();
                 messages.push(json!({ "role": "tool", "tool_name": name, "content": content }));
             }
-            Block::Pdf { .. } | Block::Stored { .. } => {}
+            Block::Pdf { .. } | Block::Stored { .. } | Block::Effort(_) => {}
         }
     }
 

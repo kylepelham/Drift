@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
+import { IconCheck, IconSliders, IconX } from "./icons";
 import { createDismissOnOutside } from "./dismiss";
 import { fixedMenuPosition } from "../state/zoom";
-import { IconSliders, IconX } from "./icons";
 import { Portal } from "solid-js/web";
 import { t } from "../state/i18n";
 
@@ -16,6 +16,8 @@ export type PickerItem = {
     providerID?: string;
     family?: string;
     releaseDate?: string;
+    /** A CSS font list the label is shown in, so a font picker shows each font as it looks. */
+    font?: string;
 };
 
 export function Picker(props: {
@@ -32,6 +34,8 @@ export function Picker(props: {
     chevronAtEnd?: boolean;
     placement?: "above" | "below";
     width?: string;
+    /** Several items can be on at once: picking one toggles it, and the list stays open. */
+    checked?: string[];
     onPick: (id: string) => void;
 }) {
     const [open, setOpen] = createSignal(false);
@@ -89,9 +93,11 @@ export function Picker(props: {
         return selected?.label ?? props.fallbackLabel ?? t("common.default");
     };
 
+    const isOn = (item: PickerItem) => (props.checked ? props.checked.includes(item.id) : item.id === props.selected);
+
     const pick = (id: string) => {
         props.onPick(id);
-        setOpen(false);
+        if (!props.checked) setOpen(false);
     };
 
     const onKey = (event: KeyboardEvent) => {
@@ -173,19 +179,26 @@ export function Picker(props: {
                                 classList={{
                                     "bg-raised text-ink": index() === cursor(),
                                     "text-ink-muted": index() !== cursor(),
-                                    "text-accent": item.id === props.selected,
+                                    "text-accent": isOn(item),
                                 }}
                                 title={item.hint}
-                                aria-pressed={item.id === props.selected}
+                                aria-pressed={isOn(item)}
                                 onMouseEnter={() => setCursor(index())}
                                 onClick={() => pick(item.id)}
                             >
                                 <span class="min-w-0 flex-1">
-                                    <span class="block truncate">{item.label}</span>
+                                    <span class="block truncate" style={{ "font-family": item.font }}>
+                                        {item.label}
+                                    </span>
                                     <Show when={item.detail}>
-                                        <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
+                                        <span class="block truncate text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
+                                            {item.detail}
+                                        </span>
                                     </Show>
                                 </span>
+                                <Show when={props.checked && isOn(item)}>
+                                    <IconCheck class="ml-2 size-3.5 shrink-0" />
+                                </Show>
                             </button>
                         </>
                     )}
@@ -201,7 +214,7 @@ export function Picker(props: {
         <div ref={root} class="picker-control relative">
             <button
                 class="picker-trigger flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
-                classList={{ "border border-edge bg-overlay hover:border-edge-strong": !!props.bordered }}
+                classList={{ "border border-edge bg-raised hover:border-edge-strong": !!props.bordered }}
                 style={{ width: props.width }}
                 title={props.label}
                 aria-label={`${props.label}: ${selectedLabel()}`}
@@ -213,6 +226,7 @@ export function Picker(props: {
                 <span
                     class="picker-label min-w-0 max-w-40 truncate"
                     classList={{ "flex-1": !!props.chevronAtEnd, "picker-label-full": !!props.compactLabel }}
+                    style={{ "font-family": props.items.find((item) => item.id === props.selected)?.font }}
                 >
                     {selectedLabel()}
                 </span>

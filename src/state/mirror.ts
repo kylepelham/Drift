@@ -3,19 +3,32 @@ import { backendInvoke } from "../backend";
 import { shellEvents } from "../shell";
 import { t } from "./i18n";
 
-type MirrorThemeName =
-    | "drift-dark"
-    | "drift-graphite"
-    | "drift-midnight"
-    | "drift-slate"
-    | "drift-forest"
-    | "drift-aubergine"
-    | "drift-light"
-    | "drift-paper"
-    | "drift-custom";
+/** Theme names a snapshot may carry: the bases, and the names earlier versions saved. */
+const themeNameList = [
+    "drift-charcoal",
+    "drift-claude",
+    "drift-black",
+    "drift-dim",
+    "drift-mocha",
+    "drift-midnight",
+    "drift-forest",
+    "drift-plum",
+    "drift-light",
+    "drift-paper",
+    "drift-custom",
+    "drift-dark",
+    "drift-default",
+    "drift-graphite",
+    "drift-slate",
+    "drift-aubergine",
+] as const;
+type MirrorThemeName = (typeof themeNameList)[number];
 
 export type MirrorTheme = {
     name: MirrorThemeName;
+    /** A named accent or `#rrggbb`; empty for the base's own. */
+    accent: string;
+    corners: "" | "sharp" | "round";
     custom: { background: string; surface: string; text: string; accent: string };
     uiFont: string;
     codeFont: string;
@@ -40,24 +53,27 @@ type MirrorApplier = {
 type MirrorPatch = { theme?: MirrorTheme; selection?: MirrorSelection; workspaceOrder?: string[] };
 
 const defaults: MirrorTheme = {
-    name: "drift-dark",
-    custom: { background: "#111318", surface: "#1b1e25", text: "#e8eaf0", accent: "#a78bfa" },
+    name: "drift-charcoal",
+    accent: "",
+    corners: "",
+    custom: { background: "#161616", surface: "#1e1e1e", text: "#ececec", accent: "#a78bfa" },
     uiFont: "",
     codeFont: "",
     customCss: "",
 };
-const themeNames = new Set<MirrorThemeName>([
-    "drift-dark",
-    "drift-graphite",
-    "drift-midnight",
-    "drift-slate",
-    "drift-forest",
-    "drift-aubergine",
-    "drift-light",
-    "drift-paper",
-    "drift-custom",
-]);
+const themeNames = new Set<string>(themeNameList);
 const hexColor = /^#[\da-f]{6}$/i;
+
+/** A named accent or hex colour as the shell accepts it; anything else is the base's own. */
+function accentValue(value: unknown) {
+    if (typeof value !== "string") return "";
+
+    return /^[a-z]{1,16}$/.test(value) || hexColor.test(value) ? value : "";
+}
+
+function cornersValue(value: unknown): MirrorTheme["corners"] {
+    return value === "sharp" || value === "round" ? value : "";
+}
 
 const clientId = globalThis.crypto?.randomUUID?.() ?? `client-${Date.now()}-${Math.random()}`;
 let current: UiMirrorSnapshot | undefined;
@@ -130,6 +146,8 @@ export function localMirrorSnapshot(): UiMirrorSnapshot {
                 typeof name === "string" && themeNames.has(name as MirrorThemeName)
                     ? (name as MirrorThemeName)
                     : defaults.name,
+            accent: accentValue(stored<unknown>("drift.theme.accent", "")),
+            corners: cornersValue(stored<unknown>("drift.theme.corners", "")),
             custom: customTheme(stored<unknown>("drift.theme.custom", defaults.custom)),
             uiFont: boundedString(stored<unknown>("drift.theme.uiFont", ""), "", 256),
             codeFont: boundedString(stored<unknown>("drift.theme.codeFont", ""), "", 256),
@@ -143,6 +161,8 @@ export function localMirrorSnapshot(): UiMirrorSnapshot {
 function cache(snapshot: UiMirrorSnapshot) {
     const values: [string, unknown][] = [
         ["drift.theme", snapshot.theme.name],
+        ["drift.theme.accent", snapshot.theme.accent ?? ""],
+        ["drift.theme.corners", snapshot.theme.corners ?? ""],
         ["drift.theme.custom", snapshot.theme.custom],
         ["drift.theme.uiFont", snapshot.theme.uiFont],
         ["drift.theme.codeFont", snapshot.theme.codeFont],

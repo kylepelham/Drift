@@ -14,6 +14,7 @@ import { ToolExecutionSection } from "./settings-tools";
 import { ProvidersSection } from "./settings-providers";
 import { KeybindsSection } from "./settings-shortcuts";
 import { UsageLimitsSection } from "./settings-usage";
+import { BrowserSection } from "./settings-browser";
 import { StorageSection } from "./settings-storage";
 import { PluginsSection } from "./settings-plugins";
 import { PromptsSection } from "./settings-prompts";
@@ -123,18 +124,18 @@ function SettingsModal(props: { onClose: () => void }) {
                 aria-modal="true"
                 aria-label={t("sidebar.settings")}
                 tabIndex={-1}
-                class="settings-dialog fade-up flex h-[calc((100vh-1rem)/var(--zoom-scale,1))] w-[calc((100vw-1rem)/var(--zoom-scale,1))] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(48rem,calc((100vh-3rem)/var(--zoom-scale,1)))] sm:w-[min(64rem,calc((100vw-3rem)/var(--zoom-scale,1)))]"
+                class="settings-dialog settings-scale fade-up flex h-[calc((100vh-1rem)/var(--zoom-scale,1))] w-[calc((100vw-1rem)/var(--zoom-scale,1))] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(56rem,calc((100vh-3rem)/var(--zoom-scale,1)))] sm:w-[min(76rem,calc((100vw-3rem)/var(--zoom-scale,1)))]"
                 classList={{ "settings-detail": detail() }}
                 onClick={(event) => event.stopPropagation()}
             >
                 <nav
-                    class="settings-nav flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3"
+                    class="settings-nav flex w-13 shrink-0 flex-col overflow-y-auto settings-nav-panel border-r border-edge px-1.5 py-3 sm:w-48 sm:px-3"
                     aria-label={t("sidebar.settings")}
                 >
                     <For each={sectionGroups}>
                         {(group) => (
                             <div class="mb-3 last:mb-0">
-                                <div class="settings-nav-group hidden px-2 pb-1.5 text-[0.68rem] font-medium text-ink-faint sm:block">
+                                <div class="settings-nav-group hidden px-2 pb-1.5 text-[length:calc(0.68rem*var(--settings-scale,1))] font-medium text-ink-faint sm:block">
                                     {t(group.label)}
                                 </div>
                                 <div class="space-y-0.5">
@@ -143,11 +144,10 @@ function SettingsModal(props: { onClose: () => void }) {
                                             <button
                                                 aria-label={t(sectionLabels[name])}
                                                 aria-current={section() === name ? "page" : undefined}
-                                                class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors focus-visible:bg-raised/60 sm:justify-start"
+                                                class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors focus-visible:bg-ink/5 sm:justify-start"
                                                 classList={{
-                                                    "bg-raised text-ink": section() === name,
-                                                    "text-ink-muted hover:bg-raised/60 hover:text-ink":
-                                                        section() !== name,
+                                                    "bg-ink/8 text-ink": section() === name,
+                                                    "text-ink-muted hover:bg-ink/5 hover:text-ink": section() !== name,
                                                 }}
                                                 onClick={() => selectSection(name)}
                                                 onPointerEnter={() =>
@@ -256,6 +256,9 @@ function SettingsModal(props: { onClose: () => void }) {
                                     <Match when={section() === "Tools"}>
                                         <ToolExecutionSection />
                                     </Match>
+                                    <Match when={section() === "Browser"}>
+                                        <BrowserSection />
+                                    </Match>
                                     <Match when={section() === "Providers"}>
                                         <ProvidersSection />
                                     </Match>
@@ -321,12 +324,14 @@ function SettingsSearchResults(props: { items: SettingsSearchItem[]; onSelect: (
                             <span class="min-w-0 flex-1">
                                 <span class="block text-sm font-medium text-ink">{item.title}</span>
                                 <Show when={item.description}>
-                                    <span class="mt-0.5 block text-[0.72rem] leading-relaxed text-ink-faint">
+                                    <span class="mt-0.5 block text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
                                         {item.description}
                                     </span>
                                 </Show>
                             </span>
-                            <span class="shrink-0 text-[0.68rem] text-ink-faint">{item.sectionLabel}</span>
+                            <span class="shrink-0 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-faint">
+                                {item.sectionLabel}
+                            </span>
                         </button>
                     )}
                 </For>

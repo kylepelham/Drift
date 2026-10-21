@@ -302,7 +302,15 @@ fn an_empty_workspace_still_has_the_builtin_agents() {
     );
     assert!(orchestrator.prompt.contains("<orchestrator_status>"));
     assert!(config.agent("plan").unwrap().read_only && config.agent("explore").unwrap().read_only);
-    assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
+    let builtin: Vec<&str> = config.skills.iter().map(|skill| skill.name.as_str()).collect();
+    assert_eq!(builtin, ["review"], "only the engine's own skill");
+    assert!(
+        config
+            .commands
+            .iter()
+            .all(|command| command.skill.as_deref() == Some("review"))
+    );
+    assert!(config.instructions.is_empty());
 
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -509,4 +517,59 @@ fn a_jsonc_drift_json_applies_and_a_broken_one_is_reported_not_ignored() {
     );
 
     std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn references_come_in_three_shapes_and_a_project_never_replaces_the_users() {
+    use super::references::Place;
+
+    let root = std::env::temp_dir().join(format!("drift-config-references-{}", crate::random_hex(4)));
+    let (home, workspace) = (root.join("home"), root.join("ws"));
+    write(
+        &home,
+        ".config/drift/drift.json",
+        r#"{ "references": {
+            "notes": "~/notes",
+            "docs": { "path": "../docs", "description": "API docs" },
+            "rust": { "repository": "https://github.com/rust-lang/rust", "branch": "master", "description": "std" }
+        } }"#,
+    );
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "references": { "docs": "../theirs", "shared": "../shared" } }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let found = |name: &str| {
+        config
+            .references
+            .iter()
+            .find(|reference| reference.name == name)
+            .unwrap()
+    };
+    assert_eq!(
+        found("notes").place,
+        Place::Folder {
+            path: home.join("notes")
+        }
+    );
+    assert_eq!(found("docs").description, "API docs");
+    assert!(!found("docs").project, "the user's docs stay");
+    assert_eq!(
+        found("rust").place,
+        Place::Repository {
+            url: "https://github.com/rust-lang/rust".into(),
+            branch: Some("master".into())
+        }
+    );
+    assert!(found("shared").project);
+    assert_eq!(
+        found("shared").place,
+        Place::Folder {
+            path: workspace.join("../shared")
+        }
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
 }

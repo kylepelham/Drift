@@ -39,6 +39,13 @@ function update(next: number) {
     apply(value);
 }
 
+/** The whole interface's scale, as the zoom shortcuts change it; Settings shows and sets the same value. */
+export { zoom as interfaceZoom, minZoom, maxZoom };
+
+export function setInterfaceZoom(value: number) {
+    update(value);
+}
+
 export function initZoom() {
     apply(zoom());
     onKeybind("zoomIn", () => update(zoom() + zoomStep));

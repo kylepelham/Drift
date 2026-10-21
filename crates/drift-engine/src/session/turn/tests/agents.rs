@@ -267,3 +267,43 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
         .unwrap();
     assert_eq!(sessions.len(), 1, "no writing subagent was started");
 }
+
+#[tokio::test]
+async fn a_read_only_subagent_runs_any_shell_command_but_still_cannot_use_a_writing_tool() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![
+            Rule {
+                kind: "bash".into(),
+                pattern: "*".into(),
+                decision: Decision::Allow,
+            },
+            Rule {
+                kind: "edit".into(),
+                pattern: "*".into(),
+                decision: Decision::Allow,
+            },
+        ],
+    });
+    let explore = r#"{"description": "Look", "prompt": "analyse it", "subagent_type": "explore"}"#;
+    h.provider
+        .push(tool_call("task", explore))
+        .push(
+            [
+                call_block("s1", "bash", r#"{"command": "mkdir ran"}"#),
+                call_block("s2", "write", r#"{"path": "wrote.txt", "content": "x\n"}"#),
+                vec![Chunk::Stop(StopReason::ToolUse)],
+            ]
+            .concat(),
+        )
+        .push(text("found it"))
+        .push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("explore")).await.await_ok();
+    until_idle(&h).await;
+
+    assert!(
+        h._dir.join("ws/ran").is_dir(),
+        "a line that cannot be shown to only read runs"
+    );
+    assert!(!h._dir.join("ws/wrote.txt").exists(), "a writing tool is still refused");
+}

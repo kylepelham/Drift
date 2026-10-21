@@ -44,6 +44,15 @@ pub fn transform(body: &mut Value) {
             if block["type"] == "tool_use" {
                 rename(&mut block["name"]);
             }
+            // `get_mut`, not indexing: a mutable index inserts the key as null, which the API refuses.
+            let references = block
+                .get_mut("content")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten();
+            for reference in references.filter(|inner| inner["type"] == "tool_reference") {
+                rename(&mut reference["tool_name"]);
+            }
         }
     }
 }
@@ -161,6 +170,32 @@ mod tests {
         assert_eq!(original_name("mcp_Read"), "read");
         assert_eq!(original_name("mcp_Bash"), "bash");
         assert_eq!(original_name("plain"), "plain");
+    }
+
+    #[test]
+    fn a_loaded_tool_is_referenced_by_the_name_its_definition_was_sent_under() {
+        let mut body = json!({
+            "tools": [{ "name": "apophis_get_case", "defer_loading": true }],
+            "messages": [{ "role": "user", "content": [
+                { "type": "text", "text": "find the case" },
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "t",
+                    "content": [{ "type": "tool_reference", "tool_name": "apophis_get_case" }]
+                }
+            ] }]
+        });
+        transform(&mut body);
+        assert_eq!(body["tools"][0]["name"], "mcp_Apophis_get_case");
+        assert_eq!(
+            body["messages"][0]["content"][1]["content"][0]["tool_name"],
+            "mcp_Apophis_get_case"
+        );
+        assert_eq!(
+            body["messages"][0]["content"][0],
+            json!({ "type": "text", "text": "find the case" }),
+            "a block without content gains no field"
+        );
     }
 
     #[test]

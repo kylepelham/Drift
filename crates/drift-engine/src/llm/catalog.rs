@@ -97,6 +97,10 @@ pub struct Limit {
     /// The most prompt the provider takes, when it is less than the window (gpt-5.4: 922k of 1.05M); 0 when not given.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub input: u64,
+    /// Where conversations on this model compact, as `Engine::catalog_view` resolves it from the window and the
+    /// user's settings; 0 before that, or for no cap.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub compact: u64,
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -104,7 +108,7 @@ fn is_zero(value: &u64) -> bool {
 }
 
 /// Of the reply room, what is kept below an input cap; the UI's meter uses the same (`compactionReserveTokens`).
-const INPUT_RESERVE: u64 = 20_000;
+pub(crate) const INPUT_RESERVE: u64 = 20_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Model {
@@ -137,6 +141,27 @@ pub struct Model {
     /// Set on an entry that runs another model a different way (`<id>-fast`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<ModelMode>,
+    /// Takes a reasoning effort change inside the conversation, so a level switch keeps the prompt cache.
+    #[serde(default)]
+    pub effort_updates: bool,
+    /// Claude features a request may use on this model (`claude_features_for`).
+    #[serde(default)]
+    pub claude: ClaudeFeatures,
+    /// Takes tools defined but kept out of its context until `tool_search` loads them (`tool_search_for`).
+    #[serde(default)]
+    pub tool_search: bool,
+}
+
+/// Newer Claude request features, by model, after opencode v2.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeFeatures {
+    /// Engine reminders as `role: "system"` messages in the conversation (Opus 4.8, every Claude 5 or later).
+    #[serde(default)]
+    pub system_messages: bool,
+    /// A thinking block the API no longer accepts is dropped instead of failing the request (Claude 5.1 or later).
+    #[serde(default)]
+    pub drop_stale_thinking: bool,
 }
 
 /// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -183,8 +208,19 @@ impl Model {
     }
 
     /// How many tokens a conversation may use before it compacts: under the input cap when the provider
-    /// sets one below the window (keeping a margin for the next step), else the window less the reply room.
+    /// sets one below the window (keeping a margin for the next step), else the window less the reply room,
+    /// and never past the user's compaction setting.
     pub fn compaction_point(&self) -> u64 {
+        let own = self.own_compaction_point();
+
+        match self.limit.compact {
+            0 => own,
+            compact => own.min(compact),
+        }
+    }
+
+    /// The compaction point the window and input cap allow, before any setting of the user's.
+    pub fn own_compaction_point(&self) -> u64 {
         let room = self.reply_room();
         match self.limit.input {
             input if input > 0 && input < self.limit.context => input.saturating_sub(room.min(INPUT_RESERVE)),
@@ -466,12 +502,16 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
             context: listed.context,
             output: listed.output,
             input: 0,
+            compact: 0,
         },
         cost: Cost::default(),
         profile: ToolProfile::Edit,
         prompt: PromptFamily::Default,
         variants: Vec::new(),
         mode: None,
+        effort_updates: false,
+        claude: Default::default(),
+        tool_search: false,
     }
 }
 
@@ -604,6 +644,65 @@ fn takes_budget(provider: &str) -> bool {
         provider,
         "anthropic" | "google-vertex-anthropic" | "amazon-bedrock" | "google" | "google-vertex" | "openrouter"
     )
+}
+
+fn numbers(rest: &str) -> Vec<u32> {
+    rest.split(['-', '.']).map_while(|piece| piece.parse().ok()).collect()
+}
+
+/// `claude-<family>-<major>[-<minor>]`: the family, major and minor; a snapshot date is no minor.
+fn claude_version(id: &str) -> Option<(&str, u32, u32)> {
+    let rest = id.strip_prefix("claude-")?;
+    let (family, version) = rest.split_once('-')?;
+    let version: Vec<u32> = numbers(version).into_iter().filter(|number| *number < 100).collect();
+
+    Some((family, *version.first()?, version.get(1).copied().unwrap_or(0)))
+}
+
+/// Which newer Claude features a model takes on Anthropic's own route, after opencode v2's rules.
+pub(crate) fn claude_features_for(provider: &str, id: &str) -> ClaudeFeatures {
+    let Some((family, major, minor)) = claude_version(id).filter(|_| provider == "anthropic") else {
+        return ClaudeFeatures::default();
+    };
+
+    ClaudeFeatures {
+        system_messages: major >= 5 || (family == "opus" && major == 4 && minor >= 8),
+        drop_stale_thinking: major > 5 || (major == 5 && minor >= 1),
+    }
+}
+
+/// Deferred tools loaded by `tool_search`: Claude 4.5 or later wherever it speaks the Messages API (as
+/// `tool_reference` results), and GPT-5.4 or later on OpenAI's Responses (as `tool_search_output` items). A ChatGPT
+/// sign-in replaces OpenAI's answer with its model list's.
+pub(crate) fn tool_search_for(provider: &str, id: &str) -> bool {
+    if provider == "openai" {
+        let version = id.strip_prefix("gpt-").map(numbers).unwrap_or_default();
+        return matches!(version.as_slice(), [major, ..] if *major > 5)
+            || matches!(version.as_slice(), [5, minor, ..] if *minor >= 4);
+    }
+
+    // Bedrock prefixes a region and `anthropic.`; Vertex follows the name with `@` and a snapshot.
+    let bare = id.rsplit_once("anthropic.").map_or(id, |(_, rest)| rest);
+    let bare = bare.split('@').next().unwrap_or(bare);
+    speaks_claude(provider, bare)
+        && claude_version(bare).is_some_and(|(family, major, minor)| {
+            family.bytes().all(|byte| byte.is_ascii_alphabetic()) && (major > 4 || (major == 4 && minor >= 5))
+        })
+}
+
+/// Per-message effort, after opencode v2: Claude Opus 5 and every Claude 5.1 or later on Anthropic's own
+/// route, and GPT-6 or later on OpenAI's Responses.
+pub(crate) fn effort_updates_for(provider: &str, id: &str) -> bool {
+    match provider {
+        "anthropic" => claude_version(id).is_some_and(|(family, major, minor)| {
+            (family == "opus" && major >= 5) || major > 5 || (major == 5 && minor >= 1)
+        }),
+        "openai" => id
+            .strip_prefix("gpt-")
+            .and_then(|rest| numbers(rest).first().copied())
+            .is_some_and(|major| major >= 6),
+        _ => false,
+    }
 }
 
 /// OpenAI trains its GPT-5 generation on the apply_patch format; everything else gets search/replace.

@@ -25,6 +25,8 @@ struct Entry {
     available_access_programs: Programs,
     #[serde(default)]
     service_tiers: Vec<Tier>,
+    #[serde(default)]
+    supports_search_tool: bool,
 }
 
 #[derive(Default, Deserialize)]
@@ -49,16 +51,8 @@ pub(super) async fn fetch(
     };
 
     // The backend refuses the list without a client version.
-    let mut request = client
-        .get(format!("{base}/models?client_version={}", crate::VERSION))
-        .bearer_auth(access)
-        .header("originator", crate::llm::openai::CODEX_ORIGINATOR);
-    if let Some(account) = account {
-        request = request.header("chatgpt-account-id", account);
-    }
-    if let Some(residency) = crate::llm::openai::residency(access) {
-        request = request.header("x-openai-internal-codex-residency", residency);
-    }
+    let request = client.get(format!("{base}/models?client_version={}", crate::VERSION));
+    let request = crate::llm::openai::signed_by_subscription(request, access, account.as_deref());
 
     let response = request.send().await.ok()?.error_for_status().ok()?;
     let body = bounded(response).await?;
@@ -88,7 +82,13 @@ fn offer(entry: Entry) -> (String, Offer) {
         .map(String::from);
     let tiers = entry.service_tiers.into_iter().map(|tier| tier.id).collect();
 
-    (entry.slug, Offer { program, tiers })
+    let offer = Offer {
+        program,
+        tiers,
+        tool_search: entry.supports_search_tool,
+    };
+
+    (entry.slug, offer)
 }
 
 #[cfg(test)]

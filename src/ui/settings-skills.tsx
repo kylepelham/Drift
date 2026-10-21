@@ -203,7 +203,7 @@ export function SkillsSection(props: { onBundle?: (id: string) => void }) {
                     </Show>
                 </div>
                 <Show when={groups().named.length}>
-                    <div class="pt-5 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">
+                    <div class="pt-5 pb-1.5 text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wide text-ink-faint uppercase">
                         {t("drift.skills.packs")}
                     </div>
                     <div class="border-y border-edge/80">
@@ -250,7 +250,7 @@ export function SkillsSection(props: { onBundle?: (id: string) => void }) {
                     </div>
                 </Show>
                 <Show when={bundles().length}>
-                    <div class="pt-5 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">
+                    <div class="pt-5 pb-1.5 text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wide text-ink-faint uppercase">
                         {t("drift.bundles.title")}
                     </div>
                     <div class="border-y border-edge/80">
@@ -360,7 +360,9 @@ function SkillRow(props: { skill: UserSkill; badge?: string; disabled: boolean; 
         >
             <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                    <span class="truncate text-[0.82rem] font-medium text-ink">{props.skill.name}</span>
+                    <span class="truncate text-[length:calc(0.82rem*var(--settings-scale,1))] font-medium text-ink">
+                        {props.skill.name}
+                    </span>
                     <Show when={props.badge}>{(name) => <Badge>{name()}</Badge>}</Show>
                 </div>
                 <Show when={props.skill.description}>
@@ -514,7 +516,9 @@ function SkillRegistry(props: {
                                                         />
                                                     </Show>
                                                 </div>
-                                                <div class="truncate text-[0.7rem] text-ink-faint">{pack.author}</div>
+                                                <div class="truncate text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                                    {pack.author}
+                                                </div>
                                             </div>
                                         </div>
                                         <div class="line-clamp-2 text-xs leading-relaxed text-ink-muted">

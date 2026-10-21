@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Store;
 use super::sessions::{NewSession, insert_session, session_from, transaction};
@@ -12,7 +12,34 @@ use crate::session::types::{Part, Session};
 /// Messages copied per transaction when forking.
 const FORK_PAGE: usize = 100;
 
+/// Steps a tree is followed up before its root is taken as found.
+const MAX_TREE_DEPTH: usize = 16;
+
+/// The conversation whose prompt cache `session_id` shares: a fork's source, a worker's or spawned
+/// thread's parent, followed up to the top; the session itself when it stands alone.
+fn root_of(conn: &Connection, session_id: &str) -> rusqlite::Result<String> {
+    let mut current = session_id.to_string();
+    for _ in 0..MAX_TREE_DEPTH {
+        let row: Option<(Option<String>, Option<String>)> = conn
+            .prepare_cached("SELECT cache_root, parent_id FROM session WHERE id = ?1")?
+            .query_row([&current], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()?;
+        match row {
+            Some((Some(root), _)) => return Ok(root),
+            Some((None, Some(parent))) => current = parent,
+            _ => return Ok(current),
+        }
+    }
+
+    Ok(current)
+}
+
 impl Store {
+    /// The root of `session_id`'s tree, whose id keys its prompt cache.
+    pub fn cache_root(&self, session_id: &str) -> rusqlite::Result<String> {
+        root_of(&self.lock(), session_id)
+    }
+
     /// Copies finished history in pages; `None` means a selected message disappeared and the copy was removed.
     pub fn fork_session(
         &self,
@@ -21,10 +48,10 @@ impl Store {
         through: &str,
         cutoff: Option<&str>,
     ) -> rusqlite::Result<Option<Session>> {
-        let session = session_from(new, cutoff);
+        let mut session = session_from(new, cutoff);
         let messages: Vec<String> = transaction(&self.lock(), |conn| {
-            insert_session(conn, &session)?;
-            conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2), archived_at = ?3 WHERE id = ?1")?.execute(params![session.id, source_id, id::now_ms()])?;
+            insert_session(conn, &mut session)?;
+            conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2), archived_at = ?3, cache_root = ?4 WHERE id = ?1")?.execute(params![session.id, source_id, id::now_ms(), root_of(conn, source_id)?])?;
             conn.prepare_cached(
                 "SELECT id FROM message WHERE session_id = ?1 AND id <= ?2 AND status != 'streaming' ORDER BY id",
             )?
@@ -34,6 +61,7 @@ impl Store {
 
         let result = self.finish_fork(source_id, &session.id, through, &messages);
         if matches!(&result, Ok(Some(_))) {
+            self.fork_instructions(source_id, &session.id)?;
             return result;
         }
 
@@ -144,8 +172,9 @@ impl Store {
 
     pub fn move_sessions(&self, ids: &[String], workspace_id: &str) -> rusqlite::Result<()> {
         transaction(&self.lock(), |conn| {
-            let mut update =
-                conn.prepare_cached("UPDATE session SET workspace_id = ?2, updated_at = ?3 WHERE id = ?1")?;
+            let mut update = conn.prepare_cached(
+                "UPDATE session SET workspace_id = ?2, worktree = NULL, updated_at = ?3 WHERE id = ?1",
+            )?;
             let now = id::now_ms();
             for session in ids {
                 update.execute(params![session, workspace_id, now])?;
@@ -165,8 +194,8 @@ fn copy_message(
     let message_id = id::new("msg");
     let copied = conn
         .prepare_cached(
-            "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json)
-             SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json FROM message WHERE id = ?3",
+            "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss)
+             SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss FROM message WHERE id = ?3",
         )?
         .execute(params![message_id, session_id, source])?;
     if copied == 0 {

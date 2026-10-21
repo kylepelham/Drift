@@ -1,9 +1,6 @@
-//! What the computers page asks of the app: the linked PCs, discovery, scanning and linking, and choosing one.
+//! What the computers page asks of the app: the linked PCs, scanning a pairing code, and choosing or forgetting one.
 
-use std::net::IpAddr;
-use std::time::Duration;
-
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -12,20 +9,13 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::Proxy;
-use crate::discovery;
-use crate::pc::{self, Linked};
-
-const DISCOVERY_WAIT: Duration = Duration::from_millis(1500);
-const GATEWAY_PORT: u16 = 41718;
+use crate::pc;
 
 pub(super) fn routes() -> Router<Proxy> {
     Router::new()
         .route("/computers", get(computers))
-        .route("/discover", post(discover))
         .route("/scan", post(scan))
         .route("/pair", post(pair))
-        .route("/link", post(start_link))
-        .route("/link/{id}", get(poll_link))
         .route("/use", post(use_computer))
         .route("/forget", post(forget))
 }
@@ -33,13 +23,6 @@ pub(super) fn routes() -> Router<Proxy> {
 #[derive(Deserialize)]
 struct Uri {
     uri: String,
-}
-
-#[derive(Deserialize)]
-struct Address {
-    address: IpAddr,
-    #[serde(default)]
-    port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -58,28 +41,13 @@ async fn computers(State(proxy): State<Proxy>) -> Response {
                 "id": computer.id,
                 "name": computer.name,
                 "address": computer.addresses.first(),
-                "words": computer.words(),
+                "anywhere": computer.tunnel.is_some(),
                 "active": active.as_deref() == Some(computer.id.as_str()),
             })
         })
         .collect();
 
     Json(json!({ "computers": list })).into_response()
-}
-
-/// PCs answering on this network, each marked when it is already linked.
-async fn discover(State(proxy): State<Proxy>) -> Response {
-    let found = discovery::discover(DISCOVERY_WAIT).await;
-    let computers = proxy.computers.lock().unwrap();
-    let list: Vec<_> = found
-        .into_iter()
-        .map(|found| {
-            let linked = computers.get(&found.fingerprint).is_some();
-            json!({ "found": found, "linked": linked })
-        })
-        .collect();
-
-    Json(json!({ "found": list })).into_response()
 }
 
 async fn scan(State(proxy): State<Proxy>) -> Response {
@@ -114,49 +82,6 @@ async fn redeem(proxy: &Proxy, text: &str) -> Response {
     }
 }
 
-/// Starts linking by typed code: the code to type on the PC, and the words to compare before typing it.
-async fn start_link(State(proxy): State<Proxy>, Json(body): Json<Address>) -> Response {
-    let device = proxy.device_name().await;
-    let linking = match pc::start_link(body.address, body.port.unwrap_or(GATEWAY_PORT), &device).await {
-        Ok(linking) => linking,
-        Err(error) => return refuse(&error.to_string()),
-    };
-
-    let id = pc::hex(&random());
-    let answer = json!({
-        "id": id,
-        "name": linking.name,
-        "code": linking.code,
-        "words": drift_pairing::words(&linking.authority),
-    });
-    proxy.links.lock().unwrap().insert(id, linking);
-
-    Json(answer).into_response()
-}
-
-async fn poll_link(State(proxy): State<Proxy>, Path(id): Path<String>) -> Response {
-    let linking = proxy.links.lock().unwrap().remove(&id);
-    let Some(linking) = linking else {
-        return Json(json!({ "status": "expired" })).into_response();
-    };
-
-    match pc::poll_link(&linking).await {
-        Ok(Linked::Waiting) => {
-            proxy.links.lock().unwrap().insert(id, linking);
-            Json(json!({ "status": "waiting" })).into_response()
-        }
-        Ok(Linked::Expired) => Json(json!({ "status": "expired" })).into_response(),
-        Ok(Linked::Approved(computer)) => {
-            proxy.adopt(computer, linking.pc);
-            Json(json!({ "status": "linked" })).into_response()
-        }
-        Err(error) => {
-            proxy.links.lock().unwrap().insert(id, linking);
-            refuse(&error.to_string())
-        }
-    }
-}
-
 async fn use_computer(State(proxy): State<Proxy>, Json(body): Json<Id>) -> Response {
     let computer = proxy.computers.lock().unwrap().get(&body.id).cloned();
     let Some(computer) = computer else {
@@ -184,17 +109,11 @@ async fn forget(State(proxy): State<Proxy>, Json(body): Json<Id>) -> Response {
     let _ = proxy.computers.lock().unwrap().remove(&computer.id);
 
     tokio::spawn(async move {
-        if let Ok(pc) = pc::reach(&computer).await {
+        if let Ok((pc, _)) = pc::reach(&computer).await {
             pc.sign_out(&computer.token).await;
         }
     });
     Json(json!({ "ok": true })).into_response()
-}
-
-fn random() -> [u8; 16] {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).expect("the system random source works");
-    bytes
 }
 
 fn refuse(message: &str) -> Response {

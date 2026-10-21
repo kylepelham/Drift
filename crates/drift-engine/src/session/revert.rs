@@ -487,18 +487,34 @@ impl Engine {
         Ok(session)
     }
 
-    /// Where a workspace is now, bound to its history; `None` once the workspace is gone.
+    /// Where a workspace or one of its worktrees is now, bound to its history; `None` once it is gone.
     pub(super) fn root_of(&self, owner: &str) -> Option<PathBuf> {
-        let workspace = self.store.workspace(owner).ok()??;
-        let root = crate::tool::canonical(Path::new(&workspace.path));
+        let root = match crate::worktree::parse_owner(owner) {
+            Some((workspace_id, name)) => {
+                let workspace = self.store.workspace(workspace_id).ok()??;
+                self.worktree_directory(&workspace, name)?
+            }
+            None => crate::tool::canonical(Path::new(&self.store.workspace(owner).ok()??.path)),
+        };
         self.snapshots.bind(owner, &root);
 
         Some(root)
     }
 }
 
+/// A user message that starts a turn: not a compaction boundary, and not one holding only what the engine wrote to
+/// carry the turn on (a worker's result, a process exit, a nudge), which the UI keeps in the turn before it.
 pub(super) fn is_prompt(message: &MessageWithParts) -> bool {
+    let carries_on = !message.parts.is_empty()
+        && message.parts.iter().all(|row| {
+            matches!(
+                row.part,
+                Part::TaskResult { .. } | Part::ProcessExit { .. } | Part::Nudge { .. }
+            )
+        });
+
     message.info.role == Role::User
+        && !carries_on
         && !message
             .parts
             .iter()

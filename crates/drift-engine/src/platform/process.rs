@@ -360,7 +360,11 @@ fn saved_path() -> Option<std::ffi::OsString> {
 }
 
 #[cfg(windows)]
-fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, value: &str) -> Option<String> {
+pub(crate) fn registry_string(
+    root: windows_sys::Win32::System::Registry::HKEY,
+    key: &str,
+    value: &str,
+) -> Option<String> {
     use windows_sys::Win32::System::Registry::{RRF_RT_REG_SZ, RegGetValueW};
     let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
     let (key, value) = (wide(key), wide(value));
@@ -405,6 +409,29 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     let text = &buffer[..written as usize / 2];
     let end = text.iter().position(|unit| *unit == 0).unwrap_or(text.len());
     Some(String::from_utf16_lossy(&text[..end]))
+}
+
+#[cfg(windows)]
+pub(crate) fn registry_dword(root: windows_sys::Win32::System::Registry::HKEY, key: &str, value: &str) -> Option<u32> {
+    use windows_sys::Win32::System::Registry::{RRF_RT_REG_DWORD, RegGetValueW};
+    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (key, value) = (wide(key), wide(value));
+    let mut data = 0u32;
+    let mut size = 4u32;
+    // SAFETY: key and value are NUL-terminated and the output is a DWORD with its size passed.
+    let read = unsafe {
+        RegGetValueW(
+            root,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut data as *mut u32).cast(),
+            &mut size,
+        )
+    };
+
+    (read == 0).then_some(data)
 }
 
 pub fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {

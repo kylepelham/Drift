@@ -8,7 +8,10 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-drift-engine = { path = "../drift-engine" }
+drift-engine = { path = "../drift-engine", features = ["dev-tools"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-tokio = { workspace = true, features = ["signal"] }
+# `--acp` speaks JSON-RPC on stdin and stdout; both crates are already in the tree through the engine.
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["signal", "io-std"] }
 thiserror = { workspace = true }

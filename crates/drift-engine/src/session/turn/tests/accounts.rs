@@ -28,6 +28,16 @@ fn two_accounts(h: &Harness) -> (String, String) {
     (first, second)
 }
 
+/// Marks an account as in Anthropic's Cyber Verification Program, as the user does in Settings.
+fn verify(h: &Harness, account: &str) {
+    assert!(
+        h.engine
+            .credentials
+            .set_cyber_verified("anthropic", account, true)
+            .unwrap()
+    );
+}
+
 fn weekly(used_percent: f64) -> Limits {
     Limits {
         weekly: Some(Window {
@@ -152,19 +162,138 @@ async fn a_window_reported_full_moves_the_next_step_before_credits_are_spent() {
 }
 
 #[tokio::test]
-async fn the_first_account_is_used_again_once_its_usage_frees() {
+async fn switching_accounts_keeps_tool_history_without_promoting_reasoning_to_text() {
+    let h = harness().await;
+    two_accounts(&h);
+    let mut call = vec![
+        Chunk::Limits(Limits {
+            spent_until: Some(id::now_ms() + 3_600_000),
+            ..weekly(100.0)
+        }),
+        Chunk::ReasoningStart,
+        Chunk::ReasoningDelta("I should review the remaining work before continuing.".into()),
+        Chunk::ReasoningSignature("first-account-signature".into()),
+        Chunk::BlockStop,
+        Chunk::TextStart,
+        Chunk::TextDelta("I'll update the task list.".into()),
+        Chunk::BlockStop,
+    ];
+    call.extend(tool_call("todowrite", r#"{"todos":[]}"#));
+    h.provider.push(call).push(text("The task list is up to date."));
+
+    h.engine
+        .submit(&h.session.id, prompt("Review the remaining work."))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    let requests = h.provider.requests.lock().unwrap();
+    let blocks: Vec<_> = requests[1]
+        .messages
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .collect();
+    assert!(
+        blocks
+            .iter()
+            .all(|block| !matches!(block.unsigned(), llm::Block::Reasoning { .. }))
+    );
+    assert!(
+        !texts_sent(&requests[1])
+            .iter()
+            .any(|text| text.contains("before continuing"))
+    );
+    assert!(texts_sent(&requests[1]).contains(&"I'll update the task list.".to_string()));
+    assert!(blocks.iter().any(|block| matches!(block, llm::Block::ToolUse { .. })));
+    assert!(
+        blocks
+            .iter()
+            .any(|block| matches!(block, llm::Block::ToolResult { .. }))
+    );
+
+    assert!(transcript(&h).iter().flat_map(|message| &message.parts).any(|row| {
+        matches!(&row.part, Part::Reasoning { signature: Some(signature), .. } if signature == "first-account-signature")
+    }), "the stored reasoning is untouched");
+}
+
+#[tokio::test]
+async fn the_first_account_is_used_again_once_its_usage_frees_and_the_cache_has_gone_cold() {
     let h = harness().await;
     let (first, _) = two_accounts(&h);
     h.engine.limits.refuse(&first, id::now_ms() + 3_600_000);
-    h.provider.push(text("a")).push(text("b"));
+    h.provider.push(text("a")).push(text("b")).push(text("c"));
     h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
     until_idle(&h).await;
 
+    // While the conversation's cache on the second account is warm, it stays there.
     h.engine.limits.refuse(&first, id::now_ms() - 1);
     h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
     until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["second", "second"]);
 
-    assert_eq!(sent_with(&h), ["second", "first"]);
+    let mut last = h.engine.store.last_cached_reply(&h.session.id).unwrap().unwrap();
+    last.finished_at = Some(id::now_ms() - 2 * 3_600_000);
+    h.engine.store.save_message(&last).unwrap();
+    h.engine.submit(&h.session.id, prompt("three")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["second", "second", "first"]);
+}
+
+#[tokio::test]
+async fn a_subscription_conversation_caches_for_an_hour_until_it_draws_on_extra_usage() {
+    let h = harness().await;
+    two_accounts(&h);
+    let mut reply = vec![Chunk::Limits(Limits {
+        overage: true,
+        ..weekly(50.0)
+    })];
+    reply.extend(tool_call("todowrite", r#"{"todos":[]}"#));
+    h.provider.push(reply).push(text("done"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    let hours: Vec<bool> = h
+        .provider
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.cache_hour)
+        .collect();
+    assert_eq!(hours, [true, false]);
+}
+
+#[tokio::test]
+async fn a_key_caches_for_an_hour_only_when_its_providers_option_says_so() {
+    use crate::session::turn::provider_options::ProviderOptions;
+    let h = harness().await;
+    let hour = ProviderOptions { hour_cache: true };
+    h.engine
+        .set_provider_options([("openrouter".to_string(), hour.clone())].into())
+        .unwrap();
+    h.provider.push(text("one")).push(text("two"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    h.engine
+        .set_provider_options([("anthropic".to_string(), hour)].into())
+        .unwrap();
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+
+    let hours: Vec<bool> = h
+        .provider
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.cache_hour)
+        .collect();
+    assert_eq!(hours, [false, true]);
+    assert_eq!(h.engine.provider_options().len(), 2, "each provider keeps its own");
 }
 
 #[tokio::test]
@@ -290,9 +419,10 @@ fn refused(category: Option<&str>) -> Vec<Chunk> {
 }
 
 #[tokio::test]
-async fn a_cyber_refusal_sends_the_request_again_from_the_next_account_and_the_conversation_stays_there() {
+async fn a_cyber_refusal_sends_the_request_again_from_a_verified_account_and_the_conversation_stays_there() {
     let h = harness().await;
     let (first, second) = two_accounts(&h);
+    verify(&h, &second);
     let mut events = h.engine.hub.attach(None).rx;
     h.provider
         .push(refused(Some("cyber")))
@@ -330,9 +460,10 @@ async fn a_cyber_refusal_sends_the_request_again_from_the_next_account_and_the_c
 }
 
 #[tokio::test]
-async fn a_refusal_that_names_no_policy_area_also_tries_the_next_account() {
+async fn a_refusal_that_names_no_policy_area_also_tries_a_verified_account() {
     let h = harness().await;
-    two_accounts(&h);
+    let (_, second) = two_accounts(&h);
+    verify(&h, &second);
     h.provider.push(refused(None)).push(text("answered by bob"));
 
     h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
@@ -340,6 +471,91 @@ async fn a_refusal_that_names_no_policy_area_also_tries_the_next_account() {
 
     assert_eq!(sent_with(&h), ["first", "second"]);
     assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+}
+
+#[tokio::test]
+async fn a_cyber_refusal_stands_when_no_other_account_is_verified_and_the_conversation_keeps_its_account() {
+    let h = harness().await;
+    let (first, _) = two_accounts(&h);
+    h.provider.push(refused(Some("cyber"))).push(text("answered by ann"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(
+        sent_with(&h),
+        ["first"],
+        "an unverified account's filter would refuse it the same way"
+    );
+    let shown = transcript(&h).last().unwrap().info.clone();
+    assert_eq!(shown.ending, Some(crate::session::types::Ending::Refused));
+    assert!(!h.engine.unserved.refused_conversation(&first, &h.session.id));
+
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "first"]);
+}
+
+#[tokio::test]
+async fn a_cyber_refusal_stands_when_the_verified_account_has_no_usage_left() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    verify(&h, &second);
+    h.engine.limits.refuse(&second, id::now_ms() + 3_600_000);
+    h.provider.push(refused(Some("cyber"))).push(text("never sent"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(
+        sent_with(&h),
+        ["first"],
+        "a spent account would only answer that it is spent"
+    );
+    let shown = transcript(&h).last().unwrap().info.clone();
+    assert_eq!(shown.ending, Some(crate::session::types::Ending::Refused));
+    assert!(!h.engine.unserved.refused_conversation(&first, &h.session.id));
+}
+
+#[tokio::test]
+async fn a_cyber_refusal_passes_over_unverified_accounts_for_good() {
+    let h = harness().await;
+    let (first, _) = two_accounts(&h);
+    let third = h
+        .engine
+        .credentials
+        .add_account(
+            "anthropic",
+            &Credential::OAuth {
+                access: "third".into(),
+                refresh: "third-refresh".into(),
+                expires_at: id::now_ms() + 3_600_000,
+                account: None,
+            },
+            &Profile {
+                identity: Some("cat".into()),
+                email: Some("cat@example.com".into()),
+            },
+        )
+        .unwrap();
+    verify(&h, &third);
+    h.provider
+        .push(refused(Some("cyber")))
+        .push(text("answered by cat"))
+        .push(text("cat again"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "third"]);
+
+    // Even with its cache gone cold, the conversation never moves to the unverified account.
+    let mut last = h.engine.store.last_cached_reply(&h.session.id).unwrap().unwrap();
+    last.finished_at = Some(id::now_ms() - 2 * 3_600_000);
+    h.engine.store.save_message(&last).unwrap();
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "third", "third"]);
+    assert!(h.engine.unserved.refused_conversation(&first, &h.session.id));
 }
 
 #[tokio::test]
@@ -360,7 +576,8 @@ async fn a_refusal_in_another_policy_area_stands_on_the_account_that_made_it() {
 #[tokio::test]
 async fn when_every_account_refuses_the_last_refusal_is_shown() {
     let h = harness().await;
-    two_accounts(&h);
+    let (_, second) = two_accounts(&h);
+    verify(&h, &second);
     h.provider.push(refused(Some("cyber"))).push(refused(Some("cyber")));
 
     h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
@@ -375,9 +592,10 @@ async fn when_every_account_refuses_the_last_refusal_is_shown() {
 }
 
 #[tokio::test]
-async fn a_cyber_refusal_of_a_compaction_summary_asks_the_next_account_and_the_conversation_follows() {
+async fn a_cyber_refusal_of_a_compaction_summary_asks_a_verified_account_and_the_conversation_follows() {
     let h = harness().await;
     let (first, second) = two_accounts(&h);
+    verify(&h, &second);
     let mut events = h.engine.hub.attach(None).rx;
     h.provider
         .push(text("The retry loop now backs off."))

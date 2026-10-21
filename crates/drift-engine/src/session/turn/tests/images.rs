@@ -70,41 +70,61 @@ fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
     let mut seeing = model_with(0, false);
     (seeing.attachment, seeing.pdf) = (true, true);
 
-    let blocks = (0..MAX_IMAGES_SENT + 5)
-        .map(|index| Block::Stored {
-            mime: "image/png".into(),
-            hash: format!("h{index}"),
-        })
-        .collect();
-    let prepared = crate::llm::prepare_files(
+    let stored = |count: usize| {
+        let blocks = (0..count)
+            .map(|index| Block::Stored {
+                mime: "image/png".into(),
+                hash: format!("h{index}"),
+            })
+            .collect();
         vec![ChatMessage {
             role: LlmRole::User,
             blocks,
-        }],
-        &seeing,
-        |hash| (hash != "h14").then(|| b"png".to_vec()),
-    );
-    let kinds: Vec<_> = prepared[0]
-        .blocks
-        .iter()
-        .map(|block| match block {
-            Block::Image { .. } => "image",
-            Block::Text(text) if text.contains("earlier") => "older",
-            _ => "lost",
-        })
-        .collect();
+        }]
+    };
+    let kinds = |prepared: &[ChatMessage]| -> Vec<&'static str> {
+        prepared[0]
+            .blocks
+            .iter()
+            .map(|block| match block {
+                Block::Image { .. } => "image",
+                Block::Text(text) if text.contains("earlier") => "older",
+                _ => "lost",
+            })
+            .collect()
+    };
+
+    let total = MAX_IMAGES_SENT + 5;
+    let lost = format!("h{}", total - 1);
+    let prepared = crate::llm::prepare_files(stored(total), &seeing, |hash| (hash != lost).then(|| b"png".to_vec()));
     assert_eq!(
-        kinds,
-        [vec!["older"; 4], vec!["image"; MAX_IMAGES_SENT], vec!["lost"]].concat(),
-        "the newest are loaded; one no longer kept says so and takes no slot"
+        kinds(&prepared),
+        [vec!["older"; 5], vec!["image"; MAX_IMAGES_SENT - 1], vec!["lost"]].concat(),
+        "the newest are loaded; one no longer kept says so in its place"
     );
 
+    let found = |_: &str| Some(b"png".to_vec());
+    let before = kinds(&crate::llm::prepare_files(stored(total + 1), &seeing, found));
+    let after = kinds(&crate::llm::prepare_files(stored(total + 2), &seeing, found));
+    assert_eq!(
+        after[..before.len()],
+        before[..],
+        "a new image leaves the older ones as they were sent, so the cached prefix holds"
+    );
+    assert_eq!(before.iter().filter(|kind| **kind == "older").count(), 10);
+}
+
+#[test]
+fn a_few_large_images_fill_the_data_budget_before_the_count() {
+    let mut seeing = model_with(0, false);
+    (seeing.attachment, seeing.pdf) = (true, true);
     let blocks = (0..4)
         .map(|index| Block::Image {
             mime: "image/png".into(),
             base64: format!("{index}{}", "A".repeat(8 * 1024 * 1024)),
         })
         .collect();
+
     let prepared = crate::llm::prepare_files(
         vec![ChatMessage {
             role: LlmRole::User,
@@ -113,6 +133,7 @@ fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
         &seeing,
         |_| None,
     );
+
     let sent = prepared[0]
         .blocks
         .iter()
@@ -123,7 +144,12 @@ fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
         matches!(&prepared[0].blocks[3], Block::Image { base64, .. } if base64.starts_with('3')),
         "the newest are the ones kept"
     );
+}
 
+#[test]
+fn a_stored_pdf_loads_as_a_pdf_only_for_a_model_that_reads_them() {
+    let mut seeing = model_with(0, false);
+    (seeing.attachment, seeing.pdf) = (true, true);
     let pdf = vec![ChatMessage {
         role: LlmRole::User,
         blocks: vec![Block::Stored {

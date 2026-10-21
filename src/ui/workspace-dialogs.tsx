@@ -83,7 +83,7 @@ export function WorkspaceMenu(props: {
                 }}
             />
             <Show when={confirming()}>
-                <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">
+                <div class="px-2 pt-1 pb-0.5 text-[length:calc(0.65rem*var(--ui-text-scale,1))] leading-snug text-ink-faint">
                     {t("drift.workspace.removeHint")}
                 </div>
             </Show>
@@ -223,7 +223,7 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
                         </div>
                     </div>
                     <label class="mb-4 block">
-                        <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">
+                        <span class="mb-1 block text-[length:calc(0.68rem*var(--ui-text-scale,1))] tracking-wide text-ink-faint uppercase">
                             {t("dialog.project.edit.name")}
                         </span>
                         <input
@@ -233,7 +233,9 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
                             onKeyDown={(event) => event.key === "Enter" && void save()}
                         />
                     </label>
-                    <div class="mb-3 text-[0.68rem] text-ink-faint">{props.workspace.path}</div>
+                    <div class="mb-3 text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
+                        {props.workspace.path}
+                    </div>
                     <div class="flex justify-end gap-2">
                         <button
                             class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"

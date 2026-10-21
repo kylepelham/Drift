@@ -572,7 +572,7 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
                             />
                         </Show>
                     </div>
-                    <div class="truncate text-[0.7rem] text-ink-faint">
+                    <div class="truncate text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                         {props.plugin.author} · v{props.plugin.version}
                     </div>
                 </div>
@@ -612,7 +612,7 @@ function InstallSheet(props: {
                 <LogoTile image={props.plugin.image} title={props.plugin.name} large />
                 <div class="min-w-0 flex-1">
                     <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-                    <div class="text-[0.7rem] text-ink-faint">
+                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                         {props.plugin.author} · v{props.plugin.version} · {formatSize(props.plugin.size)}
                     </div>
                     <div class="mt-2 text-sm text-ink-muted">{props.plugin.description}</div>

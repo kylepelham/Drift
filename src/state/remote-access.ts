@@ -10,22 +10,20 @@ export type RemoteDevice = {
     createdAt: number;
     lastSeenAt: number;
 };
-export type PendingLink = { name: string; address: string; requestedAt: number };
+
+export type TunnelPhase = "off" | "setting-up" | "connecting" | "online" | "reconnecting" | "failed";
 
 export type RemoteAccessStatus = {
     enabled: boolean;
     listening: boolean;
-    port: number;
-    discoveryPort: number;
-    listeningAddress?: string;
-    urls: string[];
-    addressQr?: string;
+    /** What a browser on this network opens, while browser access is on. */
+    lanUrl?: string;
+    browser: boolean;
+    tunnelEnabled: boolean;
+    tunnel: { phase: TunnelPhase; url?: string; error?: string };
     devices: RemoteDevice[];
-    pendingLinks: PendingLink[];
     passwordUsername?: string;
     certificateFingerprint: string;
-    /** The fingerprint as six words, which the Drift app shows while it links by code. */
-    certificateWords: string[];
     error?: string;
 };
 
@@ -42,6 +40,17 @@ export function nextRemoteAccessEnabled(status: RemoteAccessStatus | null) {
     return !status?.enabled;
 }
 
+/** The tunnel's address while it carries traffic; none while it is setting up or down. */
+export function tunnelUrl(status: RemoteAccessStatus | null) {
+    const tunnel = status?.tunnel;
+    return tunnel?.phase === "online" || tunnel?.phase === "reconnecting" ? tunnel.url : undefined;
+}
+
+/** Whether a pairing code also reaches the PC through the tunnel, away from its network. */
+export function pairingReachesAnywhere(pairing: RemotePairing) {
+    return new URL(pairing.uri).searchParams.has("h");
+}
+
 const relativeUnits = [
     ["day", 86_400],
     ["hour", 3_600],
@@ -53,11 +62,6 @@ export function lastSeenLabel(at: number, now = Date.now()) {
     const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
     const unit = relativeUnits.find(([, size]) => Math.abs(seconds) >= size);
     return unit ? format.format(Math.round(seconds / unit[1]), unit[0]) : format.format(0, "minute");
-}
-
-/** A typed code in any case or grouping; only the 8 code characters are compared. */
-export function normalizeLinkCode(input: string) {
-    return input.replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
 const [status, setStatus] = createSignal<RemoteAccessStatus | null>(null);
@@ -91,13 +95,14 @@ export function setRemoteAccess(enabled: boolean) {
     return call(enabled ? "remote_access_enable" : "remote_access_disable");
 }
 
-/** Approves the device showing `code`; resolves to its name. */
-export async function linkRemoteDevice(code: string) {
-    const invoke = shellInvoke();
-    if (!invoke) throw new Error(t("drift.remote.linkRequiresDesktop"));
-    const name = await invoke<string>("remote_access_link", { code: normalizeLinkCode(code) });
-    void refreshRemoteAccess();
-    return name;
+/** The browser version: its sign-in page, password sign-in, and every browser's session. */
+export function setRemoteBrowser(enabled: boolean) {
+    return call("remote_access_set_browser", { enabled });
+}
+
+/** Reaching this PC through OpenTunnel; setting it up goes on in the background. */
+export function setRemoteTunnel(enabled: boolean) {
+    return call("remote_access_set_tunnel", { enabled });
 }
 
 /** A fresh pairing code for the Drift app; it replaces any shown before. */
@@ -120,7 +125,7 @@ export function setRemotePassword(credentials: { username: string; password: str
     return call("remote_access_set_password", credentials ?? {});
 }
 
-/** Keeps desktop status current as devices ask to link, finish linking, or sign out. */
+/** Keeps desktop status current as the tunnel comes up and devices link or sign out. */
 export function listenRemoteAccess() {
     return shellEvents()?.listen("remote-access-changed", () => void refreshRemoteAccess());
 }

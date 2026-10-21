@@ -1,4 +1,4 @@
-import { IconArrowDown, IconArrowUp, IconCheck, IconSquarePen, IconTrash } from "./icons";
+import { IconArrowDown, IconArrowUp, IconCheck, IconShieldCheck, IconSquarePen, IconTrash } from "./icons";
 import { resetLabel, resetTitle } from "../state/usage-limits";
 import { createSignal, For, Show } from "solid-js";
 import { LimitRow } from "./context-meter";
@@ -86,7 +86,7 @@ export function ProviderAccounts(props: {
 
             {/* The first account is the one requests go to. */}
             <Show when={index() === 0 && props.accounts.length > 1}>
-                <span class="shrink-0 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[0.68rem] text-ok">
+                <span class="shrink-0 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ok">
                     {t("drift.provider.accounts.inUse")}
                 </span>
             </Show>
@@ -115,6 +115,30 @@ export function ProviderAccounts(props: {
                     onClick={() => void rename(account)}
                 >
                     <IconCheck class="size-3.5" />
+                </button>
+            </Show>
+
+            {/* Cyber Verification is rare, so it is an unobtrusive switch rather than a row of its own. */}
+            <Show when={props.providerId === "anthropic" && account.signedIn}>
+                <button
+                    type="button"
+                    class={iconButton}
+                    classList={{ "border-ok/40 text-ok hover:text-ok": account.cyberVerified }}
+                    title={`${t("drift.provider.accounts.cyberVerified")}: ${t("drift.provider.accounts.cyberVerifiedHint")}`}
+                    aria-label={t("drift.provider.accounts.cyberVerified")}
+                    aria-pressed={account.cyberVerified}
+                    disabled={busy()}
+                    onClick={() =>
+                        void run(
+                            engine.actions.setProviderAccountCyberVerified(
+                                props.providerId,
+                                account.id,
+                                !account.cyberVerified,
+                            ),
+                        )
+                    }
+                >
+                    <IconShieldCheck class="size-3.5" />
                 </button>
             </Show>
 
@@ -163,7 +187,7 @@ export function ProviderAccounts(props: {
 
     return (
         <div class="space-y-1.5">
-            <div class="text-[0.68rem] tracking-wider text-ink-faint uppercase">
+            <div class="text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
                 {t("drift.provider.accounts.title")}
             </div>
             <For each={props.accounts}>{row}</For>

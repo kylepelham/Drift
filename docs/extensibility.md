@@ -175,7 +175,44 @@ Output cut at the engine's bound can end partway through a secret, and that frag
 recognised.
 
 `plugins/secrets` is that plugin: its config is `{ "replacements": { "<secret>": "<placeholder>" } }`
-and it does nothing else.
+and it does nothing else. It declares that object as a pairs setting, so Settings shows one row per
+secret, the secret hidden until you press its eye, and `+ Add` for another.
+
+### Settings a plugin declares
+
+A plugin built for the `configurable` world (the `plugin` world plus `settings()`; `masking` and
+`searching` include it) describes its config, and Settings > Plugins draws a form from that instead
+of a JSON box:
+
+- `text`: one line or several, with a placeholder; a secret one is hidden until shown.
+- `number`: with an optional default, minimum, maximum and whether it is a whole number.
+- `toggle`: on or off.
+- `choice`: one of a list of values, each with its label.
+- `items`: a list of strings, a row each, `+ Add` for another and `x` to remove one.
+- `pairs`: an object of strings, a row of two fields each, both columns labelled, either side
+  optionally secret.
+
+Each setting has a key (where its value lives in the config object), a label and a description.
+Drift reads them once, when the plugin loads. `host.config()` returns the stored object with every
+declared key you left unset filled in with its default, so the plugin need not repeat its defaults.
+Saving refuses a value that does not fit its kind ("Limit is a whole number") and writes nothing;
+keys the plugin does not declare are kept as they are. Empty rows are dropped when you save. A
+plugin built for `plugin` alone has no form: its registry entry's fields are shown if it has them,
+its raw JSON otherwise.
+
+### Answering web searches
+
+A plugin built for the `searching` world (the `plugin` world plus two exports) answers the
+`websearch` tool as one or more providers. `search-providers()` names them, an id and a display
+name each, asked once at load; Settings > Execution > Web search lists them beside Firecrawl, Exa
+and Tavily, and `auto` tries them in the user's order like the built-in ones. `search(provider,
+query, limit)` answers hits as url, title and snippet, or an error that can say "rate limited,
+retry after N seconds" (the provider then cools for that long and `auto` moves on). A built-in id
+always wins over a plugin's, and when two plugins name the same id the first listed answers. The
+plugin reaches the network through the `http` host interface; Drift never calls a search API on its
+behalf.
+
+`plugins/searxng` is that plugin: it asks the SearXNG instance in `config.url` for JSON results.
 
 ## Skills
 
@@ -318,15 +355,18 @@ Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for 
 through tool renderers, never part renderers.
 
 Thinking indicators: `api.registerThinkingIndicator(id, { name, render })` adds a look for the
-indicator a working turn shows. It is listed in Settings > General > Thinking indicator as
+indicator a working turn shows. It is listed in Settings > Appearance > Thinking indicator as
 "name (plugin)" and is used only once the user picks it; while its plugin is not loaded, or if
-`render` throws, Shimmer is drawn in its place and the error is logged. `render(host, context)`
+`render` throws, Orbs are drawn in its place and the error is logged. `render(host, context)`
 draws into `host`, an empty inline element, and may return a cleanup function or
 `{ update(context), dispose() }`; `update` is called whenever the context changes. The context
-is `{ sessionId, label, tint, speed, preview }`: `label` is the translated word for thinking,
-`tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies animation durations (1.6 slow,
-1 normal, 0.6 fast), and `preview` is true in Settings. Drift shows the reasoning heading
-beside every indicator, so a plugin's need not.
+is `{ sessionId, label, tint, speed, preview }`: `label` is the text the user set (Thinking,
+translated, when they set none), `tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies
+animation durations (1.6 slow, 1 normal, 0.6 fast), and `preview` is true in Settings. `host`
+inherits the CSS variable `--thinking-color`, which already follows the tint (Spectrum's hue keeps
+turning), so a plugin can paint with it instead of handling each tint itself. Drift puts
+the text after every indicator when the user turns it on, and the reasoning heading beside it, so
+a plugin draws only its animation.
 
 ```js
 export default function (api) {
@@ -339,7 +379,7 @@ export default function (api) {
                 duration: 1200 * context.speed,
                 iterations: Infinity,
             });
-            host.append(star, ` ${context.label}`);
+            host.append(star);
             return {
                 update: (next) => spin.effect.updateTiming({ duration: 1200 * next.speed }),
                 dispose: () => spin.cancel(),

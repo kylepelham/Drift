@@ -16,6 +16,8 @@ uses it.
 - `crates/drift-engined` is the same engine headless: `bun run dev` runs it for the browser
   dev loop, the conformance tests drive it, and it can serve a remote host
   (`drift-engined [--data-dir DIR] [--port N]`, data in `~/.local/share/drift` by default).
+  With `--acp` it speaks the Agent Client Protocol on stdio instead, so an editor such as Zed
+  drives Drift sessions ([acp.md](acp.md)).
 - Settings the shell keeps (agent overrides from Settings > Prompts, the shell time limit) are
   handed to the engine at startup and on every change; everything else the engine owns.
 
@@ -31,8 +33,8 @@ uses it.
   `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
   and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers.
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
-  servers and config once, in the background ("Importing opencode conversations" in
-  engine-rewrite.md).
+  servers and config once, in the background, from opencode v1 and v2 alike ("Importing opencode
+  conversations" in engine-rewrite.md).
 
 Tool-call metadata uses `ToolMetadata` in `session/types.rs`, shared by tool results,
 running progress, history capture and replay. Its OpenAPI schema gives the generated
@@ -57,6 +59,66 @@ making a stored tool call unreadable. No SQLite migration or Tauri IPC change is
 - Questions the agent asks (async by default), permission asks and their replies, tasks and
   workers, undo and redo, compaction and retries are all engine features; engine-rewrite.md
   documents each.
+
+## References
+
+`references` in drift.json names folders and git repositories outside the workspace that the
+model may consult, such as another project's code, a spec, or a library's source:
+
+```json
+{
+  "references": {
+    "notes": "~/notes",
+    "spec": { "path": "../wire-spec", "description": "The protocol spec" },
+    "rust": { "repository": "https://github.com/rust-lang/rust", "branch": "master" }
+  }
+}
+```
+
+- A path is relative to the drift.json naming it, absolute, or starts with `~/`.
+- A repository is cloned shallow under Drift's data directory (`references/<name>-<hash>`) the
+  first time a turn's config names it, in the background, and fetched again at most once a day
+  when a turn uses it. Drift never edits the clone; a fetch resets it to what was fetched.
+- The instruction baseline lists each reference: its name, description and local path, and a note
+  while a clone is still being made.
+- Reading and searching inside one of your own references (from `~/.config/drift/drift.json`) runs
+  without asking; files likely to hold secrets still ask, and writes ask as for any path outside the
+  workspace. Shell commands that read there ask as any outside path does.
+- A project's drift.json may name references too, but they grant nothing: reading in one outside the
+  workspace asks like any outside path, and answering that ask (Always leaves the usual folder grant)
+  is the approval. A project's repository reference is listed but never fetched, so a committed file
+  can never make Drift fetch from the network. A project reference never replaces one of yours of
+  the same name.
+
+## Queued prompts
+
+A prompt sent while a turn runs is delivered as `steer` by default: it joins the running turn at its
+next request. Sent as `queue` (Alt+Enter in the composer, Send clicked with Alt held, or a long press on
+Send on a touch screen, while a turn runs), it waits instead, kept outside the transcript (`queued_prompt` table) and shown above
+the composer with Edit, Discard and Send now. Send now takes it off the queue and sends it as a
+steer, or as a new turn when none runs.
+
+- When a turn ends on its own, the first queued prompt starts the next turn; the one after it waits
+  for that turn to end. Steers sent meanwhile are already part of the turn, so they land first.
+- A queued prompt sent while nothing runs starts at once.
+- After Stop the queue is held: nothing starts until the user sends a prompt, and when that turn
+  ends the queue goes on.
+- A queued prompt that cannot start (its model is gone, a plugin refuses it) keeps its place with the
+  reason and holds the ones behind it until it is edited, sent or discarded.
+- The hold after Stop is kept in memory, so after a restart the queue waits until a turn ends.
+
+## Plan files
+
+The plan agent reads and changes nothing, with one exception: it may write and edit Markdown files
+in its workspace's plans folder, `<data>/plans/<workspace id>/`, which the environment block of
+every agent's system prompt names. Any other change it attempts is refused with a message naming
+that folder. Its prompt says to discuss the plan in the conversation and write a file only when the
+user asks for one.
+
+Every agent reads plan files without asking, so after switching to build the plan is there to read.
+After a summary, the request lists the workspace's plan files (at most ten, by name, so editing
+one never changes the cached request) beside the summary.
+
 ## Context meter and plan usage limits
 
 The context meter in the chat header shows the context window as one bar split by

@@ -1,7 +1,7 @@
 use crate::remote::RemoteAccess;
 use crate::store::{RemoteDevice, Store};
 use axum::Json;
-use axum::extract::{ConnectInfo, Extension, Path as UrlPath, State};
+use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -10,14 +10,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 use tauri::{Emitter, Manager};
 
-use super::{
-    LINK_TTL, Poll, constant_time_eq, device_name, display_code, session_cookie, verify_password, with_cookie,
-};
-
-#[derive(Deserialize)]
-pub(crate) struct LinkRequest {
-    name: Option<String>,
-}
+use super::{constant_time_eq, device_name, session_cookie, verify_password, with_cookie};
 
 #[derive(Deserialize)]
 pub(crate) struct PairRequest {
@@ -98,42 +91,6 @@ pub(crate) async fn pair(
     }
 }
 
-pub(crate) async fn start_link(
-    State(app): State<tauri::AppHandle>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    Json(request): Json<LinkRequest>,
-) -> Response {
-    let started = app
-        .state::<RemoteAccess>()
-        .auth()
-        .request_link(peer.ip(), device_name(request.name));
-
-    match started {
-        Ok((id, code)) => {
-            notify(&app);
-            Json(json!({ "id": id, "code": display_code(&code), "expiresIn": LINK_TTL.as_secs() })).into_response()
-        }
-        Err(error) => failure(StatusCode::TOO_MANY_REQUESTS, &error.to_string()),
-    }
-}
-
-pub(crate) async fn poll_link(State(app): State<tauri::AppHandle>, UrlPath(id): UrlPath<String>) -> Response {
-    let polled = app.state::<RemoteAccess>().auth().poll(&id, &app.state::<Store>());
-
-    match polled {
-        Ok(Poll::Pending) => Json(json!({ "status": "pending" })).into_response(),
-        Ok(Poll::Expired) => (StatusCode::NOT_FOUND, Json(json!({ "status": "expired" }))).into_response(),
-        Ok(Poll::Approved(token)) => {
-            notify(&app);
-            with_cookie(
-                Json(json!({ "status": "approved" })).into_response(),
-                session_cookie(&token),
-            )
-        }
-        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
-    }
-}
-
 pub(crate) async fn login(
     State(app): State<tauri::AppHandle>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -189,8 +146,12 @@ fn locked_response(wait: std::time::Duration) -> Response {
     failure(StatusCode::TOO_MANY_REQUESTS, &message)
 }
 
-pub(crate) async fn me(Extension(device): Extension<RemoteDevice>) -> Response {
-    Json(device).into_response()
+/// The signed-in device, and where this PC can be reached now, so the app keeps its addresses current.
+pub(crate) async fn me(State(app): State<tauri::AppHandle>, Extension(device): Extension<RemoteDevice>) -> Response {
+    let mut answer = json!(device);
+    answer["reach"] = app.state::<RemoteAccess>().reach();
+
+    Json(answer).into_response()
 }
 
 pub(crate) async fn logout(

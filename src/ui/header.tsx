@@ -1,7 +1,7 @@
 import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find";
+import { IconArrowUp, IconBranch, IconDiff, IconGlobe, IconMenu, IconSearch } from "./icons";
 import { closeReview, openReview, reviewPanel, rightPanelOpen } from "../state/panels";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
-import { IconArrowUp, IconDiff, IconMenu, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { nativeFrame, WindowControls } from "./titlebar";
@@ -10,6 +10,12 @@ import { hiddenParent } from "../engine/sessions";
 import { ContextMeter } from "./context-meter";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
+import {
+    browserPaneCollapsed,
+    browserPaneShowing,
+    collapseBrowserPane,
+    expandBrowserPane,
+} from "../state/browser-pane";
 
 const chatColumnWidth = 768;
 
@@ -96,6 +102,17 @@ export function ChatHeader() {
                                     )}
                                 </Show>
                                 <Title id={current().id} title={current().title} />
+                                <Show when={current().worktree}>
+                                    {(name) => (
+                                        <span
+                                            class="flex min-w-0 shrink items-center gap-1 rounded-md border border-edge px-1.5 py-0.5 text-xs text-ink-muted"
+                                            title={t("drift.worktree.branch")}
+                                        >
+                                            <IconBranch class="size-3 shrink-0" />
+                                            <span class="truncate">drift/{name()}</span>
+                                        </span>
+                                    )}
+                                </Show>
                             </>
                         )}
                     </Show>
@@ -130,17 +147,58 @@ export function ChatHeader() {
                                     >
                                         <IconDiff class="size-3.5" />
                                     </button>
+                                    <BrowserToggle sessionId={current().id} />
                                 </Show>
                                 <ContextMeter sessionId={current().id} />
                             </>
                         )}
                     </Show>
-                    <Show when={!rightPanelOpen() || narrow()}>
+                    <Show when={(!rightPanelOpen() && !browserPaneShowing()) || narrow()}>
                         <WindowControls />
                     </Show>
                 </div>
             </div>
         </Show>
+    );
+}
+
+/** Opens the conversation's browser, then shows or hides its pane; hiding leaves the browser running. */
+function BrowserToggle(props: { sessionId: string }) {
+    const engine = useEngine();
+    const [starting, setStarting] = createSignal(false);
+    const running = () => !!engine.state.browsers[props.sessionId];
+    const open = () => running() && !browserPaneCollapsed(props.sessionId);
+
+    function title() {
+        if (!running()) return t("drift.browser.open");
+
+        return t(open() ? "drift.browser.hide" : "drift.browser.show");
+    }
+
+    // A new browser opens its pane when the engine reports it.
+    async function toggle() {
+        if (running()) {
+            if (open()) collapseBrowserPane(props.sessionId);
+            else expandBrowserPane(props.sessionId);
+            return;
+        }
+
+        setStarting(true);
+        await engine.actions.startBrowser(props.sessionId);
+        setStarting(false);
+    }
+
+    return (
+        <button
+            class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:opacity-40"
+            classList={{ "text-accent": open(), "text-ink-faint": !open() }}
+            title={title()}
+            aria-pressed={open()}
+            disabled={starting()}
+            onClick={() => void toggle()}
+        >
+            <IconGlobe class="size-3.5" />
+        </button>
     );
 }
 

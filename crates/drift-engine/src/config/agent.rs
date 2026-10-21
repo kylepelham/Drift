@@ -24,7 +24,8 @@ pub struct Agent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
     /// Front matter `read_only: true`: it is offered its tools as usual, but any call that would change
-    /// something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
+    /// something (a writing tool, a task to a writing subagent, and for a primary agent a shell line that is
+    /// not only reads) is refused. A read-only subagent runs any shell command; its prompt keeps them to reading.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read_only: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -17,6 +17,8 @@ const host = {
     revision: 4,
     theme: {
         name: "drift-paper" as const,
+        accent: "clay",
+        corners: "round" as const,
         custom: { background: "#ffffff", surface: "#f5f5f5", text: "#111111", accent: "#3366cc" },
         uiFont: "Inter",
         codeFont: "Cascadia Code",
@@ -36,6 +38,8 @@ test("remote bootstrap cache applies host theme, order, and atomic selection bef
     });
     expect(acceptMirrorSnapshot(host, true)).toBeTrue();
     expect(JSON.parse(localStorage.getItem("drift.theme")!)).toBe("drift-paper");
+    expect(JSON.parse(localStorage.getItem("drift.theme.accent")!)).toBe("clay");
+    expect(JSON.parse(localStorage.getItem("drift.theme.corners")!)).toBe("round");
     expect(JSON.parse(localStorage.getItem("drift.workspace")!)).toBe("workspace-1");
     expect(JSON.parse(localStorage.getItem("drift.session")!)).toBe("session-1");
     expect(JSON.parse(localStorage.getItem("drift.workspace.order")!)).toEqual(["workspace-2", "workspace-1"]);
@@ -79,11 +83,11 @@ test("desktop bootstrap normalizes malformed legacy appearance and selection val
     );
 
     const snapshot = localMirrorSnapshot();
-    expect(snapshot.theme.name).toBe("drift-dark");
+    expect(snapshot.theme.name).toBe("drift-charcoal");
     expect(snapshot.theme.custom).toEqual({
-        background: "#111318",
+        background: "#161616",
         surface: "#123456",
-        text: "#e8eaf0",
+        text: "#ececec",
         accent: "#a78bfa",
     });
     expect(snapshot.theme.uiFont).toHaveLength(256);

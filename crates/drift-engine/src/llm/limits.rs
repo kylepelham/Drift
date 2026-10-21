@@ -25,6 +25,9 @@ pub struct Limits {
     /// The plan's usage is spent until then, in ms; requests before it are refused or paid for with credits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spent_until: Option<i64>,
+    /// A Claude subscription past its limits is drawing on paid extra usage, where its cache keeps five minutes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overage: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -65,6 +68,32 @@ impl Limits {
         let reached = limits["limit_reached"].as_bool() == Some(true);
 
         Self::of(windows.into_iter().flatten(), reached.then_some(None))
+    }
+
+    /// What Claude's `/api/oauth/usage` reports of a subscription: each window's use in percent, its reset in RFC 3339.
+    pub fn from_anthropic_usage(body: &Value) -> Option<Self> {
+        let window = |key: &str, minutes: f64| {
+            let entry = &body[key];
+            let resets_at = entry["resets_at"]
+                .as_str()
+                .and_then(|text| time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).ok())
+                .map(|at| i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or(i64::MAX));
+
+            Some((
+                minutes,
+                Window {
+                    used_percent: entry["utilization"].as_f64()?,
+                    resets_at,
+                },
+            ))
+        };
+
+        Self::of(
+            [window("five_hour", 300.0), window("seven_day", 10080.0)]
+                .into_iter()
+                .flatten(),
+            None,
+        )
     }
 
     /// When usage is spent as of `now`; `None` while the account can still be used.
@@ -151,11 +180,15 @@ fn anthropic_headers(headers: &HeaderMap) -> Option<Limits> {
     };
     let rejected = header(headers, "anthropic-ratelimit-unified-status") == Some("rejected");
     let refused = rejected.then(|| seconds_at(number("reset"), None));
+    let overage = header(headers, "anthropic-ratelimit-unified-overage-in-use") == Some("true");
 
-    Limits::of(
+    let mut limits = Limits::of(
         [window("5h", 300.0), window("7d", 10080.0)].into_iter().flatten(),
         refused,
-    )
+    )?;
+    limits.overage = overage;
+
+    Some(limits)
 }
 
 fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -237,6 +270,15 @@ impl Unserved {
         let key = (account.to_string(), session.to_string());
 
         self.conversations.lock().unwrap().contains(&key)
+    }
+
+    /// Whether any account's safety filter refused the conversation.
+    pub fn refused_anywhere(&self, session: &str) -> bool {
+        self.conversations
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, refused)| refused == session)
     }
 }
 

@@ -15,6 +15,8 @@ fn snapshot(workspace_id: Option<&str>) -> UiMirrorSnapshot {
             ui_font: "".into(),
             code_font: "".into(),
             custom_css: "".into(),
+            accent: "".into(),
+            corners: "".into(),
         },
         selection: UiSelection {
             workspace_id: workspace_id.map(str::to_string),
@@ -216,4 +218,31 @@ fn shell_timeout_is_insert_only_then_mutable_and_persistent() {
     authority.update(&store, five.clone()).unwrap();
     assert_eq!(ShellTimeoutAuthority::load(&store).unwrap().snapshot().unwrap(), five);
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_theme_takes_a_named_or_hex_accent_and_known_corners_and_an_older_snapshot_still_reads() {
+    let mut theme = snapshot(None);
+    for accent in ["", "clay", "#ff8800"] {
+        theme.theme.accent = accent.into();
+        assert!(validate_snapshot(&theme).is_ok(), "{accent}");
+    }
+    for accent in ["Clay", "#ff88", "url(x)"] {
+        theme.theme.accent = accent.into();
+        assert!(
+            matches!(validate_snapshot(&theme), Err(UiStateError::InvalidAccent)),
+            "{accent}"
+        );
+    }
+    theme.theme.accent = String::new();
+    theme.theme.corners = "wobbly".into();
+    assert!(matches!(validate_snapshot(&theme), Err(UiStateError::InvalidCorners)));
+
+    let saved = r##"{"schema":1,"revision":3,"theme":{"name":"drift-aubergine","custom":{"background":"#111318","surface":"#1b1e25","text":"#e8eaf0","accent":"#a78bfa"},"uiFont":"","codeFont":"","customCss":""},"selection":{"workspaceId":null,"sessionId":null}}"##;
+    let older: UiMirrorSnapshot = serde_json::from_str(saved).unwrap();
+    assert!(
+        validate_snapshot(&older).is_ok(),
+        "an earlier version's theme name stays valid"
+    );
+    assert_eq!((older.theme.accent.as_str(), older.theme.corners.as_str()), ("", ""));
 }

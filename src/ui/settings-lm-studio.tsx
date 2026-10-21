@@ -57,7 +57,7 @@ export function LmStudioConnect(props: { providerName: string; onNotice: (notice
         <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
             <div class="space-y-1 text-xs text-ink-muted">
                 <p>{t("drift.lmStudio.description")}</p>
-                <code class="block rounded-md border border-edge bg-overlay/50 px-2 py-1.5 text-[0.68rem] text-ink-faint">
+                <code class="block rounded-md border border-edge bg-overlay/50 px-2 py-1.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-faint">
                     http://127.0.0.1:1234
                 </code>
             </div>
@@ -85,13 +85,15 @@ export function LmStudioConnect(props: { providerName: string; onNotice: (notice
                                 <div class="flex items-center gap-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-2">
                                     <span class="min-w-0 flex-1">
                                         <span class="block truncate text-xs text-ink">{model.name}</span>
-                                        <span class="block truncate text-[0.65rem] text-ink-faint">{model.id}</span>
+                                        <span class="block truncate text-[length:calc(0.65rem*var(--settings-scale,1))] text-ink-faint">
+                                            {model.id}
+                                        </span>
                                     </span>
-                                    <span class="shrink-0 text-[0.65rem] tabular-nums text-ink-faint">
+                                    <span class="shrink-0 text-[length:calc(0.65rem*var(--settings-scale,1))] tabular-nums text-ink-faint">
                                         {formatModelContext(model.limit?.context ?? 0)}
                                     </span>
                                     <span
-                                        class="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.62rem]"
+                                        class="shrink-0 rounded-full border px-1.5 py-0.5 text-[length:calc(0.62rem*var(--settings-scale,1))]"
                                         classList={{
                                             "border-ok/25 bg-ok/10 text-ok": usable(),
                                             "border-warn/25 bg-warn/10 text-warn": lowContext(),

@@ -404,3 +404,93 @@ async fn a_long_task_output_wait_ends_when_a_message_arrives() {
     assert!(out.output.contains("A new message arrived"), "{}", out.output);
     assert!(out.metadata.delivers.is_none(), "the task is still running");
 }
+
+/// Finishes the running worker `task` after `after` and hands its result over, as a worker ending does.
+fn finish_later(h: &Harness, task: &TaskRecord, after: Duration) -> tokio::task::JoinHandle<()> {
+    let engine = h.engine.clone();
+    let id = task.id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(after).await;
+        engine.end_task(&id, TaskState::Replied, "WORKER_ANSWER");
+        engine.deliver(&id).await;
+    })
+}
+
+fn sent(request: &crate::llm::Request, needle: &str) -> bool {
+    format!("{:?}", request.messages).contains(needle)
+}
+
+#[tokio::test]
+async fn a_result_arriving_during_a_turns_compaction_is_kept_after_the_summary_not_summarised() {
+    let h = harness().await;
+    let long = vec![
+        Chunk::Usage(crate::session::types::Usage {
+            input: 980_000,
+            ..Default::default()
+        }),
+        Chunk::TextStart,
+        Chunk::TextDelta("long".into()),
+        Chunk::BlockStop,
+        Chunk::Stop(crate::llm::StopReason::EndTurn),
+    ];
+    h.provider.push(long);
+    h.engine.submit(&h.session.id, prompt("first")).await.unwrap();
+    until_idle(&h).await;
+    let task = recorded(&h, "launch", Mode::Background);
+    h.engine.store.start_task(&task.id).unwrap();
+
+    h.provider
+        .push_slow(Duration::from_millis(600), text("SUMMARY"))
+        .push(text("after"))
+        .push(text("spare"));
+    let finishing = finish_later(&h, &task, Duration::from_millis(200));
+    h.engine.submit(&h.session.id, prompt("second")).await.unwrap();
+    finishing.await.unwrap();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert!(
+        !sent(&requests[1], "WORKER_ANSWER"),
+        "the summary was asked for before it arrived"
+    );
+    assert!(sent(&requests[2], "SUMMARY") && sent(&requests[2], "WORKER_ANSWER"));
+    assert!(h.engine.store.task(&task.id).unwrap().unwrap().delivered);
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(delivered_results(&transcript).len(), 1);
+}
+
+#[tokio::test]
+async fn a_result_arriving_during_a_compaction_the_user_asked_for_wakes_the_conversation_after_it() {
+    // The second compaction outlasts the wait for a busy conversation, so the result is retried when it ends.
+    for summarising in [Duration::from_millis(700), Duration::from_millis(2600)] {
+        let h = harness().await;
+        for ask in ["first", "second", "third"] {
+            h.provider.push(text("reply"));
+            h.engine.submit(&h.session.id, prompt(ask)).await.unwrap();
+            until_idle(&h).await;
+        }
+        let task = recorded(&h, "launch", Mode::Background);
+        h.engine.store.start_task(&task.id).unwrap();
+
+        h.provider
+            .push_slow(summarising, text("SUMMARY"))
+            .push(text("read the answer"));
+        h.engine.start_compaction(&h.session.id).unwrap();
+        finish_later(&h, &task, Duration::from_millis(200)).await.unwrap();
+        until("the woken turn ends", || {
+            h.provider.requests.lock().unwrap().len() == 5 && !h.engine.turns.is_running(&h.session.id)
+        })
+        .await;
+
+        let requests = h.provider.requests.lock().unwrap().clone();
+        assert!(!sent(&requests[3], "WORKER_ANSWER"), "{summarising:?}");
+        assert!(
+            sent(&requests[4], "SUMMARY") && sent(&requests[4], "WORKER_ANSWER"),
+            "{summarising:?}"
+        );
+        assert!(
+            h.engine.store.task(&task.id).unwrap().unwrap().delivered,
+            "{summarising:?}"
+        );
+    }
+}

@@ -112,11 +112,14 @@ impl Progress {
 }
 
 impl Context {
-    /// The path a call really touches: absolute, `..` folded, symlinks followed. Permission rules see this.
+    /// The path a call really touches: `~` expanded, absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
-        let path = Path::new(path);
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from);
+        let path = expand_home(path, home.as_deref()).unwrap_or_else(|| PathBuf::from(path));
         let resolved = if path.is_absolute() {
-            path.to_path_buf()
+            path
         } else {
             self.workspace.join(path)
         };
@@ -128,10 +131,16 @@ impl Context {
         path.starts_with(&self.workspace)
     }
 
+    /// Inside the workspace or the scratch directory: where a tool may put what it makes.
+    pub fn workspace_or_scratch(&self, path: &Path) -> bool {
+        self.inside_workspace(path) || in_scratch(path)
+    }
+
     /// Rules apply everywhere; workspace and scratch operations default to allow, as does reading a skill's folder.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
         let mut ask = Ask::path(kind, path, &self.workspace, format!("{verb} {}", path.display()));
-        ask.default_allow = self.inside_workspace(path) || in_scratch(path) || (kind == "read" && self.in_skill(path));
+        ask.default_allow =
+            self.inside_workspace(path) || in_scratch(path) || (kind == "read" && self.free_to_read(path));
 
         Some(ask)
     }
@@ -140,7 +149,7 @@ impl Context {
     /// inside it. Everything else in the workspace, the scratch directory and the folders of the
     /// skills this session was offered (which `skill` names by absolute path) is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if self.owns_output(path) || ((in_scratch(path) || self.in_skill(path)) && !sensitive::is_sensitive(path)) {
+        if self.owns_output(path) || ((in_scratch(path) || self.free_to_read(path)) && !sensitive::is_sensitive(path)) {
             let ask = Ask::path(
                 "read",
                 path,
@@ -162,16 +171,45 @@ impl Context {
             &self.workspace,
             format!("{verb} {}", display(path, &self.workspace)),
         );
-        ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
+        ask.default_allow = in_scratch(path)
+            || self.is_plan_file(path)
+            || (self.inside_workspace(path) && !guarded(path, &self.workspace));
 
         Some(ask)
     }
 
+    /// Inside a skill's folder or one of the user's own references; a project's reference grants nothing.
+    fn free_to_read(&self, path: &Path) -> bool {
+        let in_reference = self
+            .config
+            .references
+            .iter()
+            .filter(|reference| !reference.project)
+            .any(|reference| path.starts_with(self.engine.reference_path(reference)));
+
+        in_reference || self.in_skill(path) || self.is_plan_file(path)
+    }
+
+    /// The plans folder of this session's workspace, where the plan agent writes.
+    pub(crate) fn plans_dir(&self) -> Option<PathBuf> {
+        let session = self.engine.store.session(&self.session_id).ok()??;
+
+        Some(self.engine.plans_dir(&session.workspace_id))
+    }
+
+    /// A Markdown plan in this session's workspace's plans folder.
+    pub(crate) fn is_plan_file(&self, path: &Path) -> bool {
+        self.plans_dir()
+            .is_some_and(|plans| crate::session::plans::is_plan_file(&plans, path))
+    }
+
     /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.
     fn in_skill(&self, path: &Path) -> bool {
+        // A built-in skill has no folder, and an empty path would hold every path.
         self.config
             .skills
             .iter()
+            .filter(|skill| !skill.path.is_empty())
             .any(|skill| path.starts_with(canonical(Path::new(&skill.path))))
     }
 
@@ -182,6 +220,23 @@ impl Context {
 
         path.starts_with(&owned) && path != owned
     }
+}
+
+/// `~`, `~/x` or `~\x` under the user's home; anything else, `~x` included, is left as it is.
+pub(crate) fn expand_home(path: &str, home: Option<&Path>) -> Option<PathBuf> {
+    let rest = path.strip_prefix('~')?;
+    if !rest.is_empty() && !rest.starts_with(['/', '\\']) {
+        return None;
+    }
+
+    let rest = rest.trim_start_matches(['/', '\\']);
+    let home = home?;
+
+    Some(if rest.is_empty() {
+        home.to_path_buf()
+    } else {
+        home.join(rest)
+    })
 }
 
 fn in_scratch(path: &Path) -> bool {

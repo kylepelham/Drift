@@ -7,7 +7,7 @@ import type { JSX } from "solid-js";
 export function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
     return (
         <div classList={{ "mt-4 border-t border-edge pt-4": !props.first }}>
-            <div class="mb-2 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">
+            <div class="mb-2 px-2 text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wider text-ink-muted uppercase">
                 {props.title}
             </div>
             <div class="space-y-0.5">{props.children}</div>
@@ -26,7 +26,7 @@ export function ListItem(props: {
     return (
         <button
             type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[length:calc(0.82rem*var(--settings-scale,1))] outline-none transition-colors focus-visible:bg-raised/60"
             classList={{
                 "bg-raised text-ink": props.active,
                 "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active,
@@ -39,7 +39,10 @@ export function ListItem(props: {
                 <span class="size-1.5 shrink-0 rounded-full bg-danger" />
             </Show>
             <Show when={props.unsaved}>
-                <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>
+                <span
+                    class="shrink-0 text-[length:calc(0.65rem*var(--settings-scale,1))] text-warn"
+                    title={t("drift.settings.prompts.unsaved")}
+                >
                     {t("drift.settings.prompts.unsavedShort")}
                 </span>
             </Show>

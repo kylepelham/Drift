@@ -95,15 +95,15 @@ export function StorageSection() {
                                     {(segment) => (
                                         <div class="flex items-center gap-2.5">
                                             <span class={`size-2.5 shrink-0 rounded-full ${segment.tone}`} />
-                                            <span class="min-w-0 flex-1 truncate text-[0.8rem] text-ink">
+                                            <span class="min-w-0 flex-1 truncate text-[length:calc(0.8rem*var(--settings-scale,1))] text-ink">
                                                 {segment.label}
                                             </span>
                                             <Show when={tableTones[segment.key]}>
-                                                <span class="hidden shrink-0 text-[0.7rem] text-ink-faint sm:inline">
+                                                <span class="hidden shrink-0 text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint sm:inline">
                                                     {t(tableTones[segment.key].hint)}
                                                 </span>
                                             </Show>
-                                            <span class="shrink-0 text-[0.8rem] tabular-nums text-ink-muted">
+                                            <span class="shrink-0 text-[length:calc(0.8rem*var(--settings-scale,1))] tabular-nums text-ink-muted">
                                                 {formatBytes(segment.bytes)}
                                             </span>
                                         </div>
@@ -111,7 +111,9 @@ export function StorageSection() {
                                 </For>
                             </div>
                             <Show when={current().estimated}>
-                                <div class="mt-2 text-[0.68rem] text-ink-faint">{t("drift.storage.estimated")}</div>
+                                <div class="mt-2 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-faint">
+                                    {t("drift.storage.estimated")}
+                                </div>
                             </Show>
                         </section>
 

@@ -52,6 +52,26 @@ a remote device see the same servers.
   Settings > Plugins, not here: the list shows one row per bundle with a link to it, and the
   bundle's state sets the server's switch (see Bundles in [extensibility.md](extensibility.md)).
 
+## Servers asking the user
+
+A server can ask the user for input in the middle of a call (MCP elicitation): an
+`elicitation/create` request from a 2025 server, or an `input_required` answer from a 2026-07-28
+one. Drift asks it on the question card, in the session whose call it is (a worker's in the
+worker's), with the server's name as the card's title. The call waits for the answer, so this
+card blocks, unlike the questions the model asks.
+
+- Each property of the form is one question: a choice (`enum`, `oneOf` or `enumNames`) its
+  options, an array of choices several of them, a boolean Yes or No, numbers and text typed. An
+  optional question with fixed options offers Skip. A form with no properties asks only to go on.
+- Answers are checked against the schema (required fields, length, number bounds and whole
+  numbers, `email`, `uri` and `date` formats) before anything is sent; a bad one asks the card
+  again with what was wrong, so Drift advertises schema validation.
+- A link request (URL mode) shows the link and a Done button.
+- Answering accepts, dismissing the card declines, and Stop cancels. A question that arrives when
+  no call of Drift's is running on that connection is declined. When several calls run on one
+  connection at once, the newest call's session is asked.
+- The server's own timeout for the call still applies while the card waits.
+
 ## Registry
 
 The Registry tab lists GitHub's curated MCP servers, most popular first, with ranked search

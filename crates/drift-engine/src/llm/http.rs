@@ -16,11 +16,14 @@ pub struct Timeouts {
     pub idle: Duration,
 }
 
+/// Reasoning models can stream nothing for many minutes while they think.
+const IDLE: Duration = Duration::from_secs(900);
+
 impl Default for Timeouts {
     fn default() -> Self {
         Self {
             headers: Duration::from_secs(120),
-            idle: Duration::from_secs(300),
+            idle: IDLE,
         }
     }
 }
@@ -34,7 +37,7 @@ impl Timeouts {
         if LOCAL_ROUTES.contains(&provider) {
             return Self {
                 headers: Duration::from_secs(600),
-                idle: Duration::from_secs(600),
+                idle: IDLE,
             };
         }
 

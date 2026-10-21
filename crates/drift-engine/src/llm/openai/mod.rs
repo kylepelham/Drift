@@ -69,7 +69,7 @@ impl OpenAi {
         let prepared = websocket::Prepared {
             handshake,
             body: body(request, subscription),
-            session: request.cache_key.clone(),
+            session: request.connection.clone(),
             timeouts: self.timeouts,
             subscription,
         };
@@ -145,6 +145,22 @@ impl OpenAi {
     }
 }
 
+/// A request to the Codex backend signed by a ChatGPT sign-in, outside a conversation: the model list, images.
+pub(crate) fn signed_by_subscription(
+    request: reqwest::RequestBuilder,
+    access: &str,
+    account: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let mut request = request.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
+    if let Some(account) = account {
+        request = request.header("chatgpt-account-id", account);
+    }
+    match residency(access) {
+        Some(residency) => request.header("x-openai-internal-codex-residency", residency),
+        None => request,
+    }
+}
+
 /// The compute residency a ChatGPT sign-in's access token claims, unless it is unconstrained.
 fn residency(access: &str) -> Option<String> {
     use base64::Engine as _;
@@ -175,7 +191,7 @@ fn api_error(status: u16, text: &str) -> Error {
         .or(error["type"].as_str())
         .unwrap_or("api_error")
         .to_string();
-    let message = error["message"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
 
     match status {
         401 | 403 => Error::Unauthenticated(message),
@@ -267,6 +283,14 @@ mod tests {
             };
             let request = Request {
                 cache_key: Some("ses_1".into()),
+                connection: Some("ses_1".into()),
+                effort_marks: Vec::new(),
+                claude: Default::default(),
+                cache_hour: false,
+                cache_conversation: true,
+                cache_writes_billed: false,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 ..request()
             };
 
@@ -294,12 +318,15 @@ mod tests {
 
         #[test]
         fn a_pdf_is_an_input_file() {
-            let sent = items(&ChatMessage {
-                role: Role::User,
-                blocks: vec![Block::Pdf {
-                    base64: "JVBERi0=".into(),
-                }],
-            });
+            let sent = items(
+                &ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Pdf {
+                        base64: "JVBERi0=".into(),
+                    }],
+                },
+                &Default::default(),
+            );
             assert_eq!(
                 sent[0]["content"][0],
                 json!({
@@ -393,6 +420,14 @@ mod tests {
                 reasoning: Some(Reasoning::Effort { level: "medium".into() }),
                 temperature: None,
                 cache_key: Some("ses_1".into()),
+                connection: Some("ses_1".into()),
+                effort_marks: Vec::new(),
+                claude: Default::default(),
+                cache_hour: false,
+                cache_conversation: true,
+                cache_writes_billed: false,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -401,6 +436,107 @@ mod tests {
                 mode: None,
                 context_window: None,
             }
+        }
+
+        #[test]
+        fn an_effort_mark_is_a_configuration_update_after_its_message() {
+            let mut marked = request();
+            marked.effort_marks = vec![crate::llm::EffortMark {
+                after: 0,
+                effort: "low".into(),
+            }];
+            let built = body(&marked, false);
+            let input = built["input"].as_array().unwrap();
+            let at = input
+                .iter()
+                .position(|item| item["type"] == "configuration_update")
+                .unwrap();
+            assert_eq!(
+                input[at],
+                json!({ "type": "configuration_update", "reasoning": { "effort": "low" } })
+            );
+            assert_eq!(
+                at,
+                super::request::items(&marked.messages[0], &Default::default()).len(),
+                "right after the first message's items"
+            );
+        }
+
+        #[test]
+        fn a_tool_search_goes_as_a_client_run_search_whose_output_loads_the_deferred_tools() {
+            let spec = |name: &str| crate::llm::ToolSpec {
+                name: name.into(),
+                description: format!("{name} does it"),
+                input_schema: json!({ "type": "object" }),
+            };
+            let mut searched = request();
+            searched.tools = vec![spec("read"), spec(crate::llm::TOOL_SEARCH)];
+            searched.deferred_tools = vec![spec("apophis_whoami"), spec("apophis_get_case")];
+            searched.messages = vec![
+                ChatMessage {
+                    role: Role::Assistant,
+                    blocks: vec![Block::ToolUse {
+                        id: "call_s".into(),
+                        name: crate::llm::TOOL_SEARCH.into(),
+                        input: json!({ "query": "who am i" }),
+                    }],
+                },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::ToolResult {
+                        call_id: "call_s".into(),
+                        content: "Loaded apophis_whoami.".into(),
+                        is_error: false,
+                    }],
+                },
+            ];
+            searched
+                .tool_references
+                .insert("call_s".into(), vec!["apophis_whoami".into(), "gone".into()]);
+
+            let built = body(&searched, true);
+            assert_eq!(built["tools"][0]["type"], "function");
+            assert_eq!(built["tools"][1]["type"], "tool_search");
+            assert_eq!(built["tools"][1]["execution"], "client");
+            assert_eq!(
+                built["tools"].as_array().unwrap().len(),
+                2,
+                "deferred tools come only when loaded"
+            );
+            let input = built["input"].as_array().unwrap();
+            assert_eq!(
+                input[0],
+                json!({ "type": "tool_search_call", "execution": "client", "call_id": "call_s",
+                    "status": "completed", "arguments": { "query": "who am i" } })
+            );
+            assert_eq!(input[1]["type"], "tool_search_output");
+            assert_eq!(input[1]["call_id"], "call_s");
+            let loaded = input[1]["tools"].as_array().unwrap();
+            assert_eq!(loaded.len(), 1, "a tool no longer deferred is left out");
+            assert_eq!(
+                (&loaded[0]["name"], &loaded[0]["defer_loading"]),
+                (&json!("apophis_whoami"), &json!(true))
+            );
+
+            searched.deferred_tools.clear();
+            let plain = body(&searched, true);
+            assert_eq!(plain["input"][0]["type"], "function_call");
+            assert_eq!(plain["input"][1]["type"], "function_call_output");
+            assert_eq!(plain["tools"][1]["type"], "function");
+        }
+
+        #[test]
+        fn a_one_off_request_to_a_model_that_bills_cache_writes_asks_for_none_by_key() {
+            let mut one_off = request();
+            one_off.cache_conversation = false;
+            one_off.cache_writes_billed = true;
+            assert_eq!(body(&one_off, false)["prompt_cache_options"]["mode"], "explicit");
+            assert!(
+                body(&one_off, true).get("prompt_cache_options").is_none(),
+                "a subscription pays nothing per token"
+            );
+            one_off.cache_conversation = true;
+            assert!(body(&one_off, false).get("prompt_cache_options").is_none());
         }
 
         #[test]
@@ -474,6 +610,48 @@ mod tests {
 
     mod streams {
         use super::*;
+
+        #[test]
+        fn a_client_tool_search_is_a_tool_search_call_and_its_usage_counts_cache_writes() {
+            let mut state = StreamState::default();
+            let search = json!({ "type": "tool_search_call", "execution": "client", "call_id": "call_s",
+                "status": "completed", "arguments": { "query": "fogbugz" } });
+
+            let added = json!({ "type": "response.output_item.added", "output_index": 0, "item": search });
+            assert!(state.chunks(&added.to_string()).unwrap().is_empty());
+            let done = json!({ "type": "response.output_item.done", "output_index": 0, "item": search });
+            assert_eq!(
+                state.chunks(&done.to_string()).unwrap(),
+                vec![
+                    Chunk::ToolUseStart {
+                        id: "call_s".into(),
+                        name: "tool_search".into()
+                    },
+                    Chunk::ToolInputDelta(r#"{"query":"fogbugz"}"#.into()),
+                    Chunk::BlockStop
+                ]
+            );
+
+            let usage = json!({ "input_tokens": 1000, "output_tokens": 5,
+                "input_tokens_details": { "cached_tokens": 600, "cache_write_tokens": 300 } });
+            let finished = state.finished(&json!({ "usage": usage }), false);
+            assert_eq!(
+                finished,
+                vec![
+                    Chunk::Usage(Usage {
+                        input: 100,
+                        output: 5,
+                        cache_read: 600,
+                        cache_write: 300
+                    }),
+                    Chunk::Stop(StopReason::ToolUse)
+                ]
+            );
+
+            let hosted = json!({ "type": "response.output_item.done",
+                "item": { "type": "tool_search_call", "execution": "server", "arguments": {} } });
+            assert!(StreamState::default().chunks(&hosted.to_string()).unwrap().is_empty());
+        }
 
         #[test]
         fn stream_events_map_to_chunks() {
@@ -615,6 +793,115 @@ mod tests {
             let finished = json!({ "type": "response.output_item.done", "item": with_arguments(&call, "{}") });
             let done = state.chunks(&finished.to_string()).unwrap();
             assert_eq!(done, vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
+        }
+
+        #[test]
+        fn an_item_is_followed_by_its_output_index_when_the_gateway_leaves_out_its_id() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            let call = json!({ "type": "function_call", "call_id": "c", "name": "read" });
+
+            feed(json!({ "type": "response.output_item.added", "output_index": 0, "item": with_arguments(&call, "") }));
+            let delta = json!({ "type": "response.function_call_arguments.delta", "item_id": "fc_1", "output_index": 0, "delta": "{}" });
+            assert_eq!(feed(delta), vec![Chunk::ToolInputDelta("{}".into())]);
+            let done =
+                json!({ "type": "response.output_item.done", "output_index": 0, "item": with_arguments(&call, "{}") });
+            assert_eq!(feed(done), vec![Chunk::BlockStop], "the arguments are not sent twice");
+        }
+
+        #[test]
+        fn an_item_given_whole_only_at_its_end_is_not_lost_or_doubled() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            let done = |item: Value| json!({ "type": "response.output_item.done", "item": item });
+            let parts = json!([{ "type": "output_text", "text": "Hel" }, { "type": "output_text", "text": "lo" }]);
+            let message = json!({ "type": "message", "id": "msg_1", "role": "assistant", "content": parts });
+            assert_eq!(
+                feed(done(message)),
+                vec![Chunk::TextStart, Chunk::TextDelta("Hello".into()), Chunk::BlockStop]
+            );
+
+            feed(json!({ "type": "response.output_item.added", "item": { "type": "reasoning", "id": "rs_1" } }));
+            let summary = json!([{ "type": "summary_text", "text": "a" }, { "type": "summary_text", "text": "b" }]);
+            let reasoning =
+                json!({ "type": "reasoning", "id": "rs_1", "summary": summary, "encrypted_content": "enc" });
+            assert_eq!(
+                feed(done(reasoning)),
+                vec![
+                    Chunk::ReasoningDelta("a\n\nb".into()),
+                    Chunk::ReasoningSignature("enc".into()),
+                    Chunk::BlockStop
+                ]
+            );
+
+            let call =
+                json!({ "type": "function_call", "id": "fc_2", "call_id": "c2", "name": "read", "arguments": "{}" });
+            let started = Chunk::ToolUseStart {
+                id: "c2".into(),
+                name: "read".into(),
+            };
+            assert_eq!(
+                feed(done(call)),
+                vec![started, Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]
+            );
+            let nameless =
+                json!({ "type": "function_call", "id": "fc_3", "call_id": null, "name": null, "arguments": "{}" });
+            assert_eq!(feed(done(nameless)), vec![], "a call without a name cannot run");
+
+            let streamed =
+                json!({ "type": "message", "id": "msg_2", "content": [{ "type": "output_text", "text": "Hi" }] });
+            feed(json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "msg_2" } }));
+            feed(json!({ "type": "response.output_text.delta", "delta": "Hi" }));
+            assert_eq!(
+                feed(done(streamed)),
+                vec![Chunk::BlockStop],
+                "streamed text is not repeated"
+            );
+        }
+
+        #[test]
+        fn null_fields_in_a_responses_stream_are_absent_fields() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            assert_eq!(feed(json!({ "type": "response.created", "response": null })), vec![]);
+            let call =
+                json!({ "type": "function_call", "id": null, "call_id": null, "name": "lookup", "arguments": null });
+            let started = feed(json!({ "type": "response.output_item.added", "output_index": 1, "item": call }));
+            assert!(
+                matches!(&started[..], [Chunk::ToolUseStart { id, name }] if id.starts_with("call_") && name == "lookup"),
+                "a call without an id gets one of its own: {started:?}"
+            );
+            let done =
+                json!({ "type": "response.output_item.done", "output_index": 1, "item": with_arguments(&call, "{}") });
+            assert_eq!(feed(done), vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
+            let finished = json!({
+                "type": "response.completed",
+                "response": { "id": null, "output": null, "incomplete_details": { "reason": null },
+                    "usage": { "input_tokens": 5, "output_tokens": null, "input_tokens_details": { "cached_tokens": null } } }
+            });
+            let usage = Usage {
+                input: 5,
+                ..Usage::default()
+            };
+            assert_eq!(
+                feed(finished),
+                vec![Chunk::Usage(usage), Chunk::Stop(StopReason::ToolUse)]
+            );
+        }
+
+        #[test]
+        fn untyped_frames_are_ignored_unless_they_carry_an_error() {
+            let mut state = StreamState::default();
+            for frame in ["{}", r#"{"gateway":"keep-alive"}"#, r#"{"error":null}"#] {
+                assert_eq!(state.chunks(frame).unwrap(), vec![], "{frame}");
+            }
+            let error = state
+                .chunks(r#"{"error":{"code":"server_error","message":"try again"}}"#)
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "server_error"),
+                "{error:?}"
+            );
         }
 
         #[test]

@@ -137,7 +137,9 @@ export function SourceForm(props: {
                     <div class="flex items-center justify-between gap-3">
                         <div class="min-w-0">
                             <div class="text-xs font-medium text-ink">{t("drift.registry.sources.allowHttp")}</div>
-                            <div class="text-[0.7rem] text-warn">{t("drift.registry.sources.allowHttpHint")}</div>
+                            <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-warn">
+                                {t("drift.registry.sources.allowHttpHint")}
+                            </div>
                         </div>
                         <Toggle
                             label={t("drift.registry.sources.allowHttp")}
@@ -150,7 +152,7 @@ export function SourceForm(props: {
                     <Field label={t("drift.registry.sources.caPem")} hint={t("drift.registry.sources.caPemHint")}>
                         <textarea
                             spellcheck={false}
-                            class="h-24 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-[0.7rem] text-ink outline-none focus:border-accent"
+                            class="h-24 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink outline-none focus:border-accent"
                             placeholder={"-----BEGIN CERTIFICATE-----"}
                             value={props.draft.caPem}
                             onInput={(event) => updateDraft({ caPem: event.currentTarget.value })}
@@ -185,10 +187,18 @@ function Field(props: { label: string; hint?: string; problem?: string; children
             <Show
                 when={props.problem}
                 fallback={
-                    <Show when={props.hint}>{(hint) => <div class="text-[0.7rem] text-ink-faint">{hint()}</div>}</Show>
+                    <Show when={props.hint}>
+                        {(hint) => (
+                            <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                {hint()}
+                            </div>
+                        )}
+                    </Show>
                 }
             >
-                {(problem) => <div class="text-[0.7rem] text-danger">{problem()}</div>}
+                {(problem) => (
+                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-danger">{problem()}</div>
+                )}
             </Show>
         </label>
     );

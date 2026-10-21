@@ -115,7 +115,9 @@ export function ArchiveModal(props: { onClose: () => void }) {
 function ArchiveSection(props: { title: string; children: JSX.Element }) {
     return (
         <section>
-            <div class="mb-1.5 text-[0.68rem] tracking-wider text-ink-faint uppercase">{props.title}</div>
+            <div class="mb-1.5 text-[length:calc(0.68rem*var(--ui-text-scale,1))] tracking-wider text-ink-faint uppercase">
+                {props.title}
+            </div>
             <div class="space-y-1">{props.children}</div>
         </section>
     );

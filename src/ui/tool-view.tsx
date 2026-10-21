@@ -6,6 +6,7 @@ import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
 import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
 import { CoveredDuration, ToolDuration } from "./tool-duration";
 import { toolMetadata as toolMeta } from "../engine/parts";
+import { generatedImage, ToolImage } from "./tool-image";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
 import { taskTiming } from "../engine/store";
@@ -303,7 +304,10 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
                         class="tool-row-subtitle min-w-0 truncate"
-                        classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}
+                        classList={{
+                            "font-mono text-xs": info().mono,
+                            "text-[length:calc(0.85rem*var(--ui-text-scale,1))]": !info().mono,
+                        }}
                     >
                         {info().subtitle}
                     </span>
@@ -358,6 +362,9 @@ export function ToolView(props: { part: ToolPart }) {
                     </span>
                 </Show>
             </button>
+            <Show when={generatedImage(props.part)}>
+                {(image) => <ToolImage hash={image().hash} filename={image().filename} />}
+            </Show>
             <Show when={inlineExpanded()}>
                 <div class="tool-row-body min-w-0 max-w-full">
                     <ToolBody part={props.part} diff={diff()} error={error()} />

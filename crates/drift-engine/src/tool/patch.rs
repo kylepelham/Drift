@@ -250,15 +250,7 @@ fn matches_at(lines: &[String], pattern: &[String], at: usize, same: fn(&str, &s
 
 /// Codex's normalisation: typographic dashes, quotes and spaces as their ASCII forms.
 fn ascii_punctuation(text: &str) -> String {
-    text.chars()
-        .map(|character| match character {
-            '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
-            '\u{2018}'..='\u{201B}' => '\'',
-            '\u{201C}'..='\u{201F}' => '"',
-            '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
-            other => other,
-        })
-        .collect()
+    text.chars().map(super::text::ascii).collect()
 }
 
 /// What a missed hunk says: the part of the file it most likely meant, as `edit` does, else what it looked for.

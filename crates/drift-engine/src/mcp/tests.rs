@@ -7,6 +7,7 @@ use crate::event::{Event, Hub};
 use crate::tool::{Context, SessionFiles};
 
 mod calls;
+mod elicitation;
 mod oauth;
 mod protocol;
 mod resources;
@@ -184,6 +185,11 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     };
 
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
+    assert_eq!(
+        crate::tool::repair::repair(&echo.spec().input_schema, &json!(r#"{"text":"hi"}"#)),
+        json!({ "text": "hi" }),
+        "an MCP tool's input is repaired from the server's own schema"
+    );
     let read_only = echo.ask(&ctx, &json!({})).unwrap();
     assert_eq!(
         engine

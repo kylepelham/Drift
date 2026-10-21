@@ -207,7 +207,9 @@ change the plan there when a decision changes.
 - [x] Usage limits list every account of a provider (`Engine::account_credentials`, fetched in parallel); the composer popover shows the first account with usage left
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
-- [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
+- [x] A mode and its base take each other's signed reasoning; switching model or account omits incompatible reasoning without promoting it to ordinary assistant text
+- [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
+- [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [x] LSP diagnostics after edits (`lsp` module; a project's drift.json may only turn a server off) (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table of about thirty (opencode's, without its downloads), used only when installed on PATH or in a project's `node_modules/.bin`; `drift.json` can add, replace or disable one, as with formatters
@@ -275,6 +277,7 @@ change the plan there when a decision changes.
 - [x] Plugin events: prompt submit (refuse, rewrite, add context) and turn end (continue with a prompt, three at most); host interfaces `store`, `files`, `process`, `http` and per-plugin config, each shown as a capability in Settings
 - [x] Plugin events: permission (answers only an ask the rules leave to the user), compaction (instructions for the summary, then a `compacted` session event); `notify` host interface shown as a toast
 - [x] Secret masking: the `masking` world's `replacements()` export (optional; older plugins load as before), applied by the engine to every request (`llm::mask`) and reversed in every tool call the model makes; `plugins/secrets` names the pairs from its config
+- [x] Declared plugin settings: the `configurable` world's `settings()` (text, number, toggle, choice, items, pairs), defaults filled into `host.config()`, values checked on save, a form in Settings with `+ Add` rows for lists and pairs; `secrets` and `searxng` declare theirs
 - [x] Plugin registry: nine plugins at github.com/kylepelham/Drift-Plugins (guard, protect-files, auto-format, lint-check, test-gate, notify, git-autocommit, git-context, tool-log), Settings > Plugins > Registry with cards and an install sheet in the MCP registry's style, install with a hash check, remove, config; custom registry sources for plugins and MCP servers (`registrySources` setting) so a team publishes its own at one URL; a source is a URL, a GitHub or Azure DevOps repository (private with a token in the credential store) or a folder on a share, may allow http or trust an internal CA, and is read by the engine so the webview never holds a token
 - [x] Settings > Skills: every skill the engine offers (workspace, user, packs) with a switch each (the engine's `disabledSkills` list; the files are never renamed); a registry of single skills and packs (Superpowers, Matt Pocock, Addy Osmani, Karpathy, Erik Darling) with the skills to take chosen before install, unpacked from a pinned archive under `~/.config/drift/skills`
 - [x] Bundles in Settings > Plugins: a Claude Code plugin folder (skills, commands, agents, `.mcp.json` servers, `bin/` programs) installed from an archive pinned to a commit under `~/.config/drift/bundles/<id>`, one switch for the bundle and one per part (`bundles` setting), its MCP servers saved as rows the bundle owns and hidden from the MCP list, `bin/` on the shell's PATH after the user's own, `${CLAUDE_PLUGIN_ROOT}` filled in, hooks listed and never run; Universal Modder is the first in the registry
@@ -301,6 +304,48 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 
 - [ ] After the summary, carry the background tasks still running or owed, the todo list and the skills invoked at their current version
 
+## After the opencode v2 review
+
+Decided on 2026-10-19; the plan is "After the opencode v2 review" in `docs/engine-rewrite.md`, the
+evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
+
+- Quick fixes:
+  - [x] `~` in tool paths expands to home before resolving, for every path-taking tool
+  - [x] Stream idle limit 900 s by default on every route
+  - [x] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
+  - [x] Gemini `MALFORMED_*` finishes retried; wire-fix sweep done, each fix tested or recorded as not affecting Drift
+  - [x] Cache key is the session tree's root (workers, forks, spawned threads); WebSocket continuations stay per session
+  - [x] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
+  - [x] `todowrite` answers in one line instead of echoing the list; description asks for items done as they finish
+- Cache stability:
+  - [x] Cache-prefix diagnostics log the first changed segment when cache reads drop
+  - [x] Instruction baseline: frozen system prompt, `instruction_update` parts for changed sources, re-baseline on family switch, compaction and undo, forks share their source's prefix
+  - [x] Reasoning level changes sent as per-message effort on models with the catalog capability
+  - [x] Newer Claude features confirmed in Anthropic's docs and adopted: mid-conversation system messages, thinking `block_binding`, `between_tools`
+  - [x] Settings > Execution > Prompt cache: warming (interval, window, prompt) and Anthropic one-hour cache where the route accepts it, all off by default
+- Turn robustness:
+  - [x] A length stop continues the turn with a note, at most twice in a row; cut-off calls carry an input excerpt
+  - [x] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)
+- [x] Importer reads opencode v2 conversations, sign-ins and config shapes
+- Features:
+  - [x] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
+  - [x] Pages through the same providers and keys: `websearch` page content, the developer index and a site's pages (`site`, with `content` a bounded crawl); `webfetch` reads a blocked or JavaScript-built page through a provider, never a private URL
+  - [x] MCP elicitation answered through a blocking question card
+  - [x] References: named outside paths and git repositories, listed in the baseline, read unasked, project references approved first
+  - [x] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`
+  - [x] Plan agent writes only under `<data>/plans/<workspace id>/`, discusses first, plan paths survive compaction
+  - [x] Prompt delivery `queue` beside the default `steer`: Alt+Enter, edit, discard, send now
+  - [x] `drift-engined --acp` serves the Agent Client Protocol on stdio
+- Voice and media:
+  - [x] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
+  - [x] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
+  - [x] `generate_image` tool (OpenAI, Google, xAI), off until enabled, asking by default
+- Design first, proposal for Kyle, no code:
+  - [x] Voice mode: realtime model or transcription, turn and read-aloud pipeline
+  - [x] Code Mode: measurements and the four paths compared
+  - [x] Compaction by the provider (OpenAI `/responses/compact`, Anthropic `compact_20260112`)
+  - [x] Models choosing a worker's model, against Settings pins and accounts
+
 ## M6: capabilities
 
 - [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged
@@ -312,6 +357,18 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
   - [x] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
   - [x] Settings > Execution switches background processes (the `process` tool and bash `background`) and the hand-off at the time limit; off restores stopping at the limit
   - [x] A process that exits after the turn wakes its conversation with its exit code and the end of its output, unless the model saw it end, it was stopped, or the user pressed Stop since it started
+- [x] Browser (`docs/browser.md`): one engine-owned browser per conversation, streamed into a browser pane
+  - [x] Chrome and Edge over the DevTools Protocol in a job object; isolated profiles by default, shared per workspace in Settings; capped caches and cleanup
+  - [x] `browser` tool: open, navigate, snapshot with refs, click, fill, type, press, scroll, wait, screenshot, eval, logs, dialog, viewport, pages, batch, stop; host asks with loopback and private hosts allowed
+  - [x] Pane: screencast over `/sessions/{id}/browser/view`, page tabs, address bar, input, auto-open, collapse keeps testing, Stop ends it; idle browsers end after 30 minutes
+  - [x] Pane: opened by hand from the header's globe button, page laid out to fill it (Chrome and Edge), the page's cursor shown over the picture; a click that opens a dialog reports it instead of timing out
+  - [x] Screenshots capped at 1280x800's worth of pixels in the page's shape, clicks scaled back; `zoom` enlarges a region of one
+  - [x] Project browser config in `drift.json` (engine, base address, engine by address, profile, window, integrated sign-in, `login`, notes), keychain credentials the model never sees, passwords hidden from every result
+  - [x] IE mode through IEDriverServer (downloaded when missing): frames walked by one snapshot, VBScript `eval`, popups as tabs; web-test's per-app helpers replaced by project notes
+  - [x] IE mode with a machine's Enterprise Mode site list: one Edge without a debugging port, so the list routes pages to IE mode or Chromium and shares its cookies; Chromium tabs through Drift's `chrome.debugger` relay extension, IE mode tabs through IEDriverServer attached to the same Edge; one pane and tab list for both
+  - [x] Firefox and Camoufox over WebDriver BiDi (Camoufox needed only its BiDi preference, so no Playwright driver); Camoufox downloaded from Settings
+  - [x] Settings > Browser tab: defaults, each engine's status, path and download, the workspace's drift.json section and stored sign-ins
+  - [x] Performance: `trace` (reload, or start and stop around an interaction; optional throttling) saves the trace and summarises load timings, layout shift, long tasks, network and interactions; `audit` runs Lighthouse (installed with npm on first use) for accessibility, best practices and SEO
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
 
@@ -325,19 +382,46 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 
 ## Drift for Android (`docs/android.md`)
 
-- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
-- [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
+- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, all reachable addresses, the LAN MAC, and the tunnel with its key
+- [x] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, QR linking
+- [x] Reach from anywhere: OpenTunnel on the PC (loopback PROXY v2 listener, exact host check), tunnel key pinned by the app, network and tunnel raced, addresses refreshed from `/auth/me`; typed codes, discovery and the browser QR removed, browser access behind its own switch
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt
 
+## 2.4: token efficiency
+
+Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1.299; the facts are under
+"Prompt cache" and "Compaction" in `docs/engine-rewrite.md`.
+
+- [x] Images leave the request five at a time, up to 20, so new screenshots no longer rewrite the cache
+- [x] One-hour cache on Claude subscriptions until extra usage, as Claude Code does
+- [x] A conversation stays on the account whose cache is warm; it returns to the user's order once cold
+- [x] Compaction point setting (`compactAt`): automatic at 400k or below a price tier
+- [x] A request that misses the cache anyway clears old large tool results
+- [x] One-off requests (lean summaries, titles) write no conversation cache; three failed compactions stop the overflow path too
+- [x] Large MCP servers' tools deferred behind `tool_search` on Claude 4.5 and later (`tool_reference`)
+- [x] Why a request missed the cache is kept on its reply and shown in the context meter
+- [x] Tool search on every wire that takes it: Bedrock and Vertex Claude 4.5+, OpenAI GPT-5.4+ (client `tool_search`), and Codex models whose list says so
+- [x] GPT-5.6+ cache writes read and priced; one-off requests there ask the provider to write none
+- [x] xAI and OpenRouter keep a conversation on one cache (`x-grok-conv-id`, `session_id`); OpenRouter caches Qwen at breakpoints
+- [x] Compaction as a policy (automatic, earlier, later) with each model's point shown, and a size per model in its details sheet
+- [x] Model settings beside visibility toggles: capability chips, token limits and a price table; short settings descriptions
+- [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > Execution
+
 ## Parity with Claude Code, Codex and opencode
 
-- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API
+- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API (the configured API landed in 2.4.0; native search is still open)
 - [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
-- [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
+- [x] Code review (`docs/code-review.md`, evidence in `docs/research/claude-desktop-2.42304.md`):
+  - [x] `report_findings` tool: typed findings (file, line, summary, failure scenario, category, verdict, outcome) in the call's metadata, with each finding's line text recorded for anchoring
+  - [x] `/review [low|medium|high|max] [target] [--fix] [--comment]` as a built-in skill: branch work plus uncommitted changes by default, finders grouped by diff size, a batched verify pass, a sweep at max, `REVIEW.md` and `AGENTS.md` conventions, `--fix` re-reports outcomes, `--comment` posts inline through `gh`
+  - [x] Findings card in the transcript: grouped by file, outcomes, Walk through in diff, Apply fixes, Re-run review
+  - [x] Findings layer in the review panel: annotations under their lines, a stepper, Dismiss, and findings whose line moved or changed marked as such
 - [ ] `/security-review`: the same flow with a security-focused prompt
+- [ ] `/verify`: drive a change end to end (browser pane, dev server) after a review of a diff that runs
+- [ ] PR bar: CI status and open review threads for the branch, with `/watch-pr`
 - [x] Review panel beside the chat: a turn's changes, uncommitted changes, against a branch or one commit, as unified diffs with foldable unchanged lines; the edited files card opens it
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)

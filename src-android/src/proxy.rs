@@ -19,7 +19,7 @@ use rust_embed::RustEmbed;
 
 use crate::computers::{Computer, Computers};
 use crate::native::Native;
-use crate::pc::{self, Linking, Pc, PcError};
+use crate::pc::{self, Pc, PcError};
 
 const COOKIE: &str = "drift_app";
 
@@ -38,7 +38,6 @@ pub(crate) struct Route {
 pub(crate) struct Shared {
     pub computers: Mutex<Computers>,
     pub route: Mutex<Option<Route>>,
-    pub links: Mutex<HashMap<String, Linking>>,
     pub native: Arc<Native>,
     /// Held while looking for the chosen PC again, so a burst of requests looks once.
     reaching: tokio::sync::Mutex<()>,
@@ -59,7 +58,6 @@ impl Shared {
         Arc::new(Self {
             computers: Mutex::new(computers),
             route: Mutex::new(None),
-            links: Mutex::new(HashMap::new()),
             native,
             reaching: tokio::sync::Mutex::new(()),
             secret,
@@ -86,9 +84,9 @@ impl Shared {
 
     /// Reaches a linked PC, makes it the one requests go to, and remembers it for the next launch.
     pub(crate) async fn connect(&self, computer: &Computer) -> Result<(), PcError> {
-        let pc = pc::reach(computer).await?;
+        let (pc, reach) = pc::reach(computer).await?;
         let mut computers = self.computers.lock().unwrap();
-        let _ = computers.answered(&computer.id, pc.address);
+        let _ = computers.refresh(&computer.id, &pc.endpoint, reach);
         let _ = computers.set_active(Some(&computer.id));
         drop(computers);
 

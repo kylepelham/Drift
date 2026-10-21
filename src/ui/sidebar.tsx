@@ -195,7 +195,7 @@ export function Sidebar() {
                     }),
                 )
             }
-            class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
+            class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-sidebar"
             classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
             style={{ width: `${width()}px` }}
             onClick={(event) => {
@@ -356,26 +356,16 @@ export function Sidebar() {
 }
 
 function SidebarFooter(props: { onSettings: () => void }) {
-    const engine = useEngine();
-    const dot: Record<string, string> = {
-        online: "bg-ok",
-        connecting: "bg-warn pulse-soft",
-        offline: "bg-danger",
-        idle: "bg-ink-faint",
-    };
-    const label = () => {
-        if (engine.state.startupError) return t("notification.session.error.title");
-        if (engine.state.connection === "online") return shortPath(engine.state.directory);
-        if (engine.state.connection === "idle") return t("drift.composer.selectWorkspace");
-        return engine.state.connection === "connecting" ? t("common.loading") : t("drift.sidebar.offline");
-    };
     listenOpencodeImport();
 
     return (
         <div class="shrink-0 px-2 py-2">
             <Show when={opencodeImport()}>
                 {(progress) => (
-                    <div class="mb-1 px-2 py-1.5 text-[0.7rem] text-ink-faint" title={t("drift.import.description")}>
+                    <div
+                        class="mb-1 px-2 py-1.5 text-[length:calc(0.7rem*var(--sidebar-scale,1))] text-ink-faint"
+                        title={t("drift.import.description")}
+                    >
                         <div class="flex justify-between gap-2">
                             <span class="truncate">{t("drift.import.progress")}</span>
                             <span class="tabular-nums">
@@ -398,22 +388,9 @@ function SidebarFooter(props: { onSettings: () => void }) {
             >
                 <IconGear />
                 <span>{t("sidebar.settings")}</span>
-                <span class="flex-1" />
-                <span
-                    class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint"
-                    title={engine.state.startupError || engine.state.directory}
-                >
-                    <span class={`size-1.5 rounded-full ${dot[engine.state.connection]}`} />
-                    <span class="max-w-24 truncate">{label()}</span>
-                </span>
             </button>
         </div>
     );
-}
-
-function shortPath(path: string) {
-    const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
-    return parts.slice(-2).join("/") || path;
 }
 
 function resizeDirection(key: string) {

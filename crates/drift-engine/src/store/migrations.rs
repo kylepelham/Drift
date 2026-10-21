@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 40] = [
+pub(super) const MIGRATIONS: [&str; 47] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -190,6 +190,40 @@ pub(super) const MIGRATIONS: [&str; 40] = [
     "ALTER TABLE message ADD COLUMN refusal_json TEXT;",
     // The bundle that brought the server; its switch belongs to the bundle's screen.
     "ALTER TABLE mcp_config ADD COLUMN bundle TEXT;",
+    // The conversation whose prompt cache a fork shares; a worker or spawned thread follows its parent.
+    "ALTER TABLE session ADD COLUMN cache_root TEXT;",
+    // Each session's frozen system prompt, by source: the hash it began with and the one the model last heard.
+    "CREATE TABLE instruction(
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        baseline TEXT,
+        current TEXT,
+        -- Which baseline the row belongs to; an update made against another one is not replayed.
+        generation TEXT NOT NULL,
+        PRIMARY KEY(session_id, key)
+    ) STRICT, WITHOUT ROWID;",
+    // A turn under way, removed when it ends: one left at startup was cut off by Drift stopping.
+    "CREATE TABLE turn_claim(
+        session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+        resumes INTEGER NOT NULL DEFAULT 0
+    ) STRICT, WITHOUT ROWID;",
+    // Prompts queued behind a running turn, outside the transcript until one starts a turn.
+    "CREATE TABLE queued_prompt(
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        error TEXT
+    ) STRICT, WITHOUT ROWID;
+    CREATE INDEX queued_prompt_session ON queued_prompt(session_id, position);",
+    // The name of the Drift worktree a session works in; none for the workspace folder itself.
+    "ALTER TABLE session ADD COLUMN worktree TEXT;",
+    // How often a background worker was started again after Drift stopped while it ran.
+    "ALTER TABLE task ADD COLUMN restarts INTEGER NOT NULL DEFAULT 0;",
+    // Why a reply's request read much less of the prompt cache than the one before it left.
+    "ALTER TABLE message ADD COLUMN cache_miss TEXT;",
 ];
 
 #[cfg(test)]

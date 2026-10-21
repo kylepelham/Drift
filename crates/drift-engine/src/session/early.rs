@@ -84,6 +84,8 @@ impl Early {
             self.closed = true;
             return;
         };
+        // Started on the input the step will run, repaired the same way.
+        let input = &crate::tool::repair::repair(&tool.spec().input_schema, input);
         if !input.is_object() || !crate::tool::schema::problems(&tool.spec().input_schema, input).is_empty() {
             return;
         }

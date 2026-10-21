@@ -1,0 +1,6 @@
+Makes an image from a prompt with the image model chosen in Settings, saves it, and shows it to you so you can check it.
+
+- Every call costs the user something: a bill from the provider, their plan's image allowance, or their own machine's time. Make one image at a time and only when asked for one. Check the result; generate again only when it misses what was asked.
+- Write the prompt as a full description: subject, style, composition, colors, any text it must show.
+- `references` are image files in the workspace to work from: a picture to edit, a style to follow, things to combine. Some providers take only one; the result says so.
+- `path` decides where it is saved and its format by its extension (.png, .jpg, .jpeg or .webp); it must be inside the workspace or the scratch directory. Without one it goes to the scratch directory as a PNG.

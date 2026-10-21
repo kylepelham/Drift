@@ -16,17 +16,27 @@ const EARLY_SECONDS: i64 = 300;
 
 /// The credentials file in use: `GOOGLE_APPLICATION_CREDENTIALS`, else gcloud's application-default file.
 fn credentials_file() -> Option<PathBuf> {
+    credentials_file_in(env)
+}
+
+/// gcloud keeps its files in `CLOUDSDK_CONFIG` when that is set, else in its folder under the user's config.
+fn credentials_file_in(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     if let Some(path) = env("GOOGLE_APPLICATION_CREDENTIALS") {
         return Some(PathBuf::from(path));
     }
 
-    let base = if cfg!(windows) {
-        env("APPDATA").map(PathBuf::from)
-    } else {
-        env("HOME").map(|home| PathBuf::from(home).join(".config"))
+    let user_config = || {
+        let base = if cfg!(windows) {
+            env("APPDATA").map(PathBuf::from)
+        } else {
+            env("HOME").map(|home| PathBuf::from(home).join(".config"))
+        };
+        base.map(|dir| dir.join("gcloud"))
     };
+    let folder = env("CLOUDSDK_CONFIG").map(PathBuf::from).or_else(user_config);
 
-    base.map(|dir| dir.join("gcloud").join("application_default_credentials.json"))
+    folder
+        .map(|dir| dir.join("application_default_credentials.json"))
         .filter(|path| path.is_file())
 }
 
@@ -266,6 +276,29 @@ fn sign_rs256(pem: &str, message: &[u8]) -> Result<Vec<u8>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gclouds_own_config_folder_holds_the_application_default_credentials() {
+        let folder = std::env::temp_dir().join(format!("drift-gcloud-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&folder).unwrap();
+        let adc = folder.join("application_default_credentials.json");
+        std::fs::write(&adc, "{}").unwrap();
+        let config = folder.to_string_lossy().into_owned();
+
+        let lookup = |name: &str| (name == "CLOUDSDK_CONFIG").then(|| config.clone());
+        assert_eq!(credentials_file_in(lookup), Some(adc.clone()));
+
+        let named = |name: &str| match name {
+            "GOOGLE_APPLICATION_CREDENTIALS" => Some("key.json".to_string()),
+            _ => lookup(name),
+        };
+        assert_eq!(
+            credentials_file_in(named),
+            Some(PathBuf::from("key.json")),
+            "an explicit file wins"
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
 
     /// A throwaway 2048-bit key made for the test (node is already needed for the MCP fixtures), so none is committed.
     fn throwaway_key() -> String {

@@ -1,14 +1,32 @@
 use crate::llm::catalog::Reasoning;
 use crate::llm::{Block, ChatMessage, Request, Role};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// Anthropic allows four breakpoints: tools, system, and these two in the conversation.
 const CONVERSATION_BREAKPOINTS: usize = 2;
 
 /// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
 pub(super) fn body(request: &Request) -> Value {
-    let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
-    mark_conversation(&mut messages);
+    let mut messages: Vec<Value> = Vec::new();
+    for (index, chat) in request.messages.iter().enumerate() {
+        let (sent, notes) = lifted(chat, request.claude.system_messages);
+        // Anthropic refuses empty content and joins the same-role turns either side of a dropped message.
+        if sent["content"].as_array().is_some_and(|content| !content.is_empty()) {
+            messages.push(sent);
+            if !notes.is_empty() {
+                messages.push(json!({ "role": "system", "content": notes }));
+            }
+        }
+        // Accepted at any position; an empty system message carries only the turn's effort.
+        for mark in request.effort_marks.iter().filter(|mark| mark.after == index) {
+            messages.push(json!({ "role": "system", "content": [], "output_config": { "effort": mark.effort } }));
+        }
+    }
+    load_references(&mut messages, request);
+    if request.cache_conversation {
+        mark_conversation(&mut messages);
+    }
     let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens,
@@ -21,9 +39,15 @@ pub(super) fn body(request: &Request) -> Value {
     }
     if !request.tools.is_empty() {
         let mut tools: Vec<Value> = request.tools.iter().map(tool_definition).collect();
+        // A deferred tool cannot carry the breakpoint, so they follow the last one that does.
         if let Some(last) = tools.last_mut() {
             last["cache_control"] = ephemeral();
         }
+        tools.extend(request.deferred_tools.iter().map(|tool| {
+            let mut definition = tool_definition(tool);
+            definition["defer_loading"] = json!(true);
+            definition
+        }));
 
         body["tools"] = Value::Array(tools);
         if request.no_tool_calls {
@@ -44,6 +68,10 @@ pub(super) fn body(request: &Request) -> Value {
             }
         }
     }
+    // A thinking block the API no longer accepts (its prefix changed) is dropped instead of failing the turn.
+    if request.claude.drop_stale_thinking && request.reasoning.is_some() {
+        body["thinking"]["block_binding"] = json!({ "prefix_mismatch_behavior": "drop_block" });
+    }
 
     crate::llm::apply_mode(&mut body, request);
 
@@ -51,7 +79,40 @@ pub(super) fn body(request: &Request) -> Value {
 }
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
-    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema })
+    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.parameters() })
+}
+
+/// A `tool_search` result loads its tools as `tool_reference` blocks. A name no longer deferred is left out, since
+/// the API refuses a reference to a tool it was not sent deferred, and a result with none left stays text.
+fn load_references(messages: &mut [Value], request: &Request) {
+    if request.deferred_tools.is_empty() {
+        return;
+    }
+
+    let deferred = |name: &String| request.deferred_tools.iter().any(|tool| &tool.name == name);
+    let references: HashMap<String, Vec<Value>> = request
+        .tool_references
+        .iter()
+        .filter_map(|(call_id, names)| {
+            let loaded: Vec<Value> = names
+                .iter()
+                .filter(|name| deferred(name))
+                .map(|name| json!({ "type": "tool_reference", "tool_name": name }))
+                .collect();
+            (!loaded.is_empty()).then(|| (wire_id(call_id), loaded))
+        })
+        .collect();
+
+    for block in messages
+        .iter_mut()
+        .filter_map(|message| message["content"].as_array_mut())
+        .flatten()
+    {
+        let loaded = block["tool_use_id"].as_str().and_then(|id| references.get(id));
+        if let Some(loaded) = loaded.filter(|_| block["type"] == "tool_result") {
+            block["content"] = Value::Array(loaded.clone());
+        }
+    }
 }
 
 fn ephemeral() -> Value {
@@ -82,7 +143,32 @@ fn cacheable(block: &Value) -> bool {
     !matches!(block["type"].as_str(), Some("thinking" | "redacted_thinking")) && block["text"] != ""
 }
 
-fn message(message: &ChatMessage) -> Value {
+/// The message as sent, and the engine reminders it carried as the system message that follows it, on a
+/// Claude that takes them. A reminder stays in place when nothing else is in the turn: a system message
+/// must follow a user turn.
+fn lifted(chat: &ChatMessage, native: bool) -> (Value, Vec<Value>) {
+    let reminder = |block: &Block| matches!(block, Block::Reminder(_));
+    let lift = native && chat.role == Role::User && chat.blocks.iter().any(|block| !reminder(block) && sendable(block));
+    if !lift {
+        return (message(chat, true), Vec::new());
+    }
+
+    let notes = chat
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Reminder(text) => {
+                let inner = text.strip_prefix("<system-reminder>\n").unwrap_or(text);
+                Some(json!({ "type": "text", "text": inner.strip_suffix("\n</system-reminder>").unwrap_or(inner) }))
+            }
+            _ => None,
+        })
+        .collect();
+
+    (message(chat, false), notes)
+}
+
+fn message(message: &ChatMessage, reminders: bool) -> Value {
     let role = match message.role {
         Role::User => "user",
         Role::Assistant => "assistant",
@@ -90,11 +176,50 @@ fn message(message: &ChatMessage) -> Value {
     let content: Vec<Value> = message
         .blocks
         .iter()
-        .filter(|block| sendable(block))
+        .filter(|block| sendable(block) && (reminders || !matches!(block, Block::Reminder(_))))
         .map(block)
         .collect();
 
     json!({ "role": role, "content": content })
+}
+
+/// Every cache breakpoint in `body` kept for an hour instead of five minutes.
+pub(super) fn cache_for_an_hour(body: &mut Value) {
+    match body {
+        Value::Object(fields) => {
+            if let Some(control) = fields.get_mut("cache_control").and_then(Value::as_object_mut) {
+                control.insert("ttl".into(), json!("1h"));
+            }
+            fields.values_mut().for_each(cache_for_an_hour);
+        }
+        Value::Array(items) => items.iter_mut().for_each(cache_for_an_hour),
+        _ => {}
+    }
+}
+
+/// The betas a body needs for what it holds.
+pub(super) fn betas(body: &Value) -> Vec<&'static str> {
+    let mut betas = Vec::new();
+    let messages = body["messages"].as_array().into_iter().flatten();
+    if messages
+        .clone()
+        .any(|message| message["role"] == "system" && message.get("output_config").is_some())
+    {
+        betas.push(super::EFFORT_MARKS);
+    }
+    if body["thinking"].get("block_binding").is_some() {
+        betas.push(super::THINKING_BINDING);
+    }
+    if body["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|tool| tool["defer_loading"] == true)
+    {
+        betas.push(super::TOOL_SEARCH);
+    }
+
+    betas
 }
 
 /// Anthropic refuses reasoning without a signature, including reasoning received from other providers.
@@ -111,7 +236,7 @@ fn sendable(block: &Block) -> bool {
 }
 
 /// Maps call ids to Anthropic's `[a-zA-Z0-9_-]+` characters on both calls and results.
-fn wire_id(id: &str) -> String {
+pub(crate) fn wire_id(id: &str) -> String {
     let id: String = id
         .chars()
         .map(|character| match character {
@@ -130,7 +255,7 @@ fn wire_id(id: &str) -> String {
 pub(super) fn block(block: &Block) -> Value {
     match block {
         Block::Signed { part, .. } => self::block(part),
-        Block::Text(text) => json!({ "type": "text", "text": text }),
+        Block::Text(text) | Block::Reminder(text) => json!({ "type": "text", "text": text }),
         Block::Reasoning {
             redacted: Some(data), ..
         } => json!({ "type": "redacted_thinking", "data": data }),
@@ -157,5 +282,7 @@ pub(super) fn block(block: &Block) -> Value {
             json!({ "type": "document", "source": source })
         }
         Block::Stored { .. } => json!({ "type": "text", "text": "[file not loaded]" }),
+        // Lifted into `effort_marks` before any adapter runs.
+        Block::Effort(effort) => json!({ "type": "text", "text": format!("[reasoning effort: {effort}]") }),
     }
 }

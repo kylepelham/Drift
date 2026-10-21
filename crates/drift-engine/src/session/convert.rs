@@ -58,6 +58,15 @@ pub(crate) fn append<'a>(
                 let mut calls = assistant_blocks(message, same_model);
                 let mut results = result_blocks(message);
                 unique_ids(&mut used, &mut calls, &mut results);
+                // An update saved between steps follows the results it came after.
+                results.extend(message.parts.iter().filter_map(|row| match &row.part {
+                    Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
+                    Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
+                    Part::Continuation { text } => Some(Block::Reminder(format!(
+                        "<system-reminder>\n{text}\n</system-reminder>"
+                    ))),
+                    _ => None,
+                }));
                 push(out, LlmRole::Assistant, calls);
                 push(out, LlmRole::User, results);
             }
@@ -149,7 +158,7 @@ fn user_block(part: &Part) -> Option<Block> {
         Part::Text { text } | Part::Nudge { text } if !text.is_empty() => Some(Block::Text(text.clone())),
         Part::Context { plugin, text } => {
             let context = format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>");
-            Some(Block::Text(context))
+            Some(Block::Reminder(context))
         }
         Part::File { mime, url, .. } if mime.starts_with("image/") => {
             url.split_once(',').map(|(_, data)| Block::Image {
@@ -174,8 +183,36 @@ fn user_block(part: &Part) -> Option<Block> {
         ))),
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
         Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
+        Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
+        Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
+        Part::Continuation { text } => Some(Block::Reminder(format!(
+            "<system-reminder>\n{text}\n</system-reminder>"
+        ))),
         _ => None,
     }
+}
+
+/// What the model reads for changed instruction sources: each one's new text, or that it no longer applies.
+pub(super) fn instruction_text(changes: &[super::types::InstructionChange]) -> String {
+    let mut text = String::from(
+        "<system-reminder>\nThese instructions changed since this conversation began; they replace what the system prompt says about them.",
+    );
+    for change in changes {
+        match &change.text {
+            Some(now) => {
+                text.push_str("\n\n");
+                text.push_str(now.trim_end());
+            }
+            None => {
+                text.push_str("\n\n");
+                text.push_str(&change.title);
+                text.push_str(" no longer applies.");
+            }
+        }
+    }
+    text.push_str("\n</system-reminder>");
+
+    text
 }
 
 /// How the model reads an answer that arrives after it moved on.
@@ -216,8 +253,8 @@ pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], starte
     }
 }
 
-/// Signed or redacted reasoning is replayed only to the model that wrote it.
-/// Unsigned reasoning requires a finished reply; another model reads finished thoughts as plain text.
+/// Reasoning is replayed only to the model and account that wrote it, never as ordinary assistant text.
+/// Unsigned reasoning requires a finished reply.
 /// Each provider adapter decides which reasoning fields its wire accepts.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
     let finished = message.info.status == MessageStatus::Done;
@@ -241,11 +278,6 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
                         signature: signature.clone(),
                         redacted: redacted.clone(),
                     })
-                }
-                Part::Reasoning { text, signature, .. }
-                    if !same_model && !text.trim().is_empty() && (finished || signed || signature.is_some()) =>
-                {
-                    Some(Block::Text(text.clone()))
                 }
                 Part::ToolCall {
                     metadata: Some(metadata),
@@ -287,6 +319,13 @@ fn replayed_input(input: &serde_json::Value, status: ToolStatus, output: Option<
     }
 }
 
+/// What a cleared tool result sends instead of its output.
+pub(super) const CLEARED_RESULT: &str = "[Old tool result content cleared; run the call again if you need it]";
+
+fn is_cleared(metadata: Option<&crate::session::types::ToolMetadata>) -> bool {
+    metadata.is_some_and(|metadata| metadata.cleared == Some(true))
+}
+
 /// Every replayed call needs a result or the provider rejects the transcript; unfinished ones say so.
 /// Calls with malformed arguments that were not replayed get no result either.
 /// Returned images follow all results, because providers require results first in the user turn.
@@ -312,6 +351,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         }
 
         let (content, is_error) = match (status, output) {
+            _ if is_cleared(metadata.as_deref()) => (CLEARED_RESULT.into(), false),
             (ToolStatus::Done, Some(output)) => (output.clone(), false),
             (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
             (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
@@ -338,7 +378,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         }
 
         let returned = crate::tool::image::stored(metadata.as_deref());
-        if !returned.is_empty() {
+        if !returned.is_empty() && !is_cleared(metadata.as_deref()) {
             images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
             images.extend(returned.into_iter().map(|image| Block::Stored {
                 mime: image.mime,

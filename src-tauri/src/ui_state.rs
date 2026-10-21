@@ -32,6 +32,10 @@ pub(crate) enum UiStateError {
     InvalidTheme,
     #[error("invalid custom theme {0} color")]
     InvalidColor(&'static str),
+    #[error("invalid theme accent")]
+    InvalidAccent,
+    #[error("invalid corner style")]
+    InvalidCorners,
     #[error("sessionId requires workspaceId")]
     SessionWithoutWorkspace,
     #[error("workspace order is too long")]
@@ -56,7 +60,33 @@ pub(crate) struct UiTheme {
     pub ui_font: String,
     pub code_font: String,
     pub custom_css: String,
+    /// An accent's name or a `#rrggbb` colour; empty for the base's own.
+    #[serde(default)]
+    pub accent: String,
+    /// `sharp`, `round`, or empty for the default corners.
+    #[serde(default)]
+    pub corners: String,
 }
+
+/// Every base a theme names, and the names earlier versions saved, which the window maps onto them.
+const THEME_NAMES: [&str; 16] = [
+    "drift-charcoal",
+    "drift-claude",
+    "drift-black",
+    "drift-dim",
+    "drift-mocha",
+    "drift-midnight",
+    "drift-forest",
+    "drift-plum",
+    "drift-light",
+    "drift-paper",
+    "drift-custom",
+    "drift-dark",
+    "drift-default",
+    "drift-graphite",
+    "drift-slate",
+    "drift-aubergine",
+];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(crate) struct CustomTheme {
@@ -249,23 +279,16 @@ fn load_valid_setting<T: DeserializeOwned>(
     }
 }
 
+fn hex_color(color: &str) -> bool {
+    color.len() == 7 && color.starts_with('#') && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
     if snapshot.schema != 1 {
         return Err(UiStateError::UnsupportedSchema);
     }
 
-    if !matches!(
-        snapshot.theme.name.as_str(),
-        "drift-dark"
-            | "drift-graphite"
-            | "drift-midnight"
-            | "drift-slate"
-            | "drift-forest"
-            | "drift-aubergine"
-            | "drift-light"
-            | "drift-paper"
-            | "drift-custom"
-    ) {
+    if !THEME_NAMES.contains(&snapshot.theme.name.as_str()) {
         return Err(UiStateError::InvalidTheme);
     }
 
@@ -275,9 +298,17 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
         ("text", &snapshot.theme.custom.text),
         ("accent", &snapshot.theme.custom.accent),
     ] {
-        if color.len() != 7 || !color.starts_with('#') || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if !hex_color(color) {
             return Err(UiStateError::InvalidColor(name));
         }
+    }
+    let accent = &snapshot.theme.accent;
+    let named = accent.len() <= 16 && accent.bytes().all(|byte| byte.is_ascii_lowercase());
+    if !named && !hex_color(accent) {
+        return Err(UiStateError::InvalidAccent);
+    }
+    if !matches!(snapshot.theme.corners.as_str(), "" | "sharp" | "round") {
+        return Err(UiStateError::InvalidCorners);
     }
 
     validate_text("UI font", &snapshot.theme.ui_font, 256)?;

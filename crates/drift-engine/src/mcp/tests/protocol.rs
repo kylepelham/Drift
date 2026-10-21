@@ -2,9 +2,9 @@ use super::*;
 
 /// The HTTP method, JSON-RPC method and headers recorded for one stateless request.
 #[derive(Clone, Debug)]
-struct Seen {
+pub(super) struct Seen {
     verb: String,
-    rpc: String,
+    pub(super) rpc: String,
     headers: BTreeMap<String, String>,
 }
 
@@ -278,8 +278,26 @@ fn discovered() -> serde_json::Value {
     })
 }
 
-/// Returns one 502 on each non-echo tool's first call and repeated `input_required` for text "ask".
-async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
+/// The `input_required` a stand-in server answers a call with: one form, a name of at least two characters.
+fn asked_for_input() -> serde_json::Value {
+    json!({
+        "resultType": "input_required",
+        "inputRequests": { "who": { "method": "elicitation/create", "params": {
+            "mode": "form",
+            "message": "Who are you?",
+            "requestedSchema": {
+                "type": "object",
+                "properties": { "name": { "type": "string", "minLength": 2 } },
+                "required": ["name"],
+            },
+        } } },
+        "requestState": "s",
+    })
+}
+
+/// Returns one 502 on each non-echo tool's first call; text "ask" asks for input once and echoes the
+/// answer, text "nag" asks every time.
+pub(super) async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
     use axum::http::{HeaderMap, Method, StatusCode};
     use axum::response::IntoResponse;
 
@@ -324,14 +342,15 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
                     "tools/call" if name != "echo" && failed.lock().unwrap().insert(name.clone()) => {
                         return StatusCode::BAD_GATEWAY.into_response();
                     }
-                    "tools/call" if text == "ask" => json!({
-                        "resultType": "input_required",
-                        "inputRequests": { "who": { "method": "elicitation/create", "params": {
-                            "message": "Who are you?",
-                            "requestedSchema": { "type": "object", "properties": { "name": { "type": "string" } } },
-                        } } },
-                        "requestState": "s",
-                    }),
+                    "tools/call" if text == "ask" || text == "nag" => {
+                        let answered = &message["params"]["inputResponses"]["who"];
+                        if text == "ask" && !answered.is_null() {
+                            let content = json!([{ "type": "text", "text": format!("answered: {answered}") }]);
+                            json!({ "resultType": "complete", "content": content })
+                        } else {
+                            asked_for_input()
+                        }
+                    }
                     "tools/call" => {
                         let content = json!([{ "type": "text", "text": format!("{name}: {text}") }]);
                         json!({ "resultType": "complete", "content": content })
@@ -431,7 +450,7 @@ async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only(
 }
 
 #[tokio::test]
-async fn a_server_asking_for_input_is_declined_and_the_call_fails_rather_than_hangs() {
+async fn a_server_that_keeps_asking_fails_the_call_rather_than_looping() {
     let engine = engine();
     let (url, seen) = v2_http_server().await;
     let config = ServerConfig::Http {
@@ -443,9 +462,18 @@ async fn a_server_asking_for_input_is_declined_and_the_call_fails_rather_than_ha
     saved(&engine, "remote", &config).await;
     engine.connect_mcp_in("remote", Some(&here())).await.unwrap();
 
+    let declining = engine.clone();
+    tokio::spawn(async move {
+        loop {
+            for card in declining.questions.pending() {
+                let _ = declining.answer_question(&card.id, None).await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
     let failed = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "ask" })),
+        tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "nag" })),
     )
     .await
     .expect("it ends")

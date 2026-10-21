@@ -311,7 +311,7 @@ async fn after_a_restart_unfinished_workers_are_interrupted_and_finished_results
         .unwrap();
     with_model(&h);
     h.provider.push(text("noted"));
-    h.engine.store.interrupt_unfinished_tasks().unwrap();
+    h.engine.store.interrupt_unfinished_tasks(false).unwrap();
     h.engine.recover_tasks().await;
     until_idle(&h).await;
     h.engine.recover_tasks().await;

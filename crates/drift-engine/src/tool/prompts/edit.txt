@@ -2,6 +2,6 @@ Replaces text in a file by exact match. Read the file first, then copy `old_stri
 
 - `read` shows each line as `N: text`. The `N: ` prefix is not in the file: copy only what follows it.
 - `old_string` must match exactly once. If it matches several places, add surrounding lines until it is unique, or set `replace_all` to change every occurrence (renames, for example).
-- Matching ignores the difference between CRLF and LF line endings; nothing else is fuzzy. On a miss the error shows the closest region of the file so you can copy it exactly.
-- The file's existing line endings are preserved.
+- Write line breaks as `\n`: the file's CRLF or LF endings are matched and kept, region by region. To change line endings themselves, make `old_string` and `new_string` differ only in `\r`; that edit applies to the exact bytes.
+- With no exact match, the edit tries again with typographic quotes, dashes and spaces read as plain ones, then ignoring trailing whitespace on each line. On a miss the error shows the closest region of the file so you can copy it exactly.
 - Returns a one-line summary, not the diff. No need to re-read the file to check it.

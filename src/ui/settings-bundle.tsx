@@ -127,7 +127,7 @@ function SourceLink(props: { source?: string | null; folder: string }) {
 
 function SectionTitle(props: { children: JSX.Element }) {
     return (
-        <div class="pt-4 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">
+        <div class="pt-4 pb-1.5 text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wide text-ink-faint uppercase">
             {props.children}
         </div>
     );
@@ -147,7 +147,9 @@ function PartRow(props: {
         >
             <div class="min-w-0 flex-1">
                 <div class="flex min-w-0 items-center gap-2">
-                    <span class="truncate text-[0.82rem] font-medium text-ink">{props.name}</span>
+                    <span class="truncate text-[length:calc(0.82rem*var(--settings-scale,1))] font-medium text-ink">
+                        {props.name}
+                    </span>
                     {props.detail}
                 </div>
                 <Show when={props.description}>
@@ -283,7 +285,9 @@ function ProgramSection(props: { bundle: Bundle; disabled: boolean; onPart: Part
                     />
                 </PartRow>
             </div>
-            <div class="mt-1.5 text-[0.7rem] text-ink-faint">{t("drift.bundles.programsNote")}</div>
+            <div class="mt-1.5 text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                {t("drift.bundles.programsNote")}
+            </div>
         </Show>
     );
 }
@@ -295,7 +299,9 @@ function HookSection(props: { hooks: string[] }) {
             <div class="flex flex-wrap gap-1">
                 <For each={props.hooks}>{(hook) => <Badge>{hook}</Badge>}</For>
             </div>
-            <div class="mt-1.5 text-[0.7rem] text-ink-faint">{t("drift.bundles.hooksNote")}</div>
+            <div class="mt-1.5 text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                {t("drift.bundles.hooksNote")}
+            </div>
         </Show>
     );
 }
@@ -326,7 +332,9 @@ export function BundleScreen(props: {
                         <span class="truncate text-base font-semibold text-ink">{props.bundle.name}</span>
                         <Badge tone="accent">{t("drift.bundles.badge")}</Badge>
                     </div>
-                    <div class="text-[0.7rem] text-ink-faint">{props.bundle.version}</div>
+                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                        {props.bundle.version}
+                    </div>
                     <SourceLink source={props.bundle.source} folder={props.bundle.root} />
                 </div>
                 <RemoveButton disabled={props.disabled} confirming={props.confirming} onRemove={props.onRemove} />
@@ -399,7 +407,7 @@ export function BundleInstallSheet(props: {
                         <span class="text-base font-semibold text-ink">{props.plugin.name}</span>
                         <Badge tone="accent">{t("drift.bundles.badge")}</Badge>
                     </div>
-                    <div class="text-[0.7rem] text-ink-faint">
+                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                         {props.plugin.author} · v{props.plugin.version}
                     </div>
                     <div class="mt-2 text-sm text-ink-muted">{props.plugin.description}</div>
@@ -439,9 +447,11 @@ export function BundleInstallSheet(props: {
                         )}
                     </For>
                 </div>
-                <div class="mt-1.5 text-[0.7rem] text-ink-faint">{t("drift.bundles.valuesHint")}</div>
+                <div class="mt-1.5 text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                    {t("drift.bundles.valuesHint")}
+                </div>
             </Show>
-            <div class="mt-4 text-[0.7rem] text-ink-faint">
+            <div class="mt-4 text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
                 {t("drift.bundles.note", { folder: `${bundlesFolder}/${props.plugin.id}` })}
             </div>
             <div class="mt-3 flex items-center justify-end gap-2">

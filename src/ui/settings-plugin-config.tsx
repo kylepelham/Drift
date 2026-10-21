@@ -1,4 +1,6 @@
 import { buildConfig, fieldText } from "../state/plugin-registry";
+import { configFrom, draftFrom } from "../state/plugin-settings";
+import { PluginSettingsForm } from "./settings-plugin-form";
 import { createSignal, For, Show } from "solid-js";
 import { LogoTile } from "./logo-tile";
 import { IconArrowUp } from "./icons";
@@ -34,7 +36,11 @@ export function ConfigFields(props: {
                                 <div class="min-w-0">
                                     <div class="text-xs font-medium text-ink">{field.label}</div>
                                     <Show when={field.description}>
-                                        {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                                        {(text) => (
+                                            <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                                {text()}
+                                            </div>
+                                        )}
                                     </Show>
                                 </div>
                                 <Toggle
@@ -71,7 +77,11 @@ export function ConfigFields(props: {
                                 />
                             </Show>
                             <Show when={field.description}>
-                                {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                                {(text) => (
+                                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                        {text()}
+                                    </div>
+                                )}
                             </Show>
                         </label>
                     </Show>
@@ -81,7 +91,7 @@ export function ConfigFields(props: {
     );
 }
 
-/** Edits installed plugin settings using registry fields, or raw JSON when no fields are available. */
+/** Edits an installed plugin's settings: the form it declares, else registry fields, else its raw JSON. */
 export function EditSheet(props: {
     plugin: PluginInfo;
     registry?: RegistryPlugin;
@@ -95,6 +105,12 @@ export function EditSheet(props: {
             : {};
     const [typed, setTyped] = createSignal<Record<string, string>>({});
     const [raw, setRaw] = createSignal(JSON.stringify(stored(), null, 2));
+    const declared = () => props.plugin.settings ?? [];
+    const [draft, setDraft] = createSignal(draftFrom(declared(), stored()));
+    const form = () => {
+        if (declared().length) return "declared";
+        return props.registry?.config.length ? "registry" : "raw";
+    };
 
     const rawValid = () => {
         try {
@@ -106,6 +122,7 @@ export function EditSheet(props: {
         }
     };
     const config = () => {
+        if (form() === "declared") return configFrom(declared(), draft(), stored());
         const registry = props.registry;
         if (!registry) return JSON.parse(raw());
 
@@ -133,28 +150,31 @@ export function EditSheet(props: {
                 <LogoTile image={props.registry?.image} title={props.plugin.name} large />
                 <div class="min-w-0 flex-1">
                     <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-                    <div class="font-mono text-[0.7rem] text-ink-faint">{props.plugin.path}</div>
+                    <div class="font-mono text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                        {props.plugin.path}
+                    </div>
                     <Show when={props.registry?.description}>
                         {(text) => <div class="mt-2 text-sm text-ink-muted">{text()}</div>}
                     </Show>
                 </div>
             </div>
-            <Show
-                when={props.registry?.config.length}
-                fallback={
-                    <div class="space-y-2 rounded-lg border border-edge bg-surface p-3">
-                        <div class="text-xs text-ink-muted">{t("drift.plugins.configRaw")}</div>
-                        <textarea
-                            spellcheck={false}
-                            aria-label={t("drift.plugins.configRaw")}
-                            class="h-48 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
-                            classList={{ "border-danger/60": !rawValid() }}
-                            value={raw()}
-                            onInput={(event) => setRaw(event.currentTarget.value)}
-                        />
-                    </div>
-                }
-            >
+            <Show when={form() === "declared"}>
+                <PluginSettingsForm settings={declared()} draft={draft()} onDraft={setDraft} />
+            </Show>
+            <Show when={form() === "raw"}>
+                <div class="space-y-2 rounded-lg border border-edge bg-surface p-3">
+                    <div class="text-xs text-ink-muted">{t("drift.plugins.configRaw")}</div>
+                    <textarea
+                        spellcheck={false}
+                        aria-label={t("drift.plugins.configRaw")}
+                        class="h-48 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
+                        classList={{ "border-danger/60": !rawValid() }}
+                        value={raw()}
+                        onInput={(event) => setRaw(event.currentTarget.value)}
+                    />
+                </div>
+            </Show>
+            <Show when={form() === "registry"}>
                 <ConfigFields fields={props.registry!.config} typed={typed()} onTyped={setTyped} values={stored()} />
             </Show>
             <div class="flex items-center justify-end gap-2">
@@ -166,7 +186,7 @@ export function EditSheet(props: {
                 </button>
                 <button
                     class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={props.busy || (!props.registry?.config.length && !rawValid())}
+                    disabled={props.busy || (form() === "raw" && !rawValid())}
                     onClick={() => void props.onSave(config())}
                 >
                     {t(props.busy ? "drift.plugins.saving" : "common.save")}

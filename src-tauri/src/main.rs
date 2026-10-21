@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod editor;
 mod file_preview;
+mod fonts;
 mod native;
 mod opencode_import;
 mod permissions;
@@ -90,6 +91,7 @@ fn main() {
         // generate_handler! resolves command helper macros in their defining module, not through ordinary re-exports.
         .invoke_handler(tauri::generate_handler![
             native::native_engine_status,
+            fonts::system_fonts,
             opencode_import::opencode_import_summary,
             updater::check_update,
             updater::install_update,
@@ -134,7 +136,8 @@ fn main() {
             remote::access_commands::remote_access_status,
             remote::access_commands::remote_access_enable,
             remote::access_commands::remote_access_disable,
-            remote::access_commands::remote_access_link,
+            remote::access_commands::remote_access_set_browser,
+            remote::access_commands::remote_access_set_tunnel,
             remote::access_commands::remote_access_pairing,
             remote::access_commands::remote_access_revoke,
             remote::access_commands::remote_access_set_password,
@@ -196,7 +199,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     permissions::install(app)?;
 
-    let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)
+    let remote_access = remote::RemoteAccess::load(app.handle(), &app.state::<store::Store>(), &data_dir)
         .expect("failed to load remote access settings");
     let start_remote = remote_access.should_start();
     app.manage(remote_access);
@@ -204,7 +207,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let app = app.handle().clone();
         tauri::async_runtime::spawn(async move {
             let access = app.state::<remote::RemoteAccess>();
-            if let Err(error) = access.start(app.clone()).await {
+            if let Err(error) = access.start().await {
                 access.set_error(error.to_string());
             }
         });

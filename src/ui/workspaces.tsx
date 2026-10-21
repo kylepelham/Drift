@@ -109,7 +109,7 @@ export function WorkspaceGroup(props: {
         <div ref={root} data-workspace={props.workspace.id}>
             <div
                 class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-                classList={{ "bg-raised/55": active(), "bg-surface hover:bg-raised/45": !active() }}
+                classList={{ "bg-raised/55": active(), "bg-sidebar hover:bg-raised/45": !active() }}
                 onPointerDown={(event) => {
                     cancelDrag();
                     cancelDrag = dragReorder(event, root, {
@@ -176,7 +176,7 @@ export function WorkspaceGroup(props: {
                             <>
                                 <Show when={dividers().get(id)}>
                                     {(label) => (
-                                        <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[0.65rem] font-medium text-ink-faint select-none first:pt-0.5">
+                                        <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[length:calc(0.65rem*var(--sidebar-scale,1))] font-medium text-ink-faint select-none first:pt-0.5">
                                             <span class="shrink-0">{label()}</span>
                                             <span class="h-px flex-1 bg-edge" />
                                         </div>
@@ -206,7 +206,7 @@ export function WorkspaceGroup(props: {
                         <div class="flex items-center">
                             <Show when={remaining() > 0}>
                                 <button
-                                    class="flex h-7 min-w-0 flex-1 items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                                    class="flex h-7 min-w-0 flex-1 items-center rounded-md px-2 text-left text-[length:calc(0.72rem*var(--sidebar-scale,1))] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
                                     onClick={() =>
                                         setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))
                                     }
@@ -216,7 +216,7 @@ export function WorkspaceGroup(props: {
                             </Show>
                             <Show when={visibleCount() > sessionPageSize}>
                                 <button
-                                    class="flex h-7 shrink-0 items-center rounded-md px-2 text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                                    class="flex h-7 shrink-0 items-center rounded-md px-2 text-[length:calc(0.72rem*var(--sidebar-scale,1))] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
                                     classList={{ "flex-1 text-left": remaining() === 0 }}
                                     onClick={() => setVisibleCount(sessionPageSize)}
                                 >
@@ -302,12 +302,12 @@ function ThreadItem(props: {
         >
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 flex-1 truncate text-[0.84rem]"
+                class="min-w-0 flex-1 truncate text-[length:calc(0.84rem*var(--sidebar-scale,1))]"
                 classList={{ "text-ink": active(), "text-ink-muted": !active() }}
             >
                 {props.title || t("drift.thread.untitled")}
             </span>
-            <span class="thread-age shrink-0 text-[0.65rem] text-ink-faint/75 group-hover:hidden">
+            <span class="thread-age shrink-0 text-[length:calc(0.65rem*var(--sidebar-scale,1))] text-ink-faint/75 group-hover:hidden">
                 {ago(props.updated)}
             </span>
             <span class="thread-hover-actions hidden shrink-0 items-center group-hover:flex">
@@ -423,7 +423,11 @@ function ChildThreadItem(props: {
         >
             <Show
                 when={background()}
-                fallback={<span class="w-3 shrink-0 text-center text-[0.7rem] text-ink-faint">&#8627;</span>}
+                fallback={
+                    <span class="w-3 shrink-0 text-center text-[length:calc(0.7rem*var(--sidebar-scale,1))] text-ink-faint">
+                        &#8627;
+                    </span>
+                }
             >
                 <span class="flex w-3 shrink-0 justify-center text-accent/80" title={t("drift.task.background")}>
                     <IconLayers class="size-3" />
@@ -431,7 +435,7 @@ function ChildThreadItem(props: {
             </Show>
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 truncate text-[0.75rem]"
+                class="min-w-0 truncate text-[length:calc(0.75rem*var(--sidebar-scale,1))]"
                 classList={{ "text-ink": active(), "text-ink-faint": !active() }}
             >
                 {props.title || t("drift.thread.untitled")}
@@ -496,7 +500,7 @@ export function WorkspaceIcon(props: { workspace: Workspace }) {
             when={props.workspace.icon.startsWith("data:")}
             fallback={
                 <span
-                    class="workspace-icon flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[0.58rem] font-semibold text-white/85"
+                    class="workspace-icon flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[length:calc(0.58rem*var(--sidebar-scale,1))] font-semibold text-white/85"
                     style={{ background: `hsl(${hue()} 24% 31%)` }}
                 >
                     {workspaceInitials(props.workspace.name)}

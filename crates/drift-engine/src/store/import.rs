@@ -242,6 +242,7 @@ mod tests {
             branch_cutoff: None,
             revert: None,
             auto_accept: false,
+            worktree: None,
             running: false,
         }
     }
@@ -265,6 +266,7 @@ mod tests {
             summary: false,
             ending: None,
             refusal: None,
+            cache_miss: None,
         };
         let part = PartRow {
             id: format!("prt_{n:016x}aaaaaaaa"),

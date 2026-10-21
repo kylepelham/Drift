@@ -17,13 +17,22 @@ const groupKinds: Record<string, ToolGroupKind> = {
     websearch: "fetches",
     process: "other",
     save_image: "other",
+    generate_image: "other",
     skill: "other",
     task_output: "other",
     task_stop: "other",
     read_thread: "other",
 };
-// Delegation and questions are cards of their own, and todos never show, so none of them group.
-const ungrouped = new Set([...contextTools, "task", "spawn_thread", "question", "todowrite", "todoread"]);
+// Delegation, questions and review findings are cards of their own, and todos never show, so none of them group.
+const ungrouped = new Set([
+    ...contextTools,
+    "task",
+    "spawn_thread",
+    "question",
+    "report_findings",
+    "todowrite",
+    "todoread",
+]);
 
 /** Which grouping setting covers a tool; an unknown name is an MCP tool. */
 export function toolGroupKind(name: string): ToolGroupKind | undefined {
@@ -96,6 +105,8 @@ export function toolInfo(part: ToolPart): ToolInfo {
             return { title: changeTitle(part), subtitle: patchSubtitle(part) };
         case "webfetch":
             return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true };
+        case "generate_image":
+            return { title: t("drift.tool.generateImage"), subtitle: text("prompt") };
         default:
             return delegatedToolInfo(part, input, meta);
     }
@@ -138,9 +149,8 @@ function contextToolInfo(
             return { title: t("settings.permissions.tool.grep.title"), subtitle: `${pattern}${suffix}`, mono: true };
         }
         case "websearch": {
-            const results = output() ? output().match(/^#|^\d+\./gm)?.length : undefined;
-            const query = text("query") ?? "";
-            const suffix = count(results, "drift.count.result.one", "drift.count.result.other");
+            const query = text("query") ?? text("site") ?? "";
+            const suffix = count(meta.count, "drift.count.result.one", "drift.count.result.other");
 
             return { title: t("common.search.placeholder"), subtitle: `${query}${suffix}` };
         }
@@ -167,6 +177,11 @@ function delegatedToolInfo(part: ToolPart, input: Record<string, unknown>, meta:
             return questionToolInfo(input, meta);
         case "skill":
             return { title: text("name") ?? t("prompt.slash.badge.skill") };
+        case "report_findings":
+            return {
+                title: t("drift.findings.title"),
+                subtitle: part.status === "done" ? (part.title ?? undefined) : undefined,
+            };
         default:
             return { called: part.name, subtitle: argsPreview(input), mono: true };
     }

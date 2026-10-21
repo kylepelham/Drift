@@ -1,12 +1,12 @@
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { language, languages, setLanguage } from "../state/language";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { filePreviewTypes } from "../file-preview-types";
-import { ThinkingSettings } from "./settings-thinking";
+import { compactionExamples } from "./model-details";
+import { Segmented, Toggle } from "./controls";
 import { isRemoteRuntime } from "../runtime";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 import {
@@ -39,18 +39,34 @@ import {
     toolGroups,
 } from "../state/prefs";
 
+import type { CompactAt } from "../engine/native/client";
 import type { LanguageId } from "../state/language";
+
+const compactPolicies: CompactAt[] = ["earlier", "auto", "later"];
+
+/** The grouping control's label: none, all, or the chosen kinds by name. */
+function groupedSummary() {
+    const chosen = toolGroupKinds.filter((kind) => toolGroups()[kind]);
+    if (chosen.length === 0) return t("drift.settings.groupTools.none");
+    if (chosen.length === toolGroupKinds.length) return t("drift.settings.groupTools.all");
+
+    return chosen.map((kind) => t(`drift.settings.groupTools.${kind}`)).join(", ");
+}
 
 export function GeneralSection() {
     const engine = useEngine();
     // The toggle stays disabled until the engine returns its preference.
     const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null);
+    const [compactAt, setCompactAtShown] = createSignal<CompactAt | null>(null);
 
     onMount(
         () =>
             void engine.actions
                 .engineSettings()
-                .then((settings) => setAutoCompactShown(settings.autoCompact ?? true))
+                .then((settings) => {
+                    setAutoCompactShown(settings.autoCompact ?? true);
+                    setCompactAtShown(settings.compactAt ?? "auto");
+                })
                 .catch(() => undefined),
     );
 
@@ -62,6 +78,26 @@ export function GeneralSection() {
             .setAutoCompact(next)
             .then((settings) => setAutoCompactShown(settings.autoCompact ?? next))
             .catch(() => setAutoCompactShown(!next));
+    }
+
+    function pickCompactAt(id: string) {
+        const previous = compactAt();
+        const next = id as CompactAt;
+        setCompactAtShown(next);
+
+        void engine.actions
+            .setCompactAt(next)
+            .then((settings) => setCompactAtShown(settings.compactAt ?? next))
+            .catch(() => setCompactAtShown(previous));
+    }
+
+    /** The compaction description, with where the chosen policy puts the models in use. */
+    function compactDescription() {
+        const examples = compactionExamples(engine.state);
+        const description = t("drift.settings.compactAt.description");
+        if (!examples.length) return description;
+
+        return `${description} ${t("drift.settings.compactAt.examples", { examples: examples.join(", ") })}`;
     }
 
     return (
@@ -79,7 +115,7 @@ export function GeneralSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(value) => setLanguage(value as LanguageId)}
                     />
                 </SettingsRow>
@@ -127,7 +163,7 @@ export function GeneralSection() {
                             />
                             <output
                                 for="response-reveal-speed"
-                                class="w-7 text-right text-[0.68rem] tabular-nums text-ink-faint"
+                                class="w-7 text-right text-[length:calc(0.68rem*var(--settings-scale,1))] tabular-nums text-ink-faint"
                                 title={t("drift.settings.responseAnimation.speed.value", {
                                     speed: responseAnimationSpeed(),
                                 })}
@@ -155,7 +191,7 @@ export function GeneralSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(mode) => setCommandRows(commandRowsFrom(mode))}
                     />
                 </SettingsRow>
@@ -163,23 +199,25 @@ export function GeneralSection() {
                     title={t("drift.settings.groupTools.title")}
                     description={t("drift.settings.groupTools.description")}
                 >
-                    <span />
+                    <Picker
+                        label={t("drift.settings.groupTools.title")}
+                        items={toolGroupKinds.map((kind) => ({
+                            id: kind,
+                            label: t(`drift.settings.groupTools.${kind}`),
+                        }))}
+                        checked={toolGroupKinds.filter((kind) => toolGroups()[kind])}
+                        fallbackLabel={groupedSummary()}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width={pickerWidth}
+                        onPick={(id) => {
+                            const kind = toolGroupKinds.find((known) => known === id);
+                            if (kind) setToolGroup(kind, !toolGroups()[kind]);
+                        }}
+                    />
                 </SettingsRow>
-                <For each={toolGroupKinds}>
-                    {(kind) => (
-                        <SettingsRow
-                            title={t(`drift.settings.groupTools.${kind}`)}
-                            description=""
-                            onClick={() => setToolGroup(kind, !toolGroups()[kind])}
-                        >
-                            <Toggle
-                                label={t(`drift.settings.groupTools.${kind}`)}
-                                checked={toolGroups()[kind]}
-                                onChange={() => setToolGroup(kind, !toolGroups()[kind])}
-                            />
-                        </SettingsRow>
-                    )}
-                </For>
                 <SettingsRow
                     title={t("drift.settings.editedFiles.title")}
                     description={t("drift.settings.editedFiles.description")}
@@ -193,28 +231,19 @@ export function GeneralSection() {
                 </SettingsRow>
             </SettingsGroup>
 
-            <ThinkingSettings />
-
             <SettingsGroup title={t("drift.preview.settings.title")}>
                 <SettingsRow
                     title={t("drift.preview.settings.mode")}
                     description={t("drift.preview.settings.description")}
                 >
-                    <Picker
+                    <Segmented
                         label={t("drift.preview.settings.mode")}
-                        items={(["all", "none", "custom"] as const).map((mode) => ({
+                        options={(["all", "none", "custom"] as const).map((mode) => ({
                             id: mode,
                             label: t(`drift.preview.mode.${mode}`),
                         }))}
-                        selected={filePreviewPrefs().mode}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="12rem"
-                        onPick={(mode) => {
-                            if (mode === "all" || mode === "none" || mode === "custom") setFilePreviewMode(mode);
-                        }}
+                        value={filePreviewPrefs().mode}
+                        onChange={setFilePreviewMode}
                     />
                 </SettingsRow>
                 <Show when={filePreviewPrefs().mode === "custom"}>
@@ -284,6 +313,23 @@ export function GeneralSection() {
                         checked={autoCompact() ?? false}
                         disabled={autoCompact() === null}
                         onChange={toggleAutoCompact}
+                    />
+                </SettingsRow>
+                <SettingsRow
+                    title={t("drift.settings.compactAt.title")}
+                    description={compactDescription()}
+                    disabled={compactAt() === null}
+                >
+                    <Picker
+                        label={t("drift.settings.compactAt.title")}
+                        items={compactPolicies.map((id) => ({ id, label: t(`drift.settings.compactAt.${id}`) }))}
+                        selected={compactAt() ?? "auto"}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width={pickerWidth}
+                        onPick={pickCompactAt}
                     />
                 </SettingsRow>
                 <SettingsRow

@@ -147,6 +147,7 @@ pub(super) async fn update(
         if archived {
             engine.abort(&id);
             engine.processes.stop_session(&id);
+            engine.browsers.stop_session(&id);
             engine.permissions.forget_session(&id);
         }
         session = engine
@@ -324,6 +325,10 @@ pub(super) async fn delete(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
+    let worktree = engine
+        .store
+        .session(&id)?
+        .and_then(|session| Some((session.workspace_id, session.worktree?)));
     if query.archived {
         match engine.store.purge_archived(&id)? {
             Purge::Deleted => {}
@@ -340,6 +345,7 @@ pub(super) async fn delete(
 
     engine.abort(&id);
     engine.processes.stop_session(&id);
+    engine.browsers.stop_session(&id);
     engine.permissions.forget_session(&id);
     engine.questions.forget_session(&id);
     if !query.archived && !engine.store.delete_session(&id)? {
@@ -347,6 +353,9 @@ pub(super) async fn delete(
     }
 
     engine.hub.publish(Event::SessionDeleted { session_id: id });
+    if let Some((workspace_id, name)) = worktree {
+        engine.retire_worktree(&workspace_id, &name).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

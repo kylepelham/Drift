@@ -13,6 +13,7 @@ pub mod jsonc;
 mod overrides;
 pub mod plugins;
 mod project_commands;
+pub mod references;
 pub mod skills;
 pub mod sources;
 mod user;
@@ -29,6 +30,7 @@ pub use discovery::{body, home, in_repository, nested_instructions};
 pub use engine::RegistryError;
 pub use file::{
     CheckConfig, File, FormatterConfig, Limits, LimitsFile, LspConfig, ProviderConfig, ProviderModel, RouteTimeouts,
+    WorktreeFile,
 };
 pub use overrides::{AgentOverride, ModelPin};
 pub use user::{set_local_server, user_plugins, user_providers};
@@ -56,6 +58,16 @@ pub struct Skill {
     /// Front matter `argument-hint`.
     #[serde(skip)]
     pub argument_hint: Option<String>,
+    /// Set for a skill the engine ships, whose instructions it renders per call rather than reading a folder.
+    #[serde(skip)]
+    pub builtin: Option<Builtin>,
+}
+
+/// The engine's own skills.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Builtin {
+    /// `/review`, rendered by [`crate::code_review`].
+    Review,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -86,6 +98,15 @@ pub struct Config {
     pub project_commands: std::collections::BTreeSet<String>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
+    /// Named folders and repositories outside the workspace, the user's before the project's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<references::Reference>,
+    /// `browser`: the project's engine, address, sign-in and notes for the browser tool.
+    #[serde(default)]
+    pub browser: crate::browser::BrowserProject,
+    /// `worktree.setup`: commands run in a new worktree, each asking like `bash`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktree_setup: Vec<String>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
@@ -168,10 +189,21 @@ impl Config {
         for bundle in bundles {
             config.add_bundle_skills(bundle);
         }
+        config.add_builtin_skills();
         config.add_skill_commands();
         config.add_instructions(workspace, home);
 
         config
+    }
+
+    /// The engine's skills, each unless a skill or command of the user's, the project's or a bundle's has its name.
+    fn add_builtin_skills(&mut self) {
+        let review = crate::code_review::skill();
+        let taken = self.skills.iter().any(|skill| skill.name == review.name)
+            || self.commands.iter().any(|command| command.name == review.name);
+        if !taken {
+            self.skills.push(review);
+        }
     }
 
     /// Each skill is a command unless one already has its name. A command that calls exactly one skill
@@ -286,6 +318,12 @@ impl Config {
         self.checks.extend(file.checks);
         self.apply_lsp(file.lsp, project);
         self.timeouts.extend(file.timeouts);
+        if let Some(setup) = file.worktree.setup {
+            self.worktree_setup = setup;
+        }
+        if let Some(browser) = file.browser {
+            self.browser = browser;
+        }
         self.limits.repeats = file.limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = file.limits.polls.unwrap_or(self.limits.polls).max(2);
 
@@ -293,6 +331,7 @@ impl Config {
             (Some(relative), Some(home)) => home.join(relative),
             _ => root.join(listed),
         };
+        self.apply_references(&file.references, |listed| resolve(&listed.to_string()), project);
         for listed in &file.instructions {
             for (name, path) in instruction_files(listed, &resolve(listed)) {
                 if let Ok(text) = std::fs::read_to_string(&path) {
@@ -398,6 +437,7 @@ impl Config {
                 path: item.path.to_string_lossy().into_owned(),
                 instructions: body(&text),
                 argument_hint,
+                builtin: None,
             });
         }
     }
@@ -475,6 +515,7 @@ impl Config {
                 path: folder.to_string_lossy().into_owned(),
                 instructions,
                 argument_hint,
+                builtin: None,
             });
         }
     }
@@ -569,7 +610,7 @@ fn builtin_agents() -> Vec<Agent> {
             "explore",
             "Fast read-only subagent for finding files and code and answering questions about a codebase.",
             include_str!("prompts/explore.txt"),
-            &["read", "glob", "grep", "bash", "webfetch", "skill"],
+            &["read", "glob", "grep", "bash", "webfetch", "websearch", "skill"],
             AgentKind::Subagent,
         )),
         // Orchestrator delegates mutations and therefore receives no tools that write or run code directly.
@@ -582,8 +623,10 @@ fn builtin_agents() -> Vec<Agent> {
                 "glob",
                 "grep",
                 "webfetch",
+                "websearch",
                 "todowrite",
                 "skill",
+                "report_findings",
                 "question",
                 "task",
                 "task_output",

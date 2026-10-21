@@ -1,5 +1,9 @@
 use super::*;
 
+/// Replies cut off at their output limit that a turn goes on after, in a row; the next one ends it.
+const MAX_LENGTH_CONTINUES: u32 = 2;
+const LENGTH_NOTE: &str = "Your last reply hit the output limit. Do not apologise, recap or repeat yourself. Break the remaining work into smaller pieces.";
+
 impl Engine {
     /// Runs a command's calls (a skill, a delegated task or its shell lines) before the model answers.
     /// They share one message, and each passes the same permission check as the model's own calls.
@@ -81,6 +85,7 @@ impl Engine {
         let mut repeats = Repeats::default();
         let mut answered = None;
         let mut wrapping = None;
+        let mut lengths = 0;
 
         loop {
             if let Err(reason) = self.follow_session(plan).await {
@@ -89,9 +94,12 @@ impl Engine {
             }
             self.follow_account(plan).await;
 
-            let Some(transcript) = self.transcript_for_step(plan, abort).await else {
+            let Some(mut transcript) = self.transcript_for_step(plan, abort).await else {
                 break;
             };
+            if self.cache_cold(plan) {
+                self.clear_old_results(&mut transcript);
+            }
 
             let wrap_up = wrapping.map(WrapUp::instruction);
             let request;
@@ -114,7 +122,15 @@ impl Engine {
                     break;
                 }
                 Step::Done => break,
+                // A third stop at the output limit in a row ends the turn with that ending.
+                Step::Length(reply) if lengths < MAX_LENGTH_CONTINUES => {
+                    lengths += 1;
+                    attempts = 0;
+                    self.continue_after_length(&plan.session.id, &reply);
+                }
+                Step::Length(_) => break,
                 Step::Continue => {
+                    lengths = 0;
                     attempts = 0;
                     wrapping = repeats
                         .record(self.last_calls(&plan.session.id), &plan.config.limits)
@@ -146,6 +162,16 @@ impl Engine {
         answered
     }
 
+    /// Leaves a note under a reply cut off at its output limit, which the next step reads after it.
+    fn continue_after_length(&self, session_id: &str, reply: &str) {
+        let part = Part::Continuation {
+            text: LENGTH_NOTE.into(),
+        };
+        if let Ok(row) = self.store.add_part(reply, session_id, part) {
+            self.hub.publish(Event::PartCreated { part: row });
+        }
+    }
+
     /// Recovers from a request the provider refused for what it carried; false ends the turn.
     async fn recover(
         self: &Arc<Self>,
@@ -161,13 +187,17 @@ impl Engine {
         }
     }
 
-    /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds.
+    /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds. After three
+    /// automatic compactions in a row failed, the refusal stands instead of sending the whole conversation again.
     async fn recover_from_overflow(
         self: &Arc<Self>,
         session_id: &str,
         reply: String,
         abort: &CancellationToken,
     ) -> bool {
+        if self.compaction_keeps_failing(session_id) {
+            return false;
+        }
         if self.compact(session_id, Trigger::Overflow, abort).await.is_err() {
             return false;
         }
@@ -224,7 +254,7 @@ impl Engine {
         request: &Request,
         abort: &CancellationToken,
     ) -> Step {
-        let streamed = match self.stream(&message, plan, request, abort).await {
+        let mut streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
             Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error) => {
                 self.failed_step(&mut message, StreamError::Provider(error));
@@ -232,17 +262,13 @@ impl Engine {
             }
             Err(error) => return self.failed_step(&mut message, error),
         };
-        // A safety refusal another account may not make sends the request again from it; the refused reply goes.
-        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()) {
+        // A safety refusal a verified account may not make sends the request again from it; the refused reply goes.
+        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()).await {
             self.discard_reply(&plan.session.id, message.id);
             return Step::Switch;
         }
 
-        message.usage = streamed.usage;
-        message.generation_ms = streamed.generation_ms;
-        message.account = plan.account.clone();
-        message.cost = cost(&plan.model, streamed.usage);
-        message.status = MessageStatus::Done;
+        record_usage(plan, &mut message, &mut streamed);
 
         // An incomplete reply cannot supply trustworthy tool arguments.
         let ending = match streamed.stop {
@@ -278,6 +304,10 @@ impl Engine {
         }
 
         if let Some((_, unrun)) = ending {
+            if streamed.stop == StopReason::MaxTokens && !request.no_tool_calls {
+                self.settle_cut_off(&message);
+                return Step::Length(message.id);
+            }
             self.settle_unrun(&message, unrun);
             return if streamed.stop == StopReason::ContextFull {
                 Step::Overflow
@@ -371,6 +401,7 @@ impl Engine {
     ) -> Result<Streamed, StreamError> {
         // One snapshot for the whole response: a reload while it streams must not reveal by other pairs than it hid by.
         let masks = self.hooks.masks();
+        let sent = super::cache_watch::segments(&masks.request(request));
         let mut chunks = tokio::select! {
             opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider)?,
             () = abort.cancelled() => return Err(StreamError::Aborted),
@@ -414,6 +445,11 @@ impl Engine {
         }
 
         let _ = assembler.stop_block();
+        let cache_miss = self.turns.cache_watch.observe(&plan.session.id, sent, assembler.usage);
+        if let Some(why) = &cache_miss {
+            eprintln!("drift: session {} {why}", plan.session.id);
+        }
+        self.warm_after(scope.plan);
         let Some(stop) = assembler.stop else {
             return Err(StreamError::Provider(llm::Error::Transport(
                 "stream ended without a stop reason".into(),
@@ -422,6 +458,7 @@ impl Engine {
 
         Ok(Streamed {
             usage: assembler.usage,
+            cache_miss,
             generation_ms: assembler.generation_ms(),
             stop,
             refusal: assembler.refusal,
@@ -429,4 +466,14 @@ impl Engine {
             early,
         })
     }
+}
+
+/// The reply's usage, cost, account and timing, as its stream reported them.
+fn record_usage(plan: &Plan, message: &mut Message, streamed: &mut Streamed) {
+    message.usage = streamed.usage;
+    message.cache_miss = streamed.cache_miss.take();
+    message.generation_ms = streamed.generation_ms;
+    message.account = plan.account.clone();
+    message.cost = cost(&plan.model, streamed.usage);
+    message.status = MessageStatus::Done;
 }

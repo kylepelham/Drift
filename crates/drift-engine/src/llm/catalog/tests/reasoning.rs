@@ -154,3 +154,71 @@ fn the_bundled_snapshot_carries_each_models_reasoning_levels() {
     assert_eq!(names("anthropic", "claude-sonnet-4-5"), ["high", "max"]);
     assert!(names("google", "gemini-3.8-flash").contains(&"high".to_string()));
 }
+
+#[test]
+fn per_message_effort_follows_opencode_v2s_model_rule() {
+    use crate::llm::catalog::effort_updates_for;
+    for (provider, id, takes) in [
+        ("anthropic", "claude-opus-5", true),
+        ("anthropic", "claude-sonnet-5-1", true),
+        ("anthropic", "claude-haiku-5-5", true),
+        ("anthropic", "claude-sonnet-5", false),
+        ("anthropic", "claude-opus-4-8", false),
+        ("anthropic", "claude-sonnet-4-5-20250929", false),
+        ("amazon-bedrock", "claude-opus-5", false),
+        ("openai", "gpt-6-sol", true),
+        ("openai", "gpt-5.5", false),
+        ("openrouter", "gpt-6-sol", false),
+    ] {
+        assert_eq!(effort_updates_for(provider, id), takes, "{provider} {id}");
+    }
+}
+
+#[test]
+fn newer_claude_features_follow_opencode_v2s_model_rule() {
+    use crate::llm::catalog::claude_features_for;
+    let features = |id: &str| {
+        let found = claude_features_for("anthropic", id);
+        (found.system_messages, found.drop_stale_thinking)
+    };
+    assert_eq!(features("claude-opus-4-8"), (true, false));
+    assert_eq!(features("claude-opus-4-7"), (false, false));
+    assert_eq!(features("claude-sonnet-5"), (true, false));
+    assert_eq!(features("claude-sonnet-5-1"), (true, true));
+    assert_eq!(
+        features("claude-sonnet-4-5-20250929"),
+        (false, false),
+        "a snapshot date is no minor version"
+    );
+    assert_eq!(
+        claude_features_for("amazon-bedrock", "claude-opus-5"),
+        Default::default()
+    );
+}
+
+#[test]
+fn deferred_tools_go_to_claude_4_5_and_gpt_5_4_and_later_where_their_wire_carries_them() {
+    use crate::llm::catalog::tool_search_for;
+    let defers = |id: &str| tool_search_for("anthropic", id);
+    assert!(defers("claude-sonnet-4-5-20250929"));
+    assert!(defers("claude-opus-5-5"));
+    assert!(!defers("claude-opus-4-1"));
+    assert!(!defers("claude-3-5-sonnet-20241022"));
+
+    assert!(tool_search_for(
+        "amazon-bedrock",
+        "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    ));
+    assert!(tool_search_for("amazon-bedrock", "anthropic.claude-haiku-5-5"));
+    assert!(!tool_search_for(
+        "amazon-bedrock",
+        "anthropic.claude-3-7-sonnet-20250219-v1:0"
+    ));
+    assert!(tool_search_for("google-vertex-anthropic", "claude-opus-4-5@20251101"));
+    assert!(tool_search_for("google-vertex", "claude-sonnet-5@default"));
+    assert!(!tool_search_for("google-vertex", "gemini-3.6-flash"));
+    assert!(!tool_search_for("openrouter", "anthropic/claude-opus-5"));
+
+    assert!(tool_search_for("openai", "gpt-5.4-mini") && tool_search_for("openai", "gpt-6.1-sol"));
+    assert!(!tool_search_for("openai", "gpt-5.3-codex") && !tool_search_for("openai", "o4-mini"));
+}

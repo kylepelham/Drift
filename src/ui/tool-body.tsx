@@ -5,6 +5,7 @@ import { citationFileGroups } from "./citation-files";
 import { patchFiles, toolInfo } from "./tool-labels";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
+import { ReadImage, readImage } from "./tool-image";
 import { ShellProcessStatus } from "./process-row";
 import { toolDisplay } from "./tool-presentation";
 import { Markdown } from "./markdown";
@@ -67,7 +68,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                     {(task) => (
                         <div class="tool-card space-y-2">
                             <Show when={task().prompt}>
-                                <div class="transcript-tool-output max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
+                                <div class="transcript-tool-output max-h-40 overflow-auto text-[length:calc(0.85rem*var(--ui-text-scale,1))] whitespace-pre-wrap text-ink-faint">
                                     {clip(task().prompt)}
                                 </div>
                             </Show>
@@ -113,13 +114,16 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                     </Show>
                 </Match>
                 <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
+                <Match when={readImage(props.part)}>
+                    {(image) => <ReadImage hash={image().hash} path={image().path} />}
+                </Match>
                 <Match when={props.diff ?? written()}>
                     {(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}
                 </Match>
             </Switch>
             <Show when={props.error}>
                 {(message) => (
-                    <div class="tool-card tool-card-error mt-1.5 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
+                    <div class="tool-card tool-card-error mt-1.5 text-[length:calc(0.85rem*var(--ui-text-scale,1))] break-words whitespace-pre-wrap text-ink-muted">
                         {clip(stripAnsi(message()))}
                     </div>
                 )}
@@ -155,7 +159,7 @@ function GenericBody(props: { part: ToolPart }) {
                 </div>
             </Show>
             <Show when={output().trim()}>
-                <div class="transcript-tool-output max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
+                <div class="transcript-tool-output max-h-64 overflow-auto text-[length:calc(0.85rem*var(--ui-text-scale,1))] whitespace-pre-wrap text-ink-muted">
                     {clip(stripAnsi(output()))}
                 </div>
             </Show>

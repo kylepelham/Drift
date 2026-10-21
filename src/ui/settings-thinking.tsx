@@ -1,7 +1,7 @@
-import { shownThinkingStyle, thinkingWordShown, ThinkingIndicator } from "./thinking-indicator";
 import { thinkingIndicator, thinkingIndicators } from "../thinking-indicators";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
-import { Toggle } from "./controls";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
+import { shownThinkingStyle, ThinkingIndicator } from "./thinking-indicator";
+import { Segmented, Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 import {
@@ -41,7 +41,7 @@ function Choice(props: {
             bordered
             chevronAtEnd
             placement="below"
-            width="12rem"
+            width={pickerWidth}
             onPick={props.pick}
         />
     );
@@ -50,11 +50,10 @@ function Choice(props: {
 export function ThinkingSettings() {
     const prefs = thinkingPrefs;
     const style = () => shownThinkingStyle(prefs().style, (id) => !!thinkingIndicator(id));
-    // Only a figure has room to drop the word; Shimmer and Still are the word, a plugin draws its own.
-    const wordFixed = () => thinkingWordShown(style(), false) || style().startsWith(pluginThinkingPrefix);
     const options = <K extends "tint" | "speed">(key: K, values: readonly ThinkingPrefs[K][]) =>
         values.map((value) => ({ id: value, label: t(`drift.settings.thinking.${key}.${value}`) }));
-    const toggleLabel = () => !wordFixed() && updateThinkingPrefs({ label: !prefs().label });
+    const toggleLabel = () => updateThinkingPrefs({ label: !prefs().label });
+    const toggleShimmer = () => prefs().label && updateThinkingPrefs({ shimmer: !prefs().shimmer });
 
     return (
         <SettingsGroup title={t("drift.settings.thinking")}>
@@ -79,35 +78,59 @@ export function ThinkingSettings() {
                 title={t("drift.settings.thinking.tint.title")}
                 description={t("drift.settings.thinking.tint.description")}
             >
-                <Choice
-                    title={t("drift.settings.thinking.tint.title")}
-                    items={options("tint", thinkingTints)}
-                    selected={prefs().tint}
-                    pick={(tint) => updateThinkingPrefs({ tint: tint as ThinkingPrefs["tint"] })}
+                <Segmented
+                    label={t("drift.settings.thinking.tint.title")}
+                    options={options("tint", thinkingTints)}
+                    value={prefs().tint}
+                    onChange={(tint) => updateThinkingPrefs({ tint })}
                 />
             </SettingsRow>
             <SettingsRow
                 title={t("drift.settings.thinking.speed.title")}
                 description={t("drift.settings.thinking.speed.description")}
             >
-                <Choice
-                    title={t("drift.settings.thinking.speed.title")}
-                    items={options("speed", thinkingSpeeds)}
-                    selected={prefs().speed}
-                    pick={(speed) => updateThinkingPrefs({ speed: speed as ThinkingPrefs["speed"] })}
+                <Segmented
+                    label={t("drift.settings.thinking.speed.title")}
+                    options={options("speed", thinkingSpeeds)}
+                    value={prefs().speed}
+                    onChange={(speed) => updateThinkingPrefs({ speed })}
                 />
             </SettingsRow>
             <SettingsRow
                 title={t("drift.settings.thinking.label.title")}
                 description={t("drift.settings.thinking.label.description")}
-                disabled={wordFixed()}
                 onClick={toggleLabel}
             >
+                <div class="flex items-center gap-2.5">
+                    <input
+                        type="text"
+                        maxLength={40}
+                        aria-label={t("drift.settings.thinking.text.label")}
+                        placeholder={t("drift.chat.thinking")}
+                        class="h-8 rounded-md border border-edge-strong bg-bg/70 px-2.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+                        style={{ width: pickerWidth }}
+                        value={prefs().text}
+                        onClick={(event) => event.stopPropagation()}
+                        onInput={(event) => updateThinkingPrefs({ text: event.currentTarget.value })}
+                    />
+                    <Toggle
+                        label={t("drift.settings.thinking.label.title")}
+                        checked={prefs().label}
+                        onChange={toggleLabel}
+                    />
+                </div>
+            </SettingsRow>
+            <SettingsRow
+                title={t("drift.settings.thinking.shimmer.title")}
+                description={t("drift.settings.thinking.shimmer.description")}
+                disabled={!prefs().label}
+                onClick={toggleShimmer}
+            >
                 <Toggle
-                    label={t("drift.settings.thinking.label.title")}
-                    checked={wordFixed() ? thinkingWordShown(style(), true) : prefs().label}
-                    disabled={wordFixed()}
-                    onChange={toggleLabel}
+                    label={t("drift.settings.thinking.shimmer.title")}
+                    checked={prefs().shimmer}
+                    disabled={!prefs().label}
+                    onChange={toggleShimmer}
                 />
             </SettingsRow>
         </SettingsGroup>

@@ -101,6 +101,9 @@ impl Failure {
 
 /// Thinking room a reasoning model without a token budget gets on top of a one-shot answer.
 const ONE_SHOT_THINKING: u32 = 4_096;
+/// Each attempt of a request a development tool makes through `Engine::complete_text`.
+#[cfg(feature = "dev-tools")]
+const TOOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// What an action uses when the user has not pinned a model for it.
 pub(crate) enum Fallback {
@@ -126,6 +129,7 @@ impl Engine {
                     variant: None,
                     agent: None,
                     submission_id: None,
+                    worktree: false,
                 },
             )
             .await?;
@@ -168,6 +172,35 @@ impl Engine {
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
         self.resolve_from(model_ref, &self.catalog_view()).await
+    }
+
+    /// One text reply from `model_ref` outside any conversation, on the user's stored credentials or the
+    /// provider's environment key, for tools such as the locale script (`drift-engined --complete`).
+    #[cfg(feature = "dev-tools")]
+    pub async fn complete_text(
+        &self,
+        model_ref: &ModelRef,
+        system: String,
+        prompt: String,
+        max_tokens: u32,
+    ) -> Result<String, String> {
+        let resolved = self.resolve(model_ref).await.map_err(|error| error.to_string())?;
+        let shot = OneShot {
+            system,
+            messages: vec![ChatMessage {
+                role: crate::llm::Role::User,
+                blocks: vec![crate::llm::Block::Text(prompt)],
+            }],
+            tools: Vec::new(),
+            max_tokens,
+            timeout: TOOL_REQUEST_TIMEOUT,
+            shown_in: None,
+        };
+
+        self.complete(&resolved, shot)
+            .await
+            .map(|answer| answer.text)
+            .map_err(|failure| failure.message())
     }
 
     pub(super) async fn resolve_from(
@@ -244,6 +277,14 @@ impl Engine {
             reasoning,
             temperature: None,
             cache_key: None,
+            connection: None,
+            effort_marks: Vec::new(),
+            claude: Default::default(),
+            cache_hour: false,
+            cache_conversation: false,
+            cache_writes_billed: resolved.model.cost.cache_write > resolved.model.cost.input,
+            deferred_tools: Vec::new(),
+            tool_references: Default::default(),
             no_tool_calls: true,
             verbosity: None,
             show_thinking: false,

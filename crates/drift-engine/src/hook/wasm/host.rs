@@ -77,7 +77,7 @@ impl Host for State {
     }
 
     async fn config(&mut self) -> String {
-        self.site.config.to_string()
+        crate::hook::settings::with_defaults(&self.settings, &self.site.config).to_string()
     }
 }
 

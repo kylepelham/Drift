@@ -5,7 +5,7 @@ type IconProps = { class?: string };
 function frame(props: IconProps, children: JSX.Element) {
     return (
         <svg
-            class={props.class ?? "size-4"}
+            class={`app-icon ${props.class ?? "size-4"}`}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -362,6 +362,17 @@ export function IconMic(props: IconProps) {
     );
 }
 
+export function IconSpeaker(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <path d="M11 5 6 9H3v6h3l5 4Z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+            <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        </>,
+    );
+}
+
 export function IconSparkles(props: IconProps) {
     return frame(
         props,
@@ -394,6 +405,20 @@ export function IconEyeOff(props: IconProps) {
     );
 }
 
+/** A list with a plus: a prompt added to the queue behind the running turn. */
+export function IconListPlus(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <path d="M11 12H3" />
+            <path d="M16 6H3" />
+            <path d="M16 18H3" />
+            <path d="M18 9v6" />
+            <path d="M21 12h-6" />
+        </>,
+    );
+}
+
 /** Stacked layers: work running in the background. */
 export function IconLayers(props: IconProps) {
     return frame(
@@ -401,6 +426,17 @@ export function IconLayers(props: IconProps) {
         <>
             <path d="M12 3 3 8l9 5 9-5-9-5z" />
             <path d="m3 13 9 5 9-5" />
+        </>,
+    );
+}
+
+export function IconGlobe(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
         </>,
     );
 }

@@ -71,6 +71,28 @@ fn copy_file(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
     }
 }
 
+/// Writes a definition made from opencode's config unless the user already has one by that path; never replaces a file.
+pub(super) fn write_new(path: &Path, text: &str, shown: &str, report: &mut SettingsReport) {
+    if path.exists() {
+        report
+            .skipped
+            .push(format!("{shown}: you already have one in ~/.config/drift, kept"));
+        return;
+    }
+
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(path, text));
+
+    match written {
+        Ok(()) => report.files.push(shown.to_string()),
+        Err(error) => report.left(shown, format!("{shown}: could not be written ({error})"), |left| {
+            &mut left.failed
+        }),
+    }
+}
+
 /// Writes drift.json only when some settings map and the user has no file yet; returns the written path.
 pub(super) fn write_config(home: &Path, file: Map<String, Value>, report: &mut SettingsReport) -> Option<String> {
     if file.is_empty() {

@@ -23,6 +23,35 @@ fn token_url() -> String {
 
     TOKEN_URL.into()
 }
+
+fn usage_url() -> Option<String> {
+    // The engine's tests never ask the real endpoint; they record what an account reported instead.
+    #[cfg(test)]
+    return None;
+
+    #[cfg(not(test))]
+    Some("https://api.anthropic.com/api/oauth/usage".into())
+}
+
+/// What a subscription has used of its windows, as Settings > Usage shows it; `None` when it cannot be read.
+pub async fn usage(client: &reqwest::Client, access: &str) -> Option<Value> {
+    let timeouts = crate::llm::http::Timeouts {
+        headers: std::time::Duration::from_secs(10),
+        idle: std::time::Duration::from_secs(10),
+    };
+    let request = client
+        .get(usage_url()?)
+        .bearer_auth(access)
+        .header("anthropic-beta", "oauth-2025-04-20");
+
+    let response = crate::llm::http::send(request, &timeouts).await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let text = crate::llm::http::bounded_body(response, &timeouts).await;
+
+    serde_json::from_str(&text).ok()
+}
 const SCOPES: &str =
     "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 /// The token endpoint checks this; it is what the reference client sends.

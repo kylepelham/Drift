@@ -191,6 +191,34 @@ async fn an_overload_inside_the_stream_is_retried() {
 }
 
 #[tokio::test]
+async fn a_malformed_gemini_finish_is_retried_and_its_partial_reply_never_replayed() {
+    let h = harness().await;
+    let partial = vec![Chunk::TextStart, Chunk::TextDelta("HALF ANSWER".into())];
+    let malformed = llm::Error::Api {
+        status: llm::STREAMED,
+        kind: "malformed_response".into(),
+        message: "Gemini stopped with MALFORMED_RESPONSE".into(),
+        retryable: true,
+        retry_after: None,
+    };
+    h.provider.push_fail_midway(partial, malformed).push(text("answered"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+
+    let messages = transcript(&h);
+    assert_eq!(messages.last().unwrap().info.status, MessageStatus::Done);
+    let retried = h.provider.requests.lock().unwrap()[1].clone();
+    assert!(
+        !retried
+            .messages
+            .iter()
+            .flat_map(|message| &message.blocks)
+            .any(|block| matches!(block, llm::Block::Text(text) if text.contains("HALF ANSWER"))),
+        "the broken attempt is not sent again"
+    );
+}
+
+#[tokio::test]
 async fn a_provider_asking_for_too_long_a_wait_is_not_waited_on() {
     let h = harness().await;
     h.provider

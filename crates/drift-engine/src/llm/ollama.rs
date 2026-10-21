@@ -84,8 +84,7 @@ pub fn root(base: &str) -> String {
 
 /// Ollama answers `{"error": "..."}`; a missing key or model is said in words only.
 fn api_error(status: u16, text: &str) -> Error {
-    let parsed: Value = serde_json::from_str(text).unwrap_or_default();
-    let message = parsed["error"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
 
     match status {
         401 | 403 => Error::Unauthenticated(message),

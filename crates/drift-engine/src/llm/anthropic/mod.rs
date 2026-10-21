@@ -16,6 +16,7 @@ use crate::session::types::{Refusal, Usage};
 #[cfg(test)]
 use request::block;
 use request::body;
+pub(crate) use request::wire_id;
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
@@ -55,7 +56,7 @@ impl Anthropic {
             .header("anthropic-version", API_VERSION)
             .header("accept", "text/event-stream");
 
-        let (http, betas) = match credential {
+        let (http, mut betas) = match credential {
             Credential::ApiKey { key } => (
                 http.header("x-api-key", key),
                 if interleaves(request) {
@@ -73,6 +74,13 @@ impl Anthropic {
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
+        betas.extend(request::betas(&body));
+        if request.cache_hour && !matches!(credential, Credential::Ambient { .. }) {
+            request::cache_for_an_hour(&mut body);
+            if subscription {
+                betas.push(EXTENDED_CACHE_TTL);
+            }
+        }
 
         stream_from(
             super::mode_headers(http, request, betas).json(&body),
@@ -83,8 +91,20 @@ impl Anthropic {
     }
 }
 
+/// Lets a system message in the conversation carry the turn's effort (`Request::effort_marks`).
+pub(super) const EFFORT_MARKS: &str = "mid-conversation-output-config-2026-07-01";
+
+/// Lets a request say what happens to a thinking block whose prefix changed (`block_binding`).
+pub(super) const THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
+
 /// Lets a model with a thinking budget think again between tool calls, not only before the first.
 pub(super) const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
+
+/// The one-hour cache lifetime, which Claude Code names on a subscription's requests.
+const EXTENDED_CACHE_TTL: &str = "extended-cache-ttl-2025-04-11";
+
+/// Tools sent with `defer_loading` and loaded by `tool_reference` results, which Claude Code names the same way.
+pub(super) const TOOL_SEARCH: &str = "tool-search-tool-2025-10-19";
 
 /// Only a budget needs the beta: adaptive thinking interleaves already, and without tools there is nothing between.
 pub(super) fn interleaves(request: &Request) -> bool {
@@ -122,8 +142,9 @@ pub(super) async fn stream_from(
     Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
 }
 
-/// The Messages body for a cloud route: the model goes in the URL and the API version in the body.
-pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Value {
+/// The Messages body for a cloud route and the betas it needs: the model goes in the URL and the API version in the
+/// body. Bedrock and Vertex take the hour-long cache without a beta.
+pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> (Value, Vec<&'static str>) {
     let mut body = body(request);
     if let Some(fields) = body.as_object_mut() {
         fields.remove("model");
@@ -133,7 +154,15 @@ pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Valu
         fields.insert("anthropic_version".into(), json!(version));
     }
 
-    body
+    let mut betas = request::betas(&body);
+    if interleaves(request) {
+        betas.insert(0, INTERLEAVED_THINKING);
+    }
+    if request.cache_hour {
+        request::cache_for_an_hour(&mut body);
+    }
+
+    (body, betas)
 }
 
 fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
@@ -149,7 +178,7 @@ fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
 pub(super) fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let kind = parsed["error"]["type"].as_str().unwrap_or("api_error").to_string();
-    let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
 
     match status {
         401 | 403 => Error::Unauthenticated(message),
@@ -161,7 +190,7 @@ pub(super) fn api_error(status: u16, text: &str) -> Error {
 pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
 
-    let chunk = match event {
+    let chunk = match kind(event, &value) {
         "message_start" => Some(Chunk::Usage(usage(&value["message"]["usage"]))),
         "content_block_start" => block_start(&value["content_block"]),
         "content_block_delta" => block_delta(&value["delta"]),
@@ -172,6 +201,20 @@ pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     };
 
     Ok(chunk.into_iter().collect())
+}
+
+/// The SSE event name, else the frame's own `type`. Gateways send untyped frames: keep-alives, ignored, and
+/// bare `{"error": ...}` envelopes, which are errors.
+fn kind<'a>(event: &'a str, value: &'a Value) -> &'a str {
+    if !event.is_empty() {
+        return event;
+    }
+
+    match value["type"].as_str() {
+        Some(kind) => kind,
+        None if !value["error"].is_null() => "error",
+        None => "",
+    }
 }
 
 /// Skips unknown block kinds such as server tools and citations.
@@ -360,6 +403,14 @@ mod tests {
                 reasoning: Some(Reasoning::Budget { tokens: 2048 }),
                 temperature: Some(0.5),
                 cache_key: None,
+                connection: None,
+                effort_marks: Vec::new(),
+                claude: Default::default(),
+                cache_hour: false,
+                cache_conversation: true,
+                cache_writes_billed: false,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -368,6 +419,91 @@ mod tests {
                 mode: None,
                 context_window: None,
             }
+        }
+
+        #[test]
+        fn a_claude_that_takes_system_messages_gets_engine_reminders_as_one_and_binds_its_thinking() {
+            use crate::llm::catalog::ClaudeFeatures;
+            let reminder = Block::Reminder("<system-reminder>\nBe thorough.\n</system-reminder>".into());
+            let mut sent = request();
+            sent.messages = vec![
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Text("go".into()), reminder.clone()],
+                },
+                ChatMessage {
+                    role: Role::Assistant,
+                    blocks: vec![Block::Text("ok".into())],
+                },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![reminder],
+                },
+            ];
+
+            let plain = body(&sent);
+            assert_eq!(
+                plain["messages"].as_array().unwrap().len(),
+                3,
+                "older models keep the text in place"
+            );
+            assert_eq!(
+                plain["messages"][0]["content"][1]["text"],
+                "<system-reminder>\nBe thorough.\n</system-reminder>"
+            );
+            assert!(plain["thinking"].get("block_binding").is_none());
+            assert!(super::request::betas(&plain).is_empty());
+
+            sent.claude = ClaudeFeatures {
+                system_messages: true,
+                drop_stale_thinking: true,
+            };
+            let native = body(&sent);
+            let messages = native["messages"].as_array().unwrap();
+            assert_eq!(messages[0]["content"].as_array().unwrap().len(), 1, "the prompt alone");
+            assert_eq!(
+                messages[1],
+                json!({ "role": "system", "content": [{ "type": "text", "text": "Be thorough." }] })
+            );
+            assert_eq!(messages[2]["role"], "assistant");
+            assert_eq!(
+                messages[3]["content"][0]["type"], "text",
+                "a turn of only a reminder keeps it in place"
+            );
+            assert_eq!(
+                native["thinking"]["block_binding"]["prefix_mismatch_behavior"],
+                "drop_block"
+            );
+            assert_eq!(super::request::betas(&native), [super::THINKING_BINDING]);
+        }
+
+        #[test]
+        fn an_hour_cache_sets_every_breakpoints_ttl() {
+            let mut sent = body(&request());
+            super::request::cache_for_an_hour(&mut sent);
+            assert_eq!(
+                sent["system"][0]["cache_control"],
+                json!({ "type": "ephemeral", "ttl": "1h" })
+            );
+            assert_eq!(sent["tools"][0]["cache_control"]["ttl"], "1h");
+        }
+
+        #[test]
+        fn an_effort_mark_is_a_system_message_with_only_its_output_config() {
+            let mut marked = request();
+            marked.effort_marks = vec![crate::llm::EffortMark {
+                after: 0,
+                effort: "low".into(),
+            }];
+            let built = body(&marked);
+            assert_eq!(
+                built["messages"][1],
+                json!({ "role": "system", "content": [], "output_config": { "effort": "low" } })
+            );
+            assert_eq!(
+                built["messages"].as_array().unwrap().len(),
+                request().messages.len() + 1
+            );
         }
 
         #[test]
@@ -396,10 +532,55 @@ mod tests {
                 redacted: None,
             };
             assert_eq!(body(&request)["messages"][1]["content"][0]["type"], "tool_use");
+
+            request.messages[1].blocks.truncate(1);
+            request.messages.truncate(2);
+            let messages = body(&request)["messages"].clone();
+            assert_eq!(
+                messages.as_array().map(Vec::len),
+                Some(1),
+                "a message left with nothing to send is left out: {messages}"
+            );
         }
 
         fn breakpoints(body: &Value) -> usize {
             body.to_string().matches("\"cache_control\"").count()
+        }
+
+        #[test]
+        fn deferred_tools_follow_the_cached_ones_and_a_search_result_loads_them_by_reference() {
+            let deferred = |name: &str| ToolSpec {
+                name: name.into(),
+                description: "From a large server".into(),
+                input_schema: json!({ "type": "object" }),
+            };
+            let mut sent = request();
+            sent.deferred_tools = vec![deferred("apophis_get_case"), deferred("apophis_search_emails")];
+            sent.tool_references
+                .insert("toolu_1".into(), vec!["apophis_get_case".into(), "gone_tool".into()]);
+
+            let built = body(&sent);
+            let tools = built["tools"].as_array().unwrap();
+            assert_eq!(tools.len(), 3);
+            assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
+            assert!(tools[1].get("cache_control").is_none() && tools[1]["defer_loading"] == true);
+            assert_eq!(
+                built["messages"][2]["content"][0]["content"],
+                json!([{ "type": "tool_reference", "tool_name": "apophis_get_case" }]),
+                "a name no longer sent deferred is left out"
+            );
+            assert_eq!(super::request::betas(&built), [super::TOOL_SEARCH]);
+
+            sent.tool_references.insert("toolu_1".into(), vec!["gone_tool".into()]);
+            assert_eq!(body(&sent)["messages"][2]["content"][0]["content"], "ok");
+        }
+
+        #[test]
+        fn a_one_off_request_marks_only_its_system_prompt_and_tools() {
+            let mut once = request();
+            once.cache_conversation = false;
+            assert_eq!(breakpoints(&body(&request())), 4);
+            assert_eq!(breakpoints(&body(&once)), 2);
         }
 
         fn marked(body: &Value, index: usize) -> bool {
@@ -621,6 +802,26 @@ mod tests {
             )
             .unwrap();
             assert!(!none.iter().any(|chunk| matches!(chunk, Chunk::Refusal(_))));
+        }
+
+        #[test]
+        fn untyped_frames_are_ignored_unless_they_carry_an_error() {
+            assert_eq!(chunks("", r#"{"gateway":"keep-alive"}"#).unwrap(), vec![]);
+            assert_eq!(chunks("", "{}").unwrap(), vec![]);
+            assert_eq!(
+                chunks(
+                    "",
+                    r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}"#
+                )
+                .unwrap(),
+                vec![Chunk::TextDelta("OK".into())],
+                "a frame without an event name is read by its type"
+            );
+            let error = chunks("", r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#).unwrap_err();
+            assert!(
+                matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "overloaded_error"),
+                "{error:?}"
+            );
         }
 
         #[test]

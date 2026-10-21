@@ -9,6 +9,11 @@ use crate::event::{Event, Hub};
 use crate::store::Store;
 
 impl Servers {
+    /// Whether `server` is switched on for `workspace`, connected or not: a server reconnecting keeps its place.
+    pub fn enabled(&self, server: &str, workspace: Option<&Path>) -> bool {
+        self.shown(workspace).allows(server)
+    }
+
     /// Offers each connection's tools for the workspace, using shared connections only for remote servers.
     /// Persistent `server_tool` names distinguish servers and stay stable across turns.
     /// The store owns those names ([`wire_names`]).

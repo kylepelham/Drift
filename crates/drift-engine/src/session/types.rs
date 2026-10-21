@@ -7,7 +7,8 @@ use utoipa::ToSchema;
 mod metadata;
 
 pub use metadata::{
-    CheckStatus, HistoryChange, MetadataFile, ToolCheck, ToolDiagnostic, ToolFileChange, ToolImage, ToolMetadata,
+    CheckStatus, FindingOutcome, FindingVerdict, HistoryChange, MetadataFile, ReviewFinding, ToolCheck, ToolDiagnostic,
+    ToolFileChange, ToolImage, ToolMetadata,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -53,6 +54,9 @@ pub struct Session {
     /// Answers its own asks, and its subagents', except for secrets and anything outside the workspace.
     #[serde(default)]
     pub auto_accept: bool,
+    /// The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,
@@ -142,6 +146,9 @@ pub struct Message {
     /// What the provider said about a safety refusal, when it said anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<Refusal>,
+    /// Why the request read much less of the prompt cache than the one before it left, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_miss: Option<String>,
 }
 
 /// The provider's account of a safety refusal. None of it names the text that triggered it.
@@ -272,10 +279,37 @@ pub enum Part {
         #[serde(skip_serializing_if = "Option::is_none")]
         tail_from: Option<String>,
     },
+    /// What changed in the system prompt's sources since the model last heard them, written by the engine
+    /// before the request it precedes and replayed as saved, so the system prompt itself never changes.
+    InstructionUpdate {
+        /// The baseline it was made against; after a new one it is history, never replayed.
+        generation: String,
+        changes: Vec<InstructionChange>,
+    },
+    /// The engine's word to keep going after a reply stopped at its output limit; replayed after that reply.
+    Continuation {
+        text: String,
+    },
+    /// The reasoning level the user switched to, sent as a per-message effort on models that take one
+    /// (`Model::effort_updates`), so the request's top-level effort and its cache stay as they were.
+    EffortUpdate {
+        generation: String,
+        effort: String,
+    },
     /// A stored part this build cannot read (imported, or written by a newer Drift), kept exactly as stored.
     Unknown {
         raw: String,
     },
+}
+
+/// One source of the system prompt that changed: its new text, or `None` when it no longer applies.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct InstructionChange {
+    pub key: String,
+    /// How the user and the model hear it named.
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// One answered question: what was asked and what the user chose or typed.

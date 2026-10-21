@@ -19,7 +19,7 @@ const MAX_FILES: usize = 300;
 const DIFF_TIMEOUT: Duration = Duration::from_secs(2);
 const RECENT_COMMITS: &str = "50";
 /// Git's tree with nothing in it, the base of a repository without commits.
-const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+pub(crate) const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 #[derive(Debug, Default, Serialize, ToSchema)]
 pub struct Review {
@@ -131,7 +131,7 @@ impl Engine {
             .iter()
             .find(|message| is_prompt(message))
             .map(|message| message.info.id.clone());
-        let (nets, _) = self
+        let (nets, unrecorded) = self
             .net_changes(&session, message_id, end.as_deref())
             .map_err(|_| ReviewError::NoSession)?;
 
@@ -144,6 +144,18 @@ impl Engine {
             let before = self.recorded(&net.before).await;
             let after = self.recorded(&net.after).await;
             review.push(net.path, before, after);
+        }
+
+        // A write that left no undo record still changed the file; it is listed without lines rather than dropped.
+        for path in unrecorded {
+            let key = path.replace('\\', "/").to_lowercase();
+            if !review
+                .files
+                .iter()
+                .any(|file| file.path.replace('\\', "/").to_lowercase() == key)
+            {
+                review.push(path, Side::Unavailable, Side::Unavailable);
+            }
         }
 
         Ok(review)
@@ -482,7 +494,8 @@ async fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>, ReviewError> {
         .ok_or_else(|| ReviewError::Git(format!("{} failed", args[0])))
 }
 
-async fn git_text(root: &Path, args: &[&str]) -> Option<String> {
+/// Git's trimmed output; `None` when it fails or prints nothing.
+pub(crate) async fn git_text(root: &Path, args: &[&str]) -> Option<String> {
     let bytes = plain_git(root, args, None).await?;
     let text = String::from_utf8_lossy(&bytes).trim().to_string();
 

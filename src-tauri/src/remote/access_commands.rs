@@ -10,7 +10,6 @@ pub(crate) async fn remote_access_status(access: tauri::State<'_, RemoteAccess>)
 
 #[tauri::command]
 pub(crate) async fn remote_access_enable(
-    app: tauri::AppHandle,
     access: tauri::State<'_, RemoteAccess>,
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
@@ -22,7 +21,7 @@ pub(crate) async fn remote_access_enable(
         config.error = None;
     }
 
-    if let Err(error) = access.start(app).await {
+    if let Err(error) = access.start().await {
         let error = error.to_string();
         {
             let mut config = access.config.lock().unwrap();
@@ -64,10 +63,32 @@ pub(crate) async fn remote_access_pairing(access: tauri::State<'_, RemoteAccess>
         .ok_or_else(|| "Turn on Remote Access and connect this PC to a network first.".into())
 }
 
-/// Approves the device showing code and returns that device's name.
+/// Turns the browser version on or off: its sign-in page, password sign-in, and every browser's session.
 #[tauri::command]
-pub(crate) fn remote_access_link(access: tauri::State<'_, RemoteAccess>, code: String) -> Result<String, String> {
-    access.auth().approve(&code).map_err(|error| error.to_string())
+pub(crate) async fn remote_access_set_browser(
+    access: tauri::State<'_, RemoteAccess>,
+    store: tauri::State<'_, Store>,
+    enabled: bool,
+) -> Result<RemoteStatus, String> {
+    access.set_browser(&store, enabled).map_err(|error| error.to_string())?;
+
+    Ok(access.status().await)
+}
+
+/// Turns reaching this PC through OpenTunnel on or off; setting the tunnel up goes on in the background.
+#[tauri::command]
+pub(crate) async fn remote_access_set_tunnel(
+    access: tauri::State<'_, RemoteAccess>,
+    store: tauri::State<'_, Store>,
+    enabled: bool,
+) -> Result<RemoteStatus, String> {
+    let _transition = access.transition.lock().await;
+    access
+        .set_tunnel(&store, enabled)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(access.status().await)
 }
 
 /// Signs out one linked device, or all of them when id is omitted.

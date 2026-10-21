@@ -16,6 +16,7 @@ pub mod http;
 pub mod limits;
 pub mod local;
 pub mod mask;
+pub(crate) mod multipart;
 mod oauth_error;
 pub mod ollama;
 pub mod openai;
@@ -76,7 +77,11 @@ impl Credential {
 
 /// Images a request carries at most, newest first. Providers cap the count (Anthropic at 100, and
 /// shrink limits past 20), and a long screenshot session must never grow past what they accept.
-pub const MAX_IMAGES_SENT: usize = 10;
+pub const MAX_IMAGES_SENT: usize = 20;
+
+/// Older images leave a request this many at a time: dropping one changes the history before it, so the prompt
+/// cache is written again from there, and in batches that happens once per this many new images, not each one.
+pub const FILES_DROPPED_TOGETHER: usize = 5;
 
 /// Image data a request carries at most, as base64: providers cap the whole request (Anthropic at
 /// 32 MB), and ten images of 5 MB each would pass the count yet fail the size.
@@ -87,6 +92,37 @@ pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+}
+
+impl ToolSpec {
+    /// The input schema as every wire sends it: with an object root, which providers require of a tool's arguments
+    /// while an MCP server may declare `{}` or a bare `properties` map.
+    pub(crate) fn parameters(&self) -> Value {
+        let Some(fields) = self.input_schema.as_object() else {
+            return serde_json::json!({ "type": "object" });
+        };
+        if fields.contains_key("type") {
+            return self.input_schema.clone();
+        }
+
+        // An empty struct's schema is an object-or-array union; every object matches its bare object branch.
+        let bare_object = |branch: &Value| {
+            branch
+                .as_object()
+                .is_some_and(|branch| branch.len() == 1 && branch.get("type") == Some(&Value::from("object")))
+        };
+        let mut root = fields.clone();
+        if root
+            .get("anyOf")
+            .and_then(Value::as_array)
+            .is_some_and(|branches| branches.iter().any(bare_object))
+        {
+            root.remove("anyOf");
+        }
+        root.insert("type".into(), Value::from("object"));
+
+        Value::Object(root)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -134,6 +170,12 @@ pub enum Block {
         mime: String,
         hash: String,
     },
+    /// An engine note wrapped in `<system-reminder>`, sent as that text, or as a `role: "system"` message on a
+    /// Claude that takes them (`ClaudeFeatures::system_messages`). Never made from what a user or file says.
+    Reminder(String),
+    /// A reasoning effort change at this point of the conversation; request building lifts it into
+    /// `Request::effort_marks`, so no adapter ever sees one.
+    Effort(String),
 }
 
 impl Block {
@@ -151,6 +193,16 @@ pub struct ChatMessage {
     pub blocks: Vec<Block>,
 }
 
+/// From after `messages[after]` on, the model reasons at `effort`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffortMark {
+    pub after: usize,
+    pub effort: String,
+}
+
+/// The tool that loads deferred tools; wires that carry deferred tools natively send it their own way.
+pub const TOOL_SEARCH: &str = "tool_search";
+
 #[derive(Clone, Debug)]
 pub struct Request {
     pub model: String,
@@ -160,9 +212,31 @@ pub struct Request {
     pub max_tokens: u32,
     pub reasoning: Option<catalog::Reasoning>,
     pub temperature: Option<f64>,
-    /// The same for every request of one conversation, so providers that route by it (OpenAI's
-    /// `prompt_cache_key`) keep the conversation on one cache.
+    /// The same for every request of one conversation tree, so providers that route by it (OpenAI's
+    /// `prompt_cache_key`, the Codex `session-id` header) keep a conversation, its forks, spawned
+    /// threads and workers on one cache.
     pub cache_key: Option<String>,
+    /// The session itself, which keys a provider's live connection and its continuation; two
+    /// sessions never share one, whatever cache they share.
+    pub connection: Option<String>,
+    /// Reasoning effort changes inside the conversation, each in effect after the message it follows,
+    /// so the top-level effort and the cached prefix stay as they were (`Model::effort_updates`).
+    pub effort_marks: Vec<EffortMark>,
+    /// The newer Claude features the model takes; only the Anthropic wire reads them.
+    pub claude: catalog::ClaudeFeatures,
+    /// Ask for an hour-long prompt cache where the route takes one (Anthropic's own API, by key or subscription).
+    pub cache_hour: bool,
+    /// Mark the conversation for the prompt cache; off for a one-off request no later one starts the same way,
+    /// where writing the cache costs more than reading the prompt plainly.
+    pub cache_conversation: bool,
+    /// The provider bills writing the prompt cache above plain input (GPT-5.6 and later), so a request that does not
+    /// cache its conversation asks the provider to write nothing.
+    pub cache_writes_billed: bool,
+    /// Tools defined but kept out of the model's context until a `tool_search` result names them; only routes
+    /// whose model takes `tool_reference` (`ClaudeFeatures::tool_references`) are given any.
+    pub deferred_tools: Vec<ToolSpec>,
+    /// The deferred tools each `tool_search` call loaded, by call id.
+    pub tool_references: std::collections::BTreeMap<String, Vec<String>>,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.
@@ -277,8 +351,8 @@ pub enum Error {
 
 /// The status adapters give an error that arrives inside a stream which began with 200 OK.
 pub const STREAMED: u16 = 200;
-/// Timeouts, rate limits, overload and server faults: worth another try.
-const RETRY_STATUSES: [u16; 7] = [408, 429, 500, 502, 503, 504, 529];
+/// Timeouts, conflicts, rate limits, overload and server faults: worth another try.
+const RETRY_STATUSES: [u16; 8] = [408, 409, 429, 500, 502, 503, 504, 529];
 /// The same faults as providers name them inside a stream, lowercased.
 const RETRY_KINDS: [&str; 10] = [
     "overloaded_error",
@@ -293,6 +367,31 @@ const RETRY_KINDS: [&str; 10] = [
     "deadline_exceeded",
 ];
 
+/// How a streamed fault says it is passing when its kind names nothing known (gateways, proxies), lowercased.
+const RETRY_WORDS: [&str; 7] = [
+    "try again",
+    "overloaded",
+    "temporarily unavailable",
+    "service unavailable",
+    "server is busy",
+    "provider returned error",
+    "upstream connect",
+];
+
+/// Kinds that say the request itself is wrong, whatever their words suggest.
+const REQUEST_KINDS: [&str; 4] = [
+    "invalid_request_error",
+    "invalid_request",
+    "invalid_argument",
+    "invalid_prompt",
+];
+
+fn retry_words(kind: &str, message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+
+    !REQUEST_KINDS.contains(&kind.to_ascii_lowercase().as_str()) && RETRY_WORDS.iter().any(|w| message.contains(w))
+}
+
 /// Faults no wait will fix, whatever status they came with: OpenAI answers a spent balance with 429.
 const PERMANENT_KINDS: [&str; 4] = [
     "insufficient_quota",
@@ -301,8 +400,20 @@ const PERMANENT_KINDS: [&str; 4] = [
     "access_terminated",
 ];
 
-fn permanent(kind: &str) -> bool {
+/// The same said in words, lowercased: Z.ai answers a spent balance or an expired plan with 429.
+const SPENT_WORDS: [&str; 3] = [
+    "insufficient balance",
+    "package has expired",
+    "plan does not yet include",
+];
+
+/// No wait will fix it: a permanent kind, a spent balance, or a plan without the model (another account may have it).
+fn hopeless(kind: &str, message: &str) -> bool {
+    let words = message.to_ascii_lowercase();
+
     PERMANENT_KINDS.contains(&kind.to_ascii_lowercase().as_str())
+        || SPENT_WORDS.iter().any(|phrase| words.contains(phrase))
+        || plan_lacks_model(message)
 }
 
 /// What providers say, lowercased, when the signed-in account's plan does not include the model, whatever
@@ -320,15 +431,14 @@ fn plan_lacks_model(message: &str) -> bool {
 }
 
 impl Error {
-    /// A provider error, retryable by its status or, inside a stream, by what the provider calls it.
-    /// A permanent fault is never retryable.
+    /// A provider error, retryable by its status or, inside a stream, by what the provider calls it or says.
+    /// A fault no wait will fix is never retryable.
     pub fn api(status: u16, kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
         let message = message.into();
-        let transient = RETRY_STATUSES.contains(&status)
-            || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
-        // Waiting never adds a model to the account's plan; another account may have it.
-        let retryable = transient && !permanent(&kind) && !plan_lacks_model(&message);
+        let streamed_fault = RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()) || retry_words(&kind, &message);
+        let transient = RETRY_STATUSES.contains(&status) || (status == STREAMED && streamed_fault);
+        let retryable = transient && !hopeless(&kind, &message);
 
         Self::Api {
             status,
@@ -353,7 +463,7 @@ impl Error {
         {
             *retry_after = requested_wait(headers).or(*retry_after);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
-                Some("true") => *retryable = !permanent(kind) && !plan_lacks_model(message),
+                Some("true") => *retryable = !hopeless(kind, message),
                 Some("false") => *retryable = false,
                 _ => {}
             }
@@ -441,7 +551,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// How each provider says the request no longer fits the model's context window.
-const OVERFLOW_PHRASES: [&str; 7] = [
+const OVERFLOW_PHRASES: [&str; 18] = [
     "prompt is too long",
     "context_length_exceeded",
     "maximum context length",
@@ -449,12 +559,36 @@ const OVERFLOW_PHRASES: [&str; 7] = [
     "input is too long",
     "too many input tokens",
     "input token count",
+    // Anthropic's 413 for a request over its byte limit.
+    "request_too_large",
+    // Z.ai, in English or Chinese.
+    "prompt too long",
+    "prompt 超长",
+    "exceeds maximum input length",
+    "longer than the model's context length",
+    "exceeded this model context window limit",
+    "range of input length should be",
+    "`inputs` tokens + `max_new_tokens`",
+    // llama.cpp's server, under LM Studio and other local servers.
+    "exceeds the available context size",
+    "reduce the length of the messages",
+    "context length exceeded",
 ];
 
 impl Error {
     /// The request did not fit the model's context; compacting can recover it where retrying cannot.
+    /// Codex reports it inside the stream, as a `response.failed`.
     pub fn is_context_overflow(&self) -> bool {
-        matches!(self, Self::Api { status: 400 | 413, .. }) && mentions_context_overflow(&self.to_string())
+        let refused = matches!(
+            self,
+            Self::Api {
+                status: 400 | 413 | STREAMED,
+                retryable: false,
+                ..
+            }
+        );
+
+        refused && mentions_context_overflow(&self.to_string())
     }
 
     /// The provider could not read an image the request carried; dropping it can recover where retrying cannot.
@@ -473,6 +607,27 @@ const UNREADABLE_IMAGE_PHRASES: [&str; 1] = ["could not process image"];
 pub fn mentions_context_overflow(text: &str) -> bool {
     let text = text.to_ascii_lowercase();
     OVERFLOW_PHRASES.iter().any(|phrase| text.contains(phrase))
+}
+
+/// The readable message in an error body, from the layouts providers and gateways use (AWS's `Message`, RFC 9457's
+/// `detail`); the body itself when none holds one.
+pub(crate) fn error_message(text: &str) -> String {
+    let body: Value = serde_json::from_str(text).unwrap_or_default();
+    let layouts = [
+        &body["error"]["message"],
+        &body["error"],
+        &body["message"],
+        &body["Message"],
+        &body["detail"],
+        &body["errors"][0]["message"],
+    ];
+
+    layouts
+        .into_iter()
+        .filter_map(Value::as_str)
+        .find(|message| !message.trim().is_empty())
+        .unwrap_or(text)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -508,6 +663,65 @@ mod overflow_tests {
             "a rate limit is not an overflow"
         );
         assert!(!Error::Transport("prompt is too long".into()).is_context_overflow());
+    }
+
+    #[test]
+    fn an_error_bodys_message_is_found_in_each_common_layout() {
+        for body in [
+            r#"{"error":{"message":"bad key"}}"#,
+            r#"{"error":"bad key"}"#,
+            r#"{"message":"bad key"}"#,
+            r#"{"Message":"bad key"}"#,
+            r#"{"detail":"bad key"}"#,
+            r#"{"errors":[{"message":"bad key"}]}"#,
+            r#"{"error":{"message":" "},"message":"bad key"}"#,
+        ] {
+            assert_eq!(super::error_message(body), "bad key", "{body}");
+        }
+        for body in ["upstream timed out", r#"{"error":{"code":500}}"#, ""] {
+            assert_eq!(
+                super::error_message(body),
+                body,
+                "the body itself when nothing says more"
+            );
+        }
+    }
+
+    #[test]
+    fn more_servers_wordings_and_overflows_reported_inside_a_stream_are_recognised() {
+        for message in [
+            "Prompt too long",
+            "Prompt 超长",
+            "Requested input length 140000 exceeds maximum input length 131072",
+            "Input (210000 tokens) is longer than the model's context length (131072 tokens).",
+            "AiError: Exceeded this model context window limit",
+            "Range of input length should be [1, 129024]",
+            "`inputs` tokens + `max_new_tokens` must be <= 32769. Given: 40000 `inputs` tokens",
+            "the request exceeds the available context size, try increasing it",
+            "Please reduce the length of the messages.",
+            "context length exceeded",
+        ] {
+            assert!(api(400, message).is_context_overflow(), "{message}");
+        }
+        let too_large = Error::api(
+            413,
+            "request_too_large",
+            "Request exceeds the maximum allowed number of bytes.",
+        );
+        assert!(too_large.is_context_overflow(), "Anthropic's 413");
+
+        let streamed = Error::api(
+            crate::llm::STREAMED,
+            "context_length_exceeded",
+            "Your input exceeds the context window of this model.",
+        );
+        assert!(streamed.is_context_overflow(), "Codex reports it in response.failed");
+        let throttled = Error::api(
+            crate::llm::STREAMED,
+            "rate_limit_exceeded",
+            "too many input tokens per minute",
+        );
+        assert!(!throttled.is_context_overflow(), "a retryable fault is not an overflow");
     }
 }
 
@@ -606,7 +820,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
                 .as_deref()
                 .map_or_else(gemini::Gemini::default, gemini::Gemini::new),
         ),
-        "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
+        "xai" => Provider::Compat(compat::Compat::xai(&base("https://api.x.ai/v1"))),
         "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),

@@ -1,6 +1,6 @@
 mod routes;
 
-pub(crate) use routes::{certificate, login, logout, me, options, pair, poll_link, start_link};
+pub(crate) use routes::{certificate, login, logout, me, options, pair};
 
 use crate::remote::constant_time_eq;
 use crate::store::{RemoteDevice, Store};
@@ -17,13 +17,8 @@ use std::time::{Duration, Instant};
 pub(crate) const COOKIE_NAME: &str = "drift_remote";
 pub(crate) const SIGN_IN_PAGE: &str = include_str!("remote_sign_in.html");
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
-const LINK_TTL: Duration = Duration::from_secs(600);
 /// How long a pairing code shown on the desktop works; it works once.
 pub(crate) const TICKET_TTL: Duration = Duration::from_secs(600);
-const MAX_LINKS: usize = 32;
-const MAX_LINKS_PER_ADDRESS: usize = 3;
-const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const CODE_LENGTH: usize = 8;
 const PASSWORD_KEY: &str = "remote_password";
 const PASSWORD_ITERATIONS: u32 = 600_000;
 const FREE_FAILURES: u32 = 5;
@@ -32,10 +27,6 @@ const TOUCH_INTERVAL_MS: i64 = 60_000;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AuthError {
-    #[error("Too many devices are waiting to link. Try again in a few minutes.")]
-    TooManyLinks,
-    #[error("No device is waiting with that code. Codes expire after 10 minutes.")]
-    UnknownCode,
     #[error("That pairing code has expired or was already used. Show a new one on the PC.")]
     UnknownTicket,
     #[error("Username must be 1 to 64 characters.")]
@@ -54,24 +45,6 @@ struct Password {
     hash: String,
 }
 
-struct Link {
-    handle: String,
-    code: String,
-    name: String,
-    address: IpAddr,
-    requested_at: i64,
-    expires: Instant,
-    approved: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PendingLink {
-    name: String,
-    address: String,
-    requested_at: i64,
-}
-
 /// The secret in the pairing code the desktop shows the Drift app.
 struct Ticket {
     secret: String,
@@ -83,16 +56,9 @@ struct Failure {
     locked_until: Option<Instant>,
 }
 
-pub(crate) enum Poll {
-    Pending,
-    Approved(String),
-    Expired,
-}
-
-/// Linked devices, in-flight device codes, the optional password, and sign-in throttling.
+/// Signed-in devices, the pairing ticket, the browser password, and sign-in throttling.
 pub(crate) struct Auth {
     devices: HashMap<String, RemoteDevice>,
-    links: Vec<Link>,
     password: Option<Password>,
     ticket: Option<Ticket>,
     failures: HashMap<IpAddr, Failure>,
@@ -110,7 +76,6 @@ impl Auth {
                 .into_iter()
                 .map(|device| (device.token_hash.clone(), device))
                 .collect(),
-            links: Vec::new(),
             password,
             ticket: None,
             failures: HashMap::new(),
@@ -136,20 +101,6 @@ impl Auth {
         devices
     }
 
-    pub(crate) fn pending(&mut self) -> Vec<PendingLink> {
-        self.prune(Instant::now());
-
-        self.links
-            .iter()
-            .filter(|link| !link.approved)
-            .map(|link| PendingLink {
-                name: link.name.clone(),
-                address: link.address.to_string(),
-                requested_at: link.requested_at,
-            })
-            .collect()
-    }
-
     /// A check that finished after the password changed must not sign anyone in.
     fn password_is_current(&self, verified: &Password) -> bool {
         self.password.as_ref() == Some(verified)
@@ -157,49 +108,6 @@ impl Auth {
 
     pub(crate) fn password_username(&self) -> Option<String> {
         self.password.as_ref().map(|password| password.username.clone())
-    }
-
-    fn request_link(&mut self, address: IpAddr, name: String) -> Result<(String, String), AuthError> {
-        self.prune(Instant::now());
-        let from_address = self.links.iter().filter(|link| link.address == address).count();
-        if self.links.len() >= MAX_LINKS || from_address >= MAX_LINKS_PER_ADDRESS {
-            return Err(AuthError::TooManyLinks);
-        }
-
-        let code = loop {
-            let code = random_code();
-            if !self.links.iter().any(|link| link.code == code) {
-                break code;
-            }
-        };
-        let handle = random_hex(32);
-
-        self.links.push(Link {
-            handle: handle.clone(),
-            code: code.clone(),
-            name,
-            address,
-            requested_at: now_ms(),
-            expires: Instant::now() + LINK_TTL,
-            approved: false,
-        });
-
-        Ok((handle, code))
-    }
-
-    /// Approves the link waiting with code; the device finishes signing in on its next poll.
-    pub(crate) fn approve(&mut self, code: &str) -> Result<String, AuthError> {
-        self.prune(Instant::now());
-        let code = normalize_code(code);
-        let link = self
-            .links
-            .iter_mut()
-            .find(|link| !link.approved && link.code == code)
-            .ok_or(AuthError::UnknownCode)?;
-
-        link.approved = true;
-
-        Ok(link.name.clone())
     }
 
     /// A new pairing secret for the desktop to show; it replaces any earlier one.
@@ -226,19 +134,6 @@ impl Auth {
 
         self.ticket = None;
         self.create_device(name, "app", store)
-    }
-
-    fn poll(&mut self, handle: &str, store: &Store) -> Result<Poll, AuthError> {
-        self.prune(Instant::now());
-        let Some(index) = self.links.iter().position(|link| link.handle == handle) else {
-            return Ok(Poll::Expired);
-        };
-        if !self.links[index].approved {
-            return Ok(Poll::Pending);
-        }
-
-        let link = self.links.remove(index);
-        self.create_device(link.name, "link", store).map(Poll::Approved)
     }
 
     fn create_device(&mut self, name: String, method: &str, store: &Store) -> Result<String, AuthError> {
@@ -304,7 +199,6 @@ impl Auth {
     }
 
     fn prune(&mut self, now: Instant) {
-        self.links.retain(|link| link.expires > now);
         if self.ticket.as_ref().is_some_and(|ticket| ticket.expires <= now) {
             self.ticket = None;
         }
@@ -335,33 +229,6 @@ fn random_hex(len: usize) -> String {
     }
 
     encoded
-}
-
-/// Draws unbiased code characters without look-alikes: no 0/O or 1/I/L.
-fn random_code() -> String {
-    let limit = (256 / CODE_ALPHABET.len() * CODE_ALPHABET.len()) as u8;
-    let mut code = String::with_capacity(CODE_LENGTH);
-
-    while code.len() < CODE_LENGTH {
-        let byte = random_bytes::<1>()[0];
-        if byte < limit {
-            code.push(CODE_ALPHABET[byte as usize % CODE_ALPHABET.len()] as char);
-        }
-    }
-
-    code
-}
-
-pub(crate) fn normalize_code(input: &str) -> String {
-    input
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .map(|character| character.to_ascii_uppercase())
-        .collect()
-}
-
-fn display_code(code: &str) -> String {
-    format!("{}-{}", &code[..CODE_LENGTH / 2], &code[CODE_LENGTH / 2..])
 }
 
 fn device_name(raw: Option<String>) -> String {
@@ -419,12 +286,16 @@ pub(crate) fn validate_credentials(username: &str, password: &str) -> Result<(),
     Ok(())
 }
 
-pub(crate) fn supplied_token(headers: &HeaderMap) -> Option<&str> {
+/// The session token: the app's bearer token, or a browser's cookie while browser access is on.
+pub(crate) fn supplied_token(headers: &HeaderMap, cookies: bool) -> Option<&str> {
     let bearer = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
     bearer.or_else(|| {
+        if !cookies {
+            return None;
+        }
         headers
             .get(header::COOKIE)?
             .to_str()
@@ -457,6 +328,15 @@ pub(crate) fn now_ms() -> i64 {
 /// Routes under `/auth/` that a signed-out browser may call.
 pub(crate) fn public_path(path: &str) -> bool {
     path.starts_with("/auth/") && !matches!(path, "/auth/logout" | "/auth/me")
+}
+
+/// Routes only a browser uses: the UI itself and its sign-in. The app has its own UI and links by pairing code.
+pub(crate) fn browser_path(path: &str) -> bool {
+    let api = ["/auth/", "/engine", "/api/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix));
+
+    !api || matches!(path, "/auth/login" | "/auth/certificate")
 }
 
 /// Browser navigations that show the sign-in page instead of a bare 401.

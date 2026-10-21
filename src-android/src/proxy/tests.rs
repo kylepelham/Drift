@@ -7,6 +7,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde_json::json;
 
 use super::*;
+use crate::pc::Endpoint;
+use crate::tls::Trust;
 use crate::tls::tests::Authority;
 
 const SECRET: &str = "launch-secret";
@@ -138,7 +140,7 @@ async fn echo_upgrade(mut request: Request) -> Response {
 async fn routed(proxy: &Proxy) {
     let authority = Authority::new();
     let address = authority.serve(gateway()).await;
-    let pc = Pc::new(Some(authority.fingerprint()), address.ip(), address.port());
+    let pc = Pc::new(Endpoint::Lan(address), Trust::Authority(authority.fingerprint()));
     *proxy.route.lock().unwrap() = Some(Route {
         id: pc::hex(&authority.fingerprint()),
         pc,
@@ -197,25 +199,31 @@ async fn the_event_socket_passes_through_as_an_upgrade() {
     assert_eq!(&echoed, b"ping");
 }
 
+/// A linked PC answering on `addresses` at `port`, made the active one.
+fn link(proxy: &Proxy, authority: &Authority, addresses: &[&str], port: u16) -> String {
+    let id = pc::hex(&authority.fingerprint());
+    let computer = Computer {
+        id: id.clone(),
+        name: "Kyle's desktop".into(),
+        addresses: addresses.iter().map(|address| address.parse().unwrap()).collect(),
+        port,
+        mac: None,
+        tunnel: None,
+        token: "phone-session".into(),
+    };
+    let mut computers = proxy.computers.lock().unwrap();
+    computers.upsert(computer).unwrap();
+    computers.set_active(Some(&id)).unwrap();
+
+    id
+}
+
 #[tokio::test]
 async fn an_open_page_gets_its_pc_back_after_the_connection_dropped() {
     let (proxy, address, client) = proxy().await;
     let authority = Authority::new();
     let pc_address = authority.serve(gateway()).await;
-    let id = pc::hex(&authority.fingerprint());
-    let computer = Computer {
-        id: id.clone(),
-        name: "PC".into(),
-        addresses: vec![pc_address.ip()],
-        port: pc_address.port(),
-        mac: None,
-        token: "phone-session".into(),
-    };
-    {
-        let mut computers = proxy.computers.lock().unwrap();
-        computers.upsert(computer).unwrap();
-        computers.set_active(Some(&id)).unwrap();
-    }
+    link(&proxy, &authority, &["127.0.0.1"], pc_address.port());
 
     let echoed = client
         .post(format!("http://{address}/engine/echo"))
@@ -243,4 +251,32 @@ async fn with_no_pc_chosen_the_ui_is_told_so() {
         .unwrap();
 
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn a_pc_is_found_at_whichever_of_its_addresses_answers_and_that_one_is_tried_first_next_time() {
+    let (proxy, _, _) = proxy().await;
+    let authority = Authority::new();
+    let pc_address = authority.serve(gateway()).await;
+    // 127.0.0.2 is loopback too on most systems but nothing listens on it at this port.
+    let id = link(&proxy, &authority, &["127.0.0.2", "127.0.0.1"], pc_address.port());
+
+    let computer = proxy.computers.lock().unwrap().get(&id).cloned().unwrap();
+    proxy.connect(&computer).await.unwrap();
+
+    let route = proxy.route.lock().unwrap().clone().unwrap();
+    assert_eq!(route.pc.endpoint, Endpoint::Lan(pc_address));
+    let known = proxy.computers.lock().unwrap().get(&id).cloned().unwrap();
+    assert_eq!(known.addresses.first(), Some(&pc_address.ip()));
+}
+
+#[tokio::test]
+async fn a_pc_without_a_tunnel_that_does_not_answer_says_how_to_reach_it_from_anywhere() {
+    let (proxy, _, _) = proxy().await;
+    let authority = Authority::new();
+    let id = link(&proxy, &authority, &["127.0.0.1"], 9);
+
+    let computer = proxy.computers.lock().unwrap().get(&id).cloned().unwrap();
+    let error = proxy.connect(&computer).await.unwrap_err().to_string();
+    assert!(error.contains("Reach from anywhere"), "{error}");
 }

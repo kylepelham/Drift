@@ -51,12 +51,18 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
     const engine = useEngine();
     const sessionId = () => props.entry.info.sessionId;
     const turn = createMemo(() => turnOf(engine.state.transcripts[sessionId()] ?? [], props.entry.info.id));
-    const children = createMemo(() =>
-        turnTasks(turn().replies)
+    // A continued subagent resolves to the session it first ran in, whose edits are counted once.
+    const children = createMemo(() => {
+        const seen = new Set<string>();
+        return turnTasks(turn().replies)
             .filter((part) => part.status === "done" || part.status === "error")
             .map((part) => ({ part, id: delegatedChildId(engine.state, part) }))
-            .filter((child): child is { part: (typeof child)["part"]; id: string } => !!child.id),
-    );
+            .filter((child): child is { part: (typeof child)["part"]; id: string } => {
+                if (!child.id || !engine.state.sessions[child.id] || seen.has(child.id)) return false;
+                seen.add(child.id);
+                return true;
+            });
+    });
 
     // A turn longer than one page started before what is loaded: page its prompt in, so Undo and the review have it.
     const [paging, setPaging] = createSignal(false);

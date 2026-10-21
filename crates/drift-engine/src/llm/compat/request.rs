@@ -33,7 +33,7 @@ pub(super) fn body(request: &Request) -> Value {
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     let function = json!({
-        "name": tool.name, "description": tool.description, "parameters": tool.input_schema,
+        "name": tool.name, "description": tool.description, "parameters": tool.parameters(),
     });
 
     json!({ "type": "function", "function": function })
@@ -48,17 +48,26 @@ pub(super) fn reason(body: &mut Value, reasoning: Option<&Reasoning>, object: bo
     }
 }
 
-/// OpenRouter names Claude `anthropic/...`, or `~anthropic/...` for its moving aliases.
-pub(super) fn is_claude(model: &str) -> bool {
-    model.trim_start_matches('~').starts_with("anthropic/")
+/// Models OpenRouter caches only at Anthropic-style breakpoints: Claude (`anthropic/...`, or `~anthropic/...` for its
+/// moving aliases) and Qwen, which Alibaba serves with explicit caching.
+pub(super) fn takes_breakpoints(model: &str) -> bool {
+    let model = model.trim_start_matches('~');
+    model.starts_with("anthropic/") || model.starts_with("qwen/")
 }
 
-/// Marks the system prompt and the last two user turns with Anthropic's cache breakpoints.
-/// A turn is the run of tool and user messages between assistant replies.
+/// Marks the system prompt and the last two user turns with Anthropic's cache breakpoints, kept for an hour when
+/// `hour` is set. A turn is the run of tool and user messages between assistant replies.
 /// This lets a tool loop keep caching beyond the prompt that started it.
-pub(super) fn mark_breakpoints(body: &mut Value) {
+pub(super) fn mark_breakpoints(body: &mut Value, hour: bool) {
     let Some(messages) = body["messages"].as_array_mut() else {
         return;
+    };
+    let ephemeral = || {
+        if hour {
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        } else {
+            json!({ "type": "ephemeral" })
+        }
     };
 
     if let Some(system) = messages.iter_mut().find(|message| message["role"] == "system") {
@@ -78,25 +87,42 @@ pub(super) fn mark_breakpoints(body: &mut Value) {
             continue;
         }
 
-        if mark_last_text(message) {
+        if mark_last_text(message, ephemeral()) {
             in_turn = true;
             marked += 1;
         }
     }
 }
 
-fn ephemeral() -> Value {
-    json!({ "type": "ephemeral" })
+/// Claude behind a gateway still takes only `[a-zA-Z0-9_-]` call ids, as on Anthropic's own wire; history from
+/// another model (Kimi's `functions.read:0`) is mapped on both the calls and their results.
+pub(super) fn claude_call_ids(body: &mut Value) {
+    let anthropic = |id: Option<&mut Value>| {
+        if let Some(id) = id
+            && let Some(text) = id.as_str()
+        {
+            *id = json!(crate::llm::anthropic::wire_id(text));
+        }
+    };
+
+    for message in body["messages"].as_array_mut().into_iter().flatten() {
+        anthropic(message.get_mut("tool_call_id"));
+        let calls = message.get_mut("tool_calls").and_then(Value::as_array_mut);
+        calls
+            .into_iter()
+            .flatten()
+            .for_each(|call| anthropic(call.get_mut("id")));
+    }
 }
 
 /// Marks a message's last non-empty text part; plain tool content becomes a part to carry the breakpoint.
-fn mark_last_text(message: &mut Value) -> bool {
+fn mark_last_text(message: &mut Value, control: Value) -> bool {
     if let Some(text) = message["content"]
         .as_str()
         .filter(|text| !text.is_empty())
         .map(str::to_string)
     {
-        message["content"] = json!([{ "type": "text", "text": text, "cache_control": ephemeral() }]);
+        message["content"] = json!([{ "type": "text", "text": text, "cache_control": control }]);
         return true;
     }
 
@@ -108,7 +134,7 @@ fn mark_last_text(message: &mut Value) -> bool {
     });
     match last {
         Some(part) => {
-            part["cache_control"] = ephemeral();
+            part["cache_control"] = control;
             true
         }
         None => false,
@@ -125,7 +151,7 @@ pub(super) fn message(message: &ChatMessage) -> Vec<Value> {
     for block in &message.blocks {
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(text) => content.push(json!({ "type": "text", "text": text })),
+            Block::Text(text) | Block::Reminder(text) => content.push(json!({ "type": "text", "text": text })),
             Block::Image { mime, base64 } => {
                 let url = format!("data:{mime};base64,{base64}");
                 content.push(json!({ "type": "image_url", "image_url": { "url": url } }));
@@ -142,7 +168,7 @@ pub(super) fn message(message: &ChatMessage) -> Vec<Value> {
                 let file_data = format!("data:application/pdf;base64,{base64}");
                 content.push(json!({ "type": "file", "file": { "filename": "document.pdf", "file_data": file_data } }));
             }
-            Block::Stored { .. } => {}
+            Block::Stored { .. } | Block::Effort(_) => {}
         }
     }
 

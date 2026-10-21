@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -9,8 +10,12 @@ use utoipa::ToSchema;
 use super::error::ApiError;
 use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
-use crate::session::compaction::AUTO_COMPACT_KEY;
+use crate::browser::BrowserSettings;
+use crate::session::compaction::{AUTO_COMPACT_KEY, COMPACT_AT_KEY, CompactAt, MODEL_COMPACT_KEY};
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
+use crate::session::turn::provider_options::ProviderOptions;
+use crate::session::turn::resume::RESUME_KEY;
+use crate::session::turn::warming::PromptCache;
 
 /// Engine-wide preferences the user changes in Settings.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -19,6 +24,18 @@ pub(super) struct EngineSettings {
     /// Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_compact: Option<bool>,
+    /// Where conversations compact: at most 400k tokens and below a price step, near the window, or earlier. Left out
+    /// of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_at: Option<CompactAt>,
+    /// Compaction points in tokens for single models, by `provider/model`, in place of `compact_at`'s. A PUT replaces
+    /// the whole map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_compact: Option<BTreeMap<String, u64>>,
+    /// Load the tools of large MCP servers on request with `tool_search`, on models that take deferred tools. Left out of
+    /// a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_search: Option<bool>,
     /// Let `task` run subagents in the background. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_tasks: Option<bool>,
@@ -38,6 +55,18 @@ pub(super) struct EngineSettings {
     /// Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_sources: Option<Vec<RegistrySource>>,
+    /// Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_turns: Option<bool>,
+    /// Prompt cache warming, off by default. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache: Option<PromptCache>,
+    /// Each provider's options by provider id. A PUT replaces the providers it names and keeps the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<BTreeMap<String, ProviderOptions>>,
+    /// The `browser` tool and how its browsers start. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<BrowserSettings>,
 }
 
 use crate::config::sources::{RegistrySource, SourceInput};
@@ -48,6 +77,12 @@ use crate::config::sources::{RegistrySource, SourceInput};
 pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub auto_compact: Option<bool>,
+    #[serde(default)]
+    pub compact_at: Option<CompactAt>,
+    #[serde(default)]
+    pub model_compact: Option<BTreeMap<String, u64>>,
+    #[serde(default)]
+    pub tool_search: Option<bool>,
     #[serde(default)]
     pub background_tasks: Option<bool>,
     #[serde(default)]
@@ -60,11 +95,22 @@ pub(super) struct EngineSettingsInput {
     pub auto_accept_all: Option<bool>,
     #[serde(default)]
     pub registry_sources: Option<Vec<SourceInput>>,
+    #[serde(default)]
+    pub prompt_cache: Option<PromptCache>,
+    #[serde(default)]
+    pub provider_options: Option<BTreeMap<String, ProviderOptions>>,
+    #[serde(default)]
+    pub resume_turns: Option<bool>,
+    #[serde(default)]
+    pub browser: Option<BrowserSettings>,
 }
 
 fn current(engine: &Engine) -> EngineSettings {
     EngineSettings {
         auto_compact: Some(engine.auto_compact()),
+        compact_at: Some(engine.compact_at()),
+        model_compact: Some(engine.model_compact()),
+        tool_search: Some(engine.tool_search()),
         background_tasks: Some(engine.background_enabled()),
         background_task_limit: Some(engine.background_limit()),
         background_processes: Some(engine.background_processes()),
@@ -72,6 +118,10 @@ fn current(engine: &Engine) -> EngineSettings {
         shell_handoff: Some(engine.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)),
         auto_accept_all: Some(engine.auto_accept_all()),
         registry_sources: Some(engine.registry_sources()),
+        prompt_cache: Some(engine.prompt_cache()),
+        provider_options: Some(engine.provider_options()),
+        resume_turns: Some(engine.resumes_turns()),
+        browser: Some(engine.browser_settings()),
     }
 }
 
@@ -85,8 +135,9 @@ pub(super) async fn put(
     State(engine): State<Arc<Engine>>,
     Json(body): Json<EngineSettingsInput>,
 ) -> Result<Json<EngineSettings>, ApiError> {
-    if let Some(enabled) = body.auto_compact {
-        engine.store.set_setting(AUTO_COMPACT_KEY, &enabled)?;
+    put_compaction(&engine, &body)?;
+    if let Some(on) = body.tool_search {
+        engine.store.set_setting(crate::tool::tool_search::SETTINGS_KEY, &on)?;
     }
     if let Some(enabled) = body.background_tasks {
         engine.store.set_setting(BACKGROUND_TASKS_KEY, &enabled)?;
@@ -99,6 +150,9 @@ pub(super) async fn put(
             LimitError::Store(error) => error.into(),
         })?;
     }
+    if let Some(browser) = &body.browser {
+        engine.set_browser_settings(browser)?;
+    }
     if let Some(on) = body.background_processes {
         engine.store.set_setting(PROCESSES_KEY, &on)?;
     }
@@ -108,12 +162,42 @@ pub(super) async fn put(
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;
     }
+    if let Some(on) = body.resume_turns {
+        engine.store.set_setting(RESUME_KEY, &on)?;
+    }
+    if let Some(cache) = body.prompt_cache {
+        if let Some(problem) = cache.problem() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
+        }
+        engine.set_prompt_cache(&cache)?;
+    }
+    if let Some(options) = body.provider_options {
+        engine.set_provider_options(options)?;
+    }
     if let Some(sources) = body.registry_sources {
         engine
             .set_registry_sources(sources)
             .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error.to_string()))?;
     }
     Ok(Json(current(&engine)))
+}
+
+fn put_compaction(engine: &Engine, body: &EngineSettingsInput) -> Result<(), ApiError> {
+    if let Some(enabled) = body.auto_compact {
+        engine.store.set_setting(AUTO_COMPACT_KEY, &enabled)?;
+    }
+    if let Some(compact_at) = body.compact_at {
+        engine.store.set_setting(COMPACT_AT_KEY, &compact_at)?;
+    }
+    if let Some(chosen) = &body.model_compact {
+        engine.store.set_setting(MODEL_COMPACT_KEY, chosen)?;
+    }
+    // Every model in the catalog carries its point, so the context meters move with it.
+    if body.compact_at.is_some() || body.model_compact.is_some() {
+        engine.hub.publish(crate::event::Event::CatalogUpdated {});
+    }
+
+    Ok(())
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]

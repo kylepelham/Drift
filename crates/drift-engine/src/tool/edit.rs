@@ -1,6 +1,5 @@
-//! Exact search and replace. No fuzzy cascade: a miss reports the nearest region so the model re-reads.
+//! Search and replace: exact, then two narrow tiers (`matching`); a miss reports the nearest region so the model re-reads.
 
-use super::text::TextFormat;
 use serde_json::{Value, json};
 use similar::TextDiff;
 
@@ -65,17 +64,21 @@ impl Tool for Edit {
             }
 
             let raw = read_for_edit(&path, &name).await?;
-            let ending = TextFormat::detect(&raw);
-            let content = ending.normalise(&raw);
-            let (updated, replacements) =
-                replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
+            let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
+            let (updated, replacements) = matching::replace(body, old, new, replace_all)
+                .map_err(|refusal| refused(&refusal, body, old, &name))?;
+            let (content, updated_view) = (body.replace("\r\n", "\n"), updated.replace("\r\n", "\n"));
 
-            let written = ending.apply(&updated);
+            let written = if raw.starts_with('\u{feff}') && !updated.starts_with('\u{feff}') {
+                format!("\u{feff}{updated}")
+            } else {
+                updated
+            };
             super::fits_history(&name, written.len())?;
             // The match proves the text it changed, not the rest: the file is not counted as read for a later overwrite.
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
 
-            let change = Change::new(&path, &name, "update", &content, &updated);
+            let change = Change::new(&path, &name, "update", &content, &updated_view);
             let plural = if replacements == 1 { "" } else { "s" };
             Ok(Output {
                 title: name.clone(),
@@ -113,30 +116,28 @@ async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, Too
 /// The diff the edit would make now, or `None` when it would not apply.
 fn proposed(path: &std::path::Path, name: &str, input: &Value) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
-    let ending = TextFormat::detect(&raw);
-    let content = ending.normalise(&raw);
+    let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
     let (old, new) = (input["old_string"].as_str()?, input["new_string"].as_str()?);
+    let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
-    let (updated, _) = replace(
-        &content,
-        &ending.normalise(old),
-        &ending.normalise(new),
-        input["replace_all"].as_bool().unwrap_or(false),
-    )
-    .ok()?;
-    Some(diff(name, &content, &updated))
+    let (updated, _) = matching::replace(body, old, new, replace_all).ok()?;
+    Some(diff(name, &body.replace("\r\n", "\n"), &updated.replace("\r\n", "\n")))
 }
 
-/// The new content and how many places changed; both sides already share the file's line endings.
-fn replace(content: &str, old: &str, new: &str, replace_all: bool) -> Result<(String, usize), ToolError> {
-    let count = content.matches(old).count();
-    match (count, replace_all) {
-        (0, _) => Err(ToolError(miss(content, old))),
-        (1, _) | (_, true) => Ok((content.replace(old, new), count)),
-        (n, false) => Err(ToolError(format!(
-            "old_string matches {n} places; include more surrounding lines to make it unique, or set replace_all"
-        ))),
-    }
+/// Why an edit did not apply, in words the model can act on.
+fn refused(refusal: &matching::Refusal, body: &str, old: &str, name: &str) -> ToolError {
+    ToolError(match refusal {
+        matching::Refusal::Missing => miss(&body.replace("\r\n", "\n"), &old.replace("\r\n", "\n")),
+        matching::Refusal::Ambiguous(places) => format!(
+            "old_string matches {places} places; include more surrounding lines to make it unique, or set replace_all"
+        ),
+        matching::Refusal::Unchanged { endings_only: true } => {
+            format!("No changes to apply: {name} already has those line endings.")
+        }
+        matching::Refusal::Unchanged { endings_only: false } => format!(
+            "No changes to apply: the edit leaves {name} unchanged. Line endings follow the file; to change them, write \\r explicitly in old_string or new_string."
+        ),
+    })
 }
 
 /// `old` with read's `N: ` prefix taken off each line, when every line has one.
@@ -263,6 +264,11 @@ impl Change {
         format!("{} (+{} -{})", self.name, self.additions, self.deletions)
     }
 }
+
+mod matching;
+
+#[cfg(test)]
+mod cases;
 
 #[cfg(test)]
 mod tests {

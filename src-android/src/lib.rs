@@ -1,8 +1,8 @@
-//! Drift for Android: drives the Drift on your PCs. The WebView talks to a proxy on 127.0.0.1 that pins each
-//! PC's own certificate authority, so no certificate warning can ever appear (`docs/android.md`).
+//! Drift for Android: drives the Drift on your PCs, on their networks or from anywhere through OpenTunnel. The
+//! WebView talks to a proxy on 127.0.0.1 that pins each PC, so no certificate warning can ever appear
+//! (`docs/android.md`).
 
 mod computers;
-mod discovery;
 mod native;
 mod pc;
 mod proxy;

@@ -7,6 +7,7 @@ import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { ProcessRecord } from "./processes";
+import type { BrowserRecord } from "./browsers";
 import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
@@ -21,6 +22,7 @@ export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord 
 export type { QuestionInfo, QuestionRequest } from "./questions";
 export type Permission = components["schemas"]["PermissionRequest"] & { directory?: string };
 type Todo = components["schemas"]["Todo"];
+export type QueuedPrompt = components["schemas"]["QueuedPrompt"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
 export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
@@ -148,10 +150,14 @@ export type EngineState = {
     permissions: Record<string, Permission[]>;
     questions: Record<string, QuestionRequest[]>;
     todos: Record<string, Todo[]>;
+    /** Prompts each session queued for after its running turn, first to start first. */
+    queued: Record<string, QueuedPrompt[]>;
     /** Workers each session launched, keyed by the launching session, oldest first. */
     tasks: Record<string, TaskRecord[]>;
     /** Background processes each session started, oldest first. */
     processes: Record<string, ProcessRecord[]>;
+    /** Each session's running browser; a session without one has no entry. */
+    browsers: Record<string, BrowserRecord>;
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
@@ -219,8 +225,10 @@ export function createEngineState() {
         permissions: {},
         questions: {},
         todos: {},
+        queued: {},
         tasks: {},
         processes: {},
+        browsers: {},
         providers: [],
         mcpServers: {},
         connected: [],
@@ -400,14 +408,14 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
     const tokens = last.info.usage;
     const count = tokenCount(tokens);
     const model = modelInfo(state, modelRef ?? null) ?? modelInfo(state, messageModel(last.info));
-    const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number };
+    const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number; compact?: number };
     const context = limits.context ?? 0;
     if (!context || !count) return null;
 
     const maxOutput = replyRoom(limits.output ?? 0, context);
     const reserved = Math.min(compactionReserveTokens, maxOutput);
     // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
-    const usable = usableContext(limits.input, context, reserved, maxOutput);
+    const usable = usableContext(limits, context, reserved, maxOutput);
 
     return {
         count,
@@ -416,13 +424,36 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
         untilCompaction: Math.max(0, usable - count),
         // The engine keeps cost per message (replies and compaction summaries), not per session.
         cost: entries.reduce((sum, entry) => sum + ((entry.info as { cost?: number }).cost ?? 0), 0),
+        cacheMiss: sinceSummary.find((entry) => entry.info.role === "assistant" && entry.info.cacheMiss)?.info
+            .cacheMiss,
     };
 }
 
-function usableContext(input: number | undefined, context: number, reserved: number, maxOutput: number) {
-    if (input && input < context) return Math.max(0, input - reserved);
+function usableContext(
+    limits: { input?: number; compact?: number },
+    context: number,
+    reserved: number,
+    maxOutput: number,
+) {
+    const own =
+        limits.input && limits.input < context
+            ? Math.max(0, limits.input - reserved)
+            : Math.max(0, context - maxOutput);
+    if (!limits.compact) return own;
 
-    return Math.max(0, context - maxOutput);
+    return Math.min(own, limits.compact);
+}
+
+/** Mirrors `Model::own_compaction_point`: where a model compacts with no setting of the user's. */
+export function ownCompactionPoint(limit: { context: number; output: number; input?: number }) {
+    const maxOutput = replyRoom(limit.output, limit.context);
+
+    return usableContext(
+        { input: limit.input },
+        limit.context,
+        Math.min(compactionReserveTokens, maxOutput),
+        maxOutput,
+    );
 }
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {

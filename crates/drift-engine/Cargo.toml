@@ -46,6 +46,8 @@ sha2 = "0.10"
 similar = "2"
 tokio = { workspace = true, features = ["process", "fs"] }
 tokio-util = "0.7"
+# Claude's usage endpoint names its resets in RFC 3339; already in the tree through the shell.
+time = { version = "0.3", features = ["parsing"] }
 # Responses WebSocket framing; the shared reqwest client performs its authenticated TLS upgrade.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 tower-http = { version = "0.6", features = ["cors"] }
@@ -63,9 +65,11 @@ wasmtime-wasi = { version = "48", optional = true, default-features = false, fea
 [features]
 default = ["wasm-plugins"]
 wasm-plugins = ["dep:wasmtime", "dep:wasmtime-wasi"]
+# One-shot requests for development tools (`drift-engined --complete`); the desktop app never enables it.
+dev-tools = []
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

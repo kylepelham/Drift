@@ -1,15 +1,25 @@
 //! Headless Drift engine for conformance tests and remote hosts.
 //! `drift-engined [--data-dir DIR] [--port N] [--file-credentials]` serves and prints `url` and `token` lines.
+//! `drift-engined --acp [--model PROVIDER/MODEL]` speaks the Agent Client Protocol on stdin and stdout instead.
+//! `drift-engined --complete --model PROVIDER/MODEL` answers one-shot text requests on stdin (see `complete`).
 //! `drift-engined --openapi` prints the API document and exits.
+
+mod acp;
+mod complete;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+
+use drift_engine::session::types::ModelRef;
 
 struct Args {
     data_dir: PathBuf,
     port: u16,
     openapi: bool,
     file_credentials: bool,
+    acp: bool,
+    complete: bool,
+    model: Option<ModelRef>,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -20,6 +30,12 @@ enum ArgumentError {
     MissingPort,
     #[error("bad port: {0}")]
     InvalidPort(String),
+    #[error("--model needs provider/model")]
+    MissingModel,
+    #[error("bad model: {0}, expected provider/model")]
+    InvalidModel(String),
+    #[error("--complete needs --model provider/model")]
+    CompleteWithoutModel,
     #[error("unknown argument: {0}")]
     Unknown(String),
 }
@@ -41,22 +57,43 @@ fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Args, ArgumentEr
         port: 0,
         openapi: false,
         file_credentials: false,
+        acp: false,
+        complete: false,
+        model: None,
     };
 
     while let Some(flag) = arguments.next() {
         match flag.as_str() {
             "--openapi" => args.openapi = true,
             "--file-credentials" => args.file_credentials = true,
+            "--acp" => args.acp = true,
+            "--complete" => args.complete = true,
             "--data-dir" => args.data_dir = arguments.next().ok_or(ArgumentError::MissingDataDir)?.into(),
             "--port" => {
                 let value = arguments.next().ok_or(ArgumentError::MissingPort)?;
                 args.port = value.parse().map_err(|_| ArgumentError::InvalidPort(value))?;
             }
+            "--model" => args.model = Some(model(arguments.next().ok_or(ArgumentError::MissingModel)?)?),
             other => return Err(ArgumentError::Unknown(other.into())),
         }
     }
 
+    if args.complete && args.model.is_none() {
+        return Err(ArgumentError::CompleteWithoutModel);
+    }
+
     Ok(args)
+}
+
+/// `provider/model`, split at the first slash: model ids may hold slashes of their own.
+fn model(value: String) -> Result<ModelRef, ArgumentError> {
+    match value.split_once('/') {
+        Some((provider, model)) if !provider.is_empty() && !model.is_empty() => Ok(ModelRef {
+            provider: provider.into(),
+            model: model.into(),
+        }),
+        _ => Err(ArgumentError::InvalidModel(value)),
+    }
 }
 
 #[tokio::main]
@@ -84,6 +121,20 @@ async fn main() {
         eprintln!("{error}");
         std::process::exit(1);
     });
+
+    if args.complete
+        && let Some(model) = args.model
+    {
+        complete::serve(engine, model, tokio::io::stdin(), tokio::io::stdout()).await;
+        return;
+    }
+
+    if args.acp {
+        drift_engine::start(&engine);
+        let options = acp::Options { model: args.model };
+        acp::serve(engine, options, tokio::io::stdin(), tokio::io::stdout()).await;
+        return;
+    }
 
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
     let server = drift_engine::listen(engine.clone(), addr)
@@ -128,6 +179,21 @@ mod tests {
         assert_eq!(args.port, 1234);
         assert!(args.openapi);
         assert!(args.file_credentials);
+        assert!(!args.acp);
+    }
+
+    #[test]
+    fn acp_takes_a_model_split_at_its_first_slash() {
+        let args = arguments(&["--acp", "--model", "openrouter/anthropic/claude-sonnet-4.5"]).unwrap();
+
+        assert!(args.acp);
+        assert_eq!(
+            args.model,
+            Some(ModelRef {
+                provider: "openrouter".into(),
+                model: "anthropic/claude-sonnet-4.5".into(),
+            })
+        );
     }
 
     #[test]
@@ -143,6 +209,21 @@ mod tests {
                 vec!["--port", "65536"],
                 ArgumentError::InvalidPort("65536".into()),
                 "bad port: 65536",
+            ),
+            (
+                vec!["--model"],
+                ArgumentError::MissingModel,
+                "--model needs provider/model",
+            ),
+            (
+                vec!["--model", "claude"],
+                ArgumentError::InvalidModel("claude".into()),
+                "bad model: claude, expected provider/model",
+            ),
+            (
+                vec!["--complete"],
+                ArgumentError::CompleteWithoutModel,
+                "--complete needs --model provider/model",
             ),
             (
                 vec!["--other"],

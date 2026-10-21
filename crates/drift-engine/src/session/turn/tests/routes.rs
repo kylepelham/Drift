@@ -5,8 +5,14 @@ fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
     use crate::llm::http::Timeouts;
 
     assert_eq!(Timeouts::for_route("ollama").headers, Duration::from_secs(600));
-    assert_eq!(Timeouts::for_route("lmstudio").idle, Duration::from_secs(600));
+    assert_eq!(
+        Timeouts::for_route("lmstudio").idle,
+        Duration::from_secs(900),
+        "a silent stream gets 15 minutes on every route"
+    );
     assert_eq!(Timeouts::for_route("anthropic"), Timeouts::default());
+    assert_eq!(Timeouts::default().idle, Duration::from_secs(900));
+    assert_eq!(Timeouts::default().headers, Duration::from_secs(120));
     let _ = rustls::crypto::ring::default_provider().install_default();
     let ollama = crate::llm::provider_for("ollama", None).unwrap();
     assert_eq!(
@@ -28,7 +34,7 @@ fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
         config.route_timeouts("ollama"),
         Timeouts {
             headers: Duration::from_secs(1800),
-            idle: Duration::from_secs(600)
+            idle: Duration::from_secs(900)
         }
     );
     assert_eq!(

@@ -255,12 +255,16 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
             context,
             output: 0,
             input: 0,
+            compact: 0,
         },
         cost: Default::default(),
         profile: ToolProfile::Edit,
         prompt: Default::default(),
         variants: Vec::new(),
         mode: None,
+        effort_updates: false,
+        claude: Default::default(),
+        tool_search: false,
     })
 }
 

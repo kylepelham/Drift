@@ -105,7 +105,10 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
                         <h2 class="truncate text-sm font-medium" title={props.file.path}>
                             {filename()}
                         </h2>
-                        <p class="truncate text-[0.65rem] text-ink-faint" title={props.file.path}>
+                        <p
+                            class="truncate text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint"
+                            title={props.file.path}
+                        >
                             {props.file.path}
                         </p>
                     </div>

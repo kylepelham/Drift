@@ -5,9 +5,20 @@ import { EngineError } from "./native/client";
 import { putSession } from "./store";
 import { t } from "../state/i18n";
 
-import type { BundlePartKind, InstallBundle, PermissionGrant, PermissionRule, Client } from "./native/client";
 import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from "./store";
 import type { ActionContext } from "./actions-context";
+import type {
+    BrowserCredentialInput,
+    BrowserSettings,
+    BundlePartKind,
+    CompactAt,
+    InstallBundle,
+    PermissionGrant,
+    PermissionRule,
+    Client,
+    VoiceSpeech,
+    VoiceTranscription,
+} from "./native/client";
 
 /**
  * Engine and workspace configuration: settings, agents and commands, MCP servers, grants, plugins, skills and prompts.
@@ -21,6 +32,11 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ autoCompact });
     }
 
+    /** Where conversations compact; the engine sends every model's new point with the catalog. */
+    async function setCompactAt(compactAt: CompactAt) {
+        return requireClient().putSettings({ compactAt });
+    }
+
     /** How many background subagents run at once; the engine starts or holds queued ones to match. */
     async function setBackgroundTaskLimit(backgroundTaskLimit: number) {
         return requireClient().putSettings({ backgroundTaskLimit });
@@ -29,6 +45,35 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     /** Whether agents may run commands in the background and see them with `process`. */
     async function setBackgroundProcesses(backgroundProcesses: boolean) {
         return requireClient().putSettings({ backgroundProcesses });
+    }
+
+    /** Whether agents get the `browser` tool, and which browser, profile and window it starts with. */
+    async function setBrowserSettings(browser: BrowserSettings) {
+        return requireClient().putSettings({ browser });
+    }
+
+    /** The current workspace's id as the engine knows it, or nothing without a workspace. */
+    function currentWorkspace() {
+        return workspaces().id(state.directory);
+    }
+
+    /** The current workspace's drift.json browser section and stored sign-ins, or nothing without a workspace. */
+    async function workspaceBrowser() {
+        const workspace = currentWorkspace();
+        return workspace ? requireClient().workspaceBrowser(workspace) : undefined;
+    }
+
+    /** Stores a sign-in for the current workspace's browser; a password left out keeps the stored one. */
+    async function saveBrowserCredential(name: string, body: BrowserCredentialInput) {
+        const workspace = currentWorkspace();
+        if (!workspace) throw new Error(t("drift.settings.browser.noWorkspace"));
+        return requireClient().saveBrowserCredential(workspace, name, body);
+    }
+
+    async function removeBrowserCredential(name: string) {
+        const workspace = currentWorkspace();
+        if (!workspace) throw new Error(t("drift.settings.browser.noWorkspace"));
+        return requireClient().removeBrowserCredential(workspace, name);
     }
 
     /** Whether a command still running at its time limit moves to the background rather than being stopped. */
@@ -214,9 +259,35 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         setBackgroundTaskLimit,
         setBackgroundProcesses,
         setShellHandoff,
+        setBrowserSettings,
+        browserEngines: () => requireClient().browserEngines(),
+        downloadBrowserEngine: (engine: string) => requireClient().downloadBrowserEngine(engine),
+        setBrowserEnginePath: (engine: string, path: string | null) =>
+            requireClient().setBrowserEnginePath(engine, path),
+        workspaceBrowser,
+        saveBrowserCredential,
+        removeBrowserCredential,
         putEngineSettings: (body: Parameters<Client["putSettings"]>[0]) => requireClient().putSettings(body),
         fetchRegistry: (source: string) => requireClient().fetchRegistry(source),
+        webSearch: () => requireClient().webSearch(),
+        putWebSearch: (body: Parameters<Client["putWebSearch"]>[0]) => requireClient().putWebSearch(body),
+        addWebSearchKey: (provider: string, key: string) => requireClient().addWebSearchKey(provider, key),
+        removeWebSearchKey: (provider: string, index: number) => requireClient().removeWebSearchKey(provider, index),
+        imageGeneration: () => requireClient().imageGeneration(),
+        putImageGeneration: (body: Parameters<Client["putImageGeneration"]>[0]) =>
+            requireClient().putImageGeneration(body),
+        /** Saves a key a provider's images are paid with; an empty key removes it. */
+        setImageKey: (provider: string, key: string) => requireClient().setImageKey(provider, key),
+        /** An image a tool call returned, by the hash its metadata names. */
+        toolImage: (hash: string) => requireClient().blob(hash),
+        voice: () => requireClient().voice(),
+        setVoiceKey: (provider: string, key: string) => requireClient().setVoiceKey(provider, key),
+        removeVoiceKey: (provider: string) => requireClient().removeVoiceKey(provider),
+        /** One dictated phrase to the cloud provider named; its failure is reported, never retried elsewhere. */
+        transcribeSpeech: async (body: VoiceTranscription) => (await requireClient().transcribeSpeech(body)).text,
+        speakText: (body: VoiceSpeech) => requireClient().speakText(body),
         setAutoCompact,
+        setCompactAt,
         setAutoAccept,
         setAutoAcceptAll,
         refreshEngineSettings,

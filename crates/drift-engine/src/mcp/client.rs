@@ -1,7 +1,11 @@
 use rmcp::RoleClient;
-use rmcp::model::{ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
+use rmcp::model::{
+    ClientCapabilities, ClientConfig, ElicitRequestParams, ElicitResult, ElicitationCapability,
+    FormElicitationCapability, Implementation, ProtocolVersion, UrlElicitationCapability,
+};
 use rmcp::service::ClientLifecycleMode;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::{DriftClient, Era};
 
@@ -19,11 +23,16 @@ pub(super) fn lifecycle(known: Option<Era>) -> ClientLifecycleMode {
     }
 }
 
-/// Drift offers no sampling or elicitation, so servers requesting them are declined.
+/// Drift answers elicitation (forms and links) on the question card and offers no sampling.
 /// A workspace connection offers that directory as its root.
 /// The legacy handshake offers protocol version 2025-11-25.
 fn client_info(roots: bool) -> ClientConfig {
     let mut capabilities = ClientCapabilities::default();
+    capabilities.elicitation = Some(
+        ElicitationCapability::new()
+            .with_form(FormElicitationCapability::new().with_schema_validation(true))
+            .with_url(UrlElicitationCapability::new()),
+    );
     if roots {
         capabilities.roots = Some(rmcp::model::RootsCapabilities::default());
     }
@@ -38,7 +47,10 @@ impl DriftClient {
             reqwest::Url::from_directory_path(path).map_or_else(|()| path.to_string_lossy().into_owned(), String::from)
         });
 
-        Self { root }
+        Self {
+            root,
+            callers: Arc::default(),
+        }
     }
 }
 
@@ -55,5 +67,13 @@ impl rmcp::ClientHandler for DriftClient {
         let roots = self.root.iter().map(rmcp::model::Root::new).collect();
 
         Ok(rmcp::model::ListRootsResult::new(roots))
+    }
+
+    async fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        _context: rmcp::service::RequestContext<RoleClient>,
+    ) -> Result<ElicitResult, rmcp::ErrorData> {
+        Ok(super::elicit::answer(&self.callers, request).await)
     }
 }

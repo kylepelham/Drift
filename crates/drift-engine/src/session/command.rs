@@ -192,6 +192,7 @@ impl Engine {
             variant: None,
             agent: (chosen && command.agent.is_some()).then(|| agent.to_string()),
             submission_id: None,
+            worktree: false,
         };
         let how = Admission {
             bootstrap: &bootstraps,
@@ -202,6 +203,30 @@ impl Engine {
 
         self.admit(id, prompt, how).await.map_err(CommandError::Turn)
     }
+}
+
+/// A prompt starting in a new worktree runs `worktree_create` then `session_move` before the model answers, so
+/// setup commands ask as the model's own calls would and the first step already works in the worktree.
+pub(crate) fn worktree_calls(parts: &[Part]) -> Vec<Bootstrap> {
+    let text = parts
+        .iter()
+        .find_map(|part| match part {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let name = crate::worktree::name_for(text);
+    let call = |tool: &str, input: Value| Bootstrap {
+        tool: tool.into(),
+        input,
+        command: "worktree".into(),
+        model: None,
+    };
+
+    vec![
+        call("worktree_create", json!({ "name": name })),
+        call("session_move", json!({ "directory": name })),
+    ]
 }
 
 /// A template's shell lines are named in the text where they stood and run as the turn's first calls.

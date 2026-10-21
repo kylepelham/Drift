@@ -35,6 +35,9 @@ pub enum PluginError {
     Entries { path: PathBuf, source: serde_json::Error },
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    /// A value that does not fit a setting the plugin declares, as "<label> is <what it must be>".
+    #[error("{0}")]
+    Setting(String),
 }
 
 fn file_error(operation: &'static str, path: &Path, source: std::io::Error) -> PluginError {

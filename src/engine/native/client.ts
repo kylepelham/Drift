@@ -37,7 +37,19 @@ export type LocalServerInput = components["schemas"]["LocalServerInput"];
 export type Review = components["schemas"]["Review"];
 export type ReviewFile = components["schemas"]["ReviewFile"];
 export type ReviewRefs = components["schemas"]["ReviewRefs"];
+export type ReviewFinding = components["schemas"]["ReviewFinding"];
+export type FindingOutcome = components["schemas"]["FindingOutcome"];
 export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["source"];
+export type VoiceTranscription = components["schemas"]["Transcription"];
+export type VoiceSpeech = components["schemas"]["Speech"];
+export type BrowserSettings = components["schemas"]["BrowserSettings"];
+export type CompactAt = components["schemas"]["CompactAt"];
+export type ViewInput = components["schemas"]["ViewInput"];
+export type BrowserKind = components["schemas"]["BrowserKind"];
+export type EngineStatus = components["schemas"]["EngineStatus"];
+export type WorkspaceBrowser = components["schemas"]["WorkspaceBrowser"];
+export type BrowserCredential = components["schemas"]["Credential"];
+export type BrowserCredentialInput = components["schemas"]["CredentialInput"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -106,6 +118,13 @@ export function createClient(target: Target) {
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
         compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+        queue: (id: string) => request<Json<"listQueue", 200>>("GET", `/sessions/${id}/queue`),
+        queuePrompt: (id: string, prompt: components["schemas"]["Prompt"]) =>
+            request<Json<"queuePrompt", 201>>("POST", `/sessions/${id}/queue`, prompt),
+        editQueued: (id: string, prompt: components["schemas"]["Prompt"]) =>
+            request<void>("PUT", `/queue/${id}`, prompt),
+        discardQueued: (id: string) => request<void>("DELETE", `/queue/${id}`),
+        sendQueuedNow: (id: string) => request<Json<"sendQueuedNow", 202>>("POST", `/queue/${id}/send`),
         switchRetryModel: (id: string, model: components["schemas"]["ModelRef"], variant: string | null) =>
             request<void>("POST", `/sessions/${id}/retry`, { model, variant }),
         revertSession: (id: string, messageId: string, keepFiles = false) =>
@@ -114,6 +133,30 @@ export function createClient(target: Target) {
         settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
         putSettings: (body: components["schemas"]["EngineSettingsInput"]) =>
             request<Json<"putSettings", 200>>("PUT", "/settings", body),
+        webSearch: () => request<Json<"getWebSearch", 200>>("GET", "/websearch"),
+        putWebSearch: (body: components["schemas"]["WebSearch"]) =>
+            request<Json<"putWebSearch", 200>>("PUT", "/websearch", body),
+        addWebSearchKey: (provider: string, key: string) =>
+            request<Json<"addWebSearchKey", 200>>("POST", "/websearch/keys", { provider, key }),
+        removeWebSearchKey: (provider: string, index: number) =>
+            request<Json<"removeWebSearchKey", 200>>(
+                "DELETE",
+                `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
+            ),
+        imageGeneration: () => request<Json<"getImageGeneration", 200>>("GET", "/image-generation"),
+        putImageGeneration: (body: components["schemas"]["ImageGeneration"]) =>
+            request<Json<"putImageGeneration", 200>>("PUT", "/image-generation", body),
+        setImageKey: (provider: string, key: string) =>
+            request<Json<"setImageKey", 200>>("PUT", "/image-generation/keys", { provider, key }),
+        blob: (hash: string) => request<Json<"getBlob", 200>>("GET", `/blobs/${encodeURIComponent(hash)}`),
+        voice: () => request<Json<"getVoice", 200>>("GET", "/voice"),
+        setVoiceKey: (provider: string, key: string) =>
+            request<Json<"setVoiceKey", 200>>("PUT", "/voice/keys", { provider, key }),
+        removeVoiceKey: (provider: string) =>
+            request<Json<"removeVoiceKey", 200>>("DELETE", `/voice/keys?${new URLSearchParams({ provider })}`),
+        transcribeSpeech: (body: VoiceTranscription) =>
+            request<Json<"transcribeSpeech", 200>>("POST", "/voice/transcribe", body),
+        speakText: (body: VoiceSpeech) => request<Json<"speakText", 200>>("POST", "/voice/speak", body),
         fetchRegistry: (source: string) =>
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
@@ -190,8 +233,8 @@ export function createClient(target: Target) {
             request<void>("POST", `/providers/${id}/oauth/callback`, { input, state }),
         reorderProviderAccounts: (id: string, order: string[]) =>
             request<void>("PUT", `/providers/${id}/accounts`, { order }),
-        renameProviderAccount: (id: string, account: string, label: string) =>
-            request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, { label }),
+        changeProviderAccount: (id: string, account: string, change: { label?: string; cyberVerified?: boolean }) =>
+            request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, change),
         removeProviderAccount: (id: string, account: string) =>
             request<void>("DELETE", `/providers/${id}/accounts/${encodeURIComponent(account)}`),
         permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),
@@ -242,6 +285,29 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        browser: (id: string) => request<Json<"getBrowser", 200>>("GET", `/sessions/${id}/browser`),
+        startBrowser: (id: string) => request<Json<"startBrowser", 200>>("POST", `/sessions/${id}/browser`),
+        stopBrowser: (id: string) => request<Json<"stopBrowser", 200>>("POST", `/sessions/${id}/browser/stop`),
+        browserEngines: () => request<Json<"browserEngines", 200>>("GET", "/browser/engines"),
+        downloadBrowserEngine: (engine: string) => request<undefined>("POST", `/browser/engines/${engine}/download`),
+        setBrowserEnginePath: (engine: string, path: string | null) =>
+            request<Json<"setBrowserEnginePath", 200>>("PUT", `/browser/engines/${engine}/path`, { path }),
+        workspaceBrowser: (workspaceId: string) =>
+            request<Json<"workspaceBrowser", 200>>("GET", `/workspaces/${workspaceId}/browser`),
+        saveBrowserCredential: (workspaceId: string, name: string, body: components["schemas"]["CredentialInput"]) =>
+            request<Json<"saveBrowserCredential", 200>>(
+                "PUT",
+                `/workspaces/${workspaceId}/browser/credentials/${encodeURIComponent(name)}`,
+                body,
+            ),
+        removeBrowserCredential: (workspaceId: string, name: string) =>
+            request<Json<"removeBrowserCredential", 200>>(
+                "DELETE",
+                `/workspaces/${workspaceId}/browser/credentials/${encodeURIComponent(name)}`,
+            ),
+        /** The view socket's address: frames of the browser's active page out, the user's input in. */
+        browserViewUrl: (id: string) =>
+            `${target.url.replace(/^http/, "ws")}/sessions/${id}/browser/view?token=${target.token}`,
         reviewTurn: (sessionId: string, messageId: string) =>
             request<Json<"reviewTurn", 200>>("GET", `/sessions/${sessionId}/review/${messageId}`),
         reviewWorkspace: (workspaceId: string, source: GitSource, target?: string) =>

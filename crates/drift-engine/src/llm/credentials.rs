@@ -150,6 +150,23 @@ impl Credentials {
         self.unstored(provider, env).map(|credential| (None, credential))
     }
 
+    /// The provider's first stored API key, else one from `env`. Subscription sign-ins are passed over:
+    /// they pay for chat, not for the provider's other APIs.
+    pub fn api_key(&self, provider: &str, env: &[String]) -> Option<String> {
+        let stored = self
+            .accounts(provider)
+            .into_iter()
+            .find_map(|account| match self.account(&account.key) {
+                Some(Credential::ApiKey { key }) if !key.trim().is_empty() => Some(key),
+                _ => None,
+            });
+
+        stored.or_else(|| {
+            env.iter()
+                .find_map(|name| std::env::var(name).ok().filter(|key| !key.trim().is_empty()))
+        })
+    }
+
     /// A credential the provider has without one stored: a cloud route's own, an environment key, or none needed.
     pub fn found_elsewhere(&self, provider: &str, env: &[String]) -> bool {
         self.unstored(provider, env).is_some()

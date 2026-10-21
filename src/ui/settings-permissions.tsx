@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, on, onMount, Show } from "solid-js";
 import { AddRule, newRule, RuleList } from "./settings-permission-rules";
 import { activeWorkspace, workspaces } from "../state/workspaces";
-import { SettingsGroup } from "./settings-controls";
+import { SettingsGroup, pickerWidth } from "./settings-controls";
 import { useEngine } from "../engine";
 import { IconTrash } from "./icons";
 import { t } from "../state/i18n";
@@ -109,7 +109,7 @@ export function grantGroup(grant: PermissionGrant): "shell" | "files" | "web" | 
     const kind = grant.grant === "subcommand" ? "bash" : grant.kind;
     if (kind === "bash") return "shell";
     if (["read", "edit", "glob", "grep"].includes(kind)) return "files";
-    if (kind === "webfetch") return "web";
+    if (kind === "webfetch" || kind === "websearch") return "web";
     if (kind === "mcp") return "mcp";
     return "other";
 }
@@ -185,7 +185,7 @@ function GrantsGroup() {
                 bordered
                 chevronAtEnd
                 placement="below"
-                width="13rem"
+                width={pickerWidth}
                 onPick={setChosen}
             />
         </Show>
@@ -217,7 +217,7 @@ function GrantsGroup() {
                         <For each={shown()}>
                             {(entry) => (
                                 <>
-                                    <div class="flex items-center gap-2 border-b border-edge/70 px-1 pt-4 pb-1.5 text-[0.78rem] font-medium text-ink">
+                                    <div class="flex items-center gap-2 border-b border-edge/70 px-1 pt-4 pb-1.5 text-[length:calc(0.78rem*var(--settings-scale,1))] font-medium text-ink">
                                         {t(`drift.permissions.group.${entry.group}`)}
                                         <span class="text-ink-faint">{entry.grants.length}</span>
                                     </div>
@@ -225,12 +225,12 @@ function GrantsGroup() {
                                         {(grant) => (
                                             <div class="group/grant flex min-h-9 items-center gap-3 border-b border-edge/70 px-1 py-1.5 last:border-b-0 hover:bg-raised/40">
                                                 <Show when={entry.group === "other" || entry.group === "files"}>
-                                                    <span class="w-16 shrink-0 text-[0.72rem] text-ink-faint">
+                                                    <span class="w-16 shrink-0 text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint">
                                                         {grant.grant === "subcommand" ? "bash" : grant.kind}
                                                     </span>
                                                 </Show>
                                                 <span
-                                                    class="min-w-0 flex-1 truncate font-mono text-[0.74rem] text-ink-muted"
+                                                    class="min-w-0 flex-1 truncate font-mono text-[length:calc(0.74rem*var(--settings-scale,1))] text-ink-muted"
                                                     title={grantText(grant)}
                                                 >
                                                     {grantText(grant)}

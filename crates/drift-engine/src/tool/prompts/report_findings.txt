@@ -1,0 +1,7 @@
+Reports a code review's findings as a list the user sees as a card and as notes in the review panel.
+
+- Call it only when review instructions (the `review` skill) tell you to; otherwise answer as usual.
+- Call it once per review with every finding that survived, most severe first, or an empty list when none did. Do not also list the findings in your reply.
+- `file` is relative to the workspace; `line` is the 1-based line in the file as it is now.
+- `short_summary` is the claim alone, at most 60 characters. `failure_scenario` names the inputs or state and what goes wrong; for a cleanup, what it costs.
+- After fixing reported findings, at any later point in the conversation, call it again with the same findings, each with `outcome`: `fixed`, `skipped` (real, not applied) or `no_change_needed` (wrong, or already handled).

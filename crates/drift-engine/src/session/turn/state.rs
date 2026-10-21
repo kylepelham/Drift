@@ -86,6 +86,18 @@ impl Turns {
             .clone()
     }
 
+    pub(in crate::session) fn hold_queue(&self, session_id: &str) {
+        self.queue_held.lock().unwrap().insert(session_id.into());
+    }
+
+    pub(in crate::session) fn release_queue(&self, session_id: &str) {
+        self.queue_held.lock().unwrap().remove(session_id);
+    }
+
+    pub(in crate::session) fn queue_held(&self, session_id: &str) -> bool {
+        self.queue_held.lock().unwrap().contains(session_id)
+    }
+
     pub fn is_running(&self, session_id: &str) -> bool {
         self.active.lock().unwrap().contains_key(session_id)
     }

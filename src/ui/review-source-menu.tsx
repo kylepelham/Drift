@@ -34,7 +34,7 @@ export function ReviewSourceMenu(props: {
     return (
         <div ref={root} class="relative min-w-0">
             <button
-                class="flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 text-[0.82rem] text-ink transition-colors hover:bg-raised"
+                class="flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 text-[length:calc(0.82rem*var(--ui-text-scale,1))] text-ink transition-colors hover:bg-raised"
                 classList={{ "bg-raised": open() }}
                 aria-label={t("drift.review.source")}
                 aria-expanded={open()}
@@ -54,7 +54,7 @@ export function ReviewSourceMenu(props: {
                 </span>
             </button>
             <Show when={open()}>
-                <div class="absolute top-full left-0 z-30 mt-1 w-72 overflow-hidden rounded-xl border border-edge bg-overlay p-1 text-[0.82rem] shadow-2xl shadow-black/40">
+                <div class="absolute top-full left-0 z-30 mt-1 w-72 overflow-hidden rounded-xl border border-edge bg-overlay p-1 text-[length:calc(0.82rem*var(--ui-text-scale,1))] shadow-2xl shadow-black/40">
                     <Show when={view() === "main"}>
                         <MainView {...props} base={base()} onPick={pick} onView={setView} />
                     </Show>
@@ -175,7 +175,7 @@ function ListView(props: {
             </button>
             <input
                 ref={(input) => queueMicrotask(() => input.focus())}
-                class="my-1 h-8 w-full rounded-md border border-edge bg-bg/60 px-2.5 text-[0.82rem] text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+                class="my-1 h-8 w-full rounded-md border border-edge bg-bg/60 px-2.5 text-[length:calc(0.82rem*var(--ui-text-scale,1))] text-ink outline-none placeholder:text-ink-faint focus:border-accent"
                 placeholder={props.placeholder}
                 value={query()}
                 onInput={(event) => setQuery(event.currentTarget.value)}

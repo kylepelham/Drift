@@ -6,6 +6,11 @@ pub(super) const MAX_OUTPUT_TOKENS: u32 = 32_000;
 pub(super) const MIN_ANSWER_TOKENS: u32 = 1024;
 /// The smallest thinking budget providers accept.
 pub(super) const MIN_THINKING_TOKENS: u32 = 1024;
+/// How long a provider keeps a prompt cache it was last asked for: five minutes, half an hour on OpenAI models that
+/// bill cache writes (GPT-5.6 and later), or an hour when asked for that.
+const CACHE_MS: i64 = 5 * 60 * 1000;
+const BILLED_WRITES_CACHE_MS: i64 = 30 * 60 * 1000;
+const HOUR_CACHE_MS: i64 = 60 * 60 * 1000;
 
 impl Engine {
     /// Builds the same request as a turn step, including its cached prefix and newest prompt id.
@@ -19,7 +24,9 @@ impl Engine {
         closing: Option<String>,
     ) -> (Request, Option<String>) {
         branch::frame_spawned(&plan.session, &mut transcript);
-        let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        let mut lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        lead.extend(self.plans_note(&plan.session.workspace_id));
+        let system = self.instruction_system(plan, &mut transcript);
         convert::drop_earlier_reasoning(&mut transcript, started);
         let answered = transcript.iter().rev().find(|message| message.info.role == Role::User);
         let answered = answered.map(|message| message.info.id.clone());
@@ -28,6 +35,7 @@ impl Engine {
         let reasoning = plan
             .reasoning()
             .or_else(|| catalog::default_reasoning(provider, &plan.model));
+        let reasoning = self.top_level_effort(plan, reasoning, &mut transcript);
         let (max_tokens, reasoning) = budgets(&plan.model, reasoning);
         let sampling = catalog::sampling(&plan.model);
         let target = convert::OnCatalog {
@@ -36,20 +44,39 @@ impl Engine {
             account: plan.account.as_deref(),
         };
         let mut messages = compaction::request_messages(&transcript, &target, &lead);
+        let effort_marks = super::effort::lift_marks(&mut messages);
         let no_tool_calls = closing.is_some();
         if let Some(text) = closing {
             convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(text)]);
         }
+        let deferred_tools = plan.offer.deferred_specs();
+        let tool_references = if deferred_tools.is_empty() {
+            Default::default()
+        } else {
+            crate::tool::tool_search::references(&transcript)
+        };
 
         let request = Request {
             model: plan.model.wire(&plan.model_ref.model).to_string(),
-            system: plan.offer.system.clone(),
+            system,
             messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
             tools: plan.offer.specs(),
             max_tokens,
             reasoning,
             temperature: sampling.temperature,
-            cache_key: Some(plan.session.id.clone()),
+            cache_key: Some(
+                self.store
+                    .cache_root(&plan.session.id)
+                    .unwrap_or_else(|_| plan.session.id.clone()),
+            ),
+            connection: Some(plan.session.id.clone()),
+            effort_marks,
+            claude: plan.model.claude,
+            cache_hour: self.hour_cache(plan),
+            cache_conversation: true,
+            cache_writes_billed: plan.model.cost.cache_write > plan.model.cost.input,
+            deferred_tools,
+            tool_references,
             no_tool_calls,
             verbosity: catalog::verbosity(provider, &plan.model),
             show_thinking: catalog::shows_thinking(provider, &plan.model),
@@ -60,6 +87,60 @@ impl Engine {
         };
 
         (request, answered)
+    }
+
+    /// Whether a request keeps its prompt cache for an hour, as Claude Code does: a conversation (never a worker) on
+    /// a Claude subscription within its limits, or on a route whose one-hour cache option is on.
+    pub(in crate::session) fn hour_cache(&self, plan: &Plan) -> bool {
+        let provider = plan.model_ref.provider.as_str();
+        if plan.session.visibility == crate::session::types::Visibility::Hidden
+            || !provider_options::HOUR_CACHE_PROVIDERS.contains(&provider)
+        {
+            return false;
+        }
+
+        match &plan.credential {
+            Credential::OAuth { .. } if provider == "anthropic" => !self.in_overage(plan.account.as_deref()),
+            Credential::OAuth { .. } => false,
+            Credential::ApiKey { .. } | Credential::Ambient { .. } => self.options_for(provider).hour_cache,
+        }
+    }
+
+    /// How long the provider keeps what this plan's requests cache.
+    fn cache_lifetime(&self, plan: &Plan) -> i64 {
+        if self.hour_cache(plan) {
+            return HOUR_CACHE_MS;
+        }
+
+        let billed_writes = plan.model.cost.cache_write > plan.model.cost.input;
+        match plan.model_ref.provider.as_str() {
+            "openai" if billed_writes => BILLED_WRITES_CACHE_MS,
+            _ => CACHE_MS,
+        }
+    }
+
+    /// Whether the account's last response said it is drawing on paid extra usage.
+    fn in_overage(&self, account: Option<&str>) -> bool {
+        account
+            .and_then(|account| self.limits.get(account))
+            .is_some_and(|limits| limits.overage)
+    }
+
+    /// Whether the next request will find nothing of this conversation in the provider's prompt cache: nothing was
+    /// sent yet, or the last reply came from another model or account, or finished longer ago than the cache lives.
+    /// Only then is changing the request's start, or its account, free.
+    pub(in crate::session) fn cache_cold(&self, plan: &Plan) -> bool {
+        let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
+            return true;
+        };
+        let lifetime = self.cache_lifetime(plan);
+
+        let elsewhere = last.model.as_ref() != Some(&plan.model_ref) || last.account != plan.account;
+        let expired = last
+            .finished_at
+            .is_none_or(|finished| id::now_ms() - finished > lifetime);
+
+        elsewhere || expired
     }
 
     /// The request history starts at the latest summary's kept tail, or at the conversation's beginning.

@@ -1,9 +1,10 @@
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
-import { IconArrowUp, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
+import { IconBranch, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
+import { dictationEnabled, dictationModel, dictationProvider } from "../state/voice";
 import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { removeReviewComment, reviewCommentsFile } from "../state/review-comments";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
@@ -15,7 +16,6 @@ import { modelInstalled, refreshVoiceModels } from "../voice/models";
 import { selectedSession, selectSession } from "../state/selection";
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n";
 import { interruptResponseAnimations } from "./response-animation";
-import { dictationEnabled, dictationModel } from "../state/voice";
 import { createAttachmentStager } from "./composer-attachments";
 import { ComposerMentionMenu } from "./composer-mention-menu";
 import { ComposerSlashMenu } from "./composer-slash-menu";
@@ -23,10 +23,13 @@ import { ComposerAttention } from "./composer-attention";
 import { createWindowFileDrop } from "./composer-drop";
 import { appendDictation } from "../voice/transcript";
 import { activeWorkspace } from "../state/workspaces";
+import { stopReadAloud } from "../voice/read-aloud";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
 import { DictationStatus } from "./composer-voice";
+import { ComposerQueue } from "./composer-queue";
 import { variantNames } from "../engine/catalog";
+import { ComposerSend } from "./composer-send";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
@@ -64,6 +67,8 @@ export function composerSendKey(event: KeyboardEvent, touch: boolean) {
 export function Composer() {
     const engine = useEngine();
     const [manageModels, setManageModels] = createSignal(false);
+    // A new thread may start in its own worktree; the engine makes it before the first reply.
+    const [inWorktree, setInWorktree] = createSignal(false);
     const [fileError, setFileError] = createSignal("");
     const [submissionVersion, setSubmissionVersion] = createSignal(0);
     const [historyNavigation, setHistoryNavigation] = createSignal<{
@@ -103,9 +108,10 @@ export function Composer() {
         patchComposerDraft(key, { text: appendDictation(composerDraft(key).text, segment) });
     }
 
+    // A cloud provider needs no download; a missing key is reported by the first phrase.
     function toggleVoice() {
-        if (!modelInstalled(dictationModel())) return openSettings("Voice");
-        void toggleDictation(appendVoice);
+        if (dictationProvider() === "local" && !modelInstalled(dictationModel())) return openSettings("Voice");
+        void toggleDictation(appendVoice, engine.actions.transcribeSpeech);
     }
 
     const addFiles = createAttachmentStager({
@@ -121,6 +127,7 @@ export function Composer() {
     createEffect(() => {
         const nextScope = scope();
         if (nextScope !== previousScope) {
+            stopReadAloud();
             const navigation = untrack(historyNavigation);
             if (navigation?.saved && composerDraft(navigation.scope) === navigation.displayed) {
                 setComposerDraft(navigation.scope, navigation.saved);
@@ -203,6 +210,8 @@ export function Composer() {
         return pref && variants().includes(pref) ? pref : undefined;
     };
 
+    // Set for the length of one submission sent as a queued prompt rather than a steer.
+    let queueing = false;
     const submit = createComposerSubmit(
         {
             scope,
@@ -219,6 +228,7 @@ export function Composer() {
                     selectedPrefs,
                     selectedModel,
                     selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants),
+                    worktree: !existing && inWorktree(),
                 };
             },
             transform: transformComposerSubmit,
@@ -257,13 +267,17 @@ export function Composer() {
                     agent: prepared.selectedPrefs.agent,
                     variant: prepared.selectedVariant,
                     files,
+                    queue: queueing,
+                    worktree: prepared.worktree,
                 });
                 if (result.ok) clearEdits(id);
+                if (result.ok && prepared.worktree) setInWorktree(false);
 
                 return result;
             },
             admitted(key, snapshot, historyDraft) {
                 stopDictation();
+                stopReadAloud();
                 recordComposerHistory(historyDraft);
                 setHistoryNavigation(null);
                 clearComposerDraft(key, snapshot);
@@ -280,6 +294,16 @@ export function Composer() {
         },
         submissionGuard,
     );
+
+    /** Sends the draft, queued behind the running turn when `queue` is set: Alt+Enter, Alt-click or a long press. */
+    async function submitAs(queue: boolean) {
+        queueing = queue;
+        try {
+            return await submit();
+        } finally {
+            queueing = false;
+        }
+    }
 
     const submitting = () => {
         submissionVersion();
@@ -308,7 +332,7 @@ export function Composer() {
         if (!send) return;
 
         event.preventDefault();
-        void submit();
+        void submitAs(event.altKey);
     }
 
     function browseHistory(event: KeyboardEvent) {
@@ -398,7 +422,7 @@ export function Composer() {
     };
 
     onMount(() => {
-        if (dictationEnabled()) void refreshVoiceModels();
+        if (dictationEnabled() && dictationProvider() === "local") void refreshVoiceModels();
         window.addEventListener("resize", resize);
         onCleanup(() => window.removeEventListener("resize", resize));
         return onKeybind("autoAccept", toggleAutoAccept);
@@ -412,6 +436,7 @@ export function Composer() {
 
     return (
         <div class="composer-shell relative z-10">
+            <Show when={selectedSession()}>{(id) => <ComposerQueue sessionId={id()} />}</Show>
             <ComposerAttention />
             <div class="composer-box relative mx-auto max-w-3xl rounded-2xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
                 <Show when={dropActive() && ready()}>
@@ -457,7 +482,7 @@ export function Composer() {
                         aria-activedescendant={slash.activeOptionId()}
                         rows={1}
                         aria-label={t("prompt.placeholder.simple")}
-                        class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
+                        class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[length:calc(0.925rem*var(--composer-scale,1))] outline-none placeholder:text-ink-faint"
                         placeholder={placeholder()}
                         disabled={!ready()}
                         value={draft()}
@@ -512,6 +537,19 @@ export function Composer() {
                         </Show>
                     </div>
                     <div class="composer-action-buttons ml-auto flex shrink-0 items-center gap-1">
+                        <Show when={!selectedSession()}>
+                            <button
+                                class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+                                classList={{ "text-accent": inWorktree(), "text-ink-faint": !inWorktree() }}
+                                title={t(inWorktree() ? "drift.worktree.startOn" : "drift.worktree.startOff")}
+                                aria-label={t("drift.worktree.start")}
+                                aria-pressed={inWorktree()}
+                                disabled={!ready()}
+                                onClick={() => setInWorktree(!inWorktree())}
+                            >
+                                <IconBranch class="size-3.5" />
+                            </button>
+                        </Show>
                         <Show when={autoAcceptOn()}>
                             <button
                                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
@@ -565,21 +603,19 @@ export function Composer() {
                                 aria-label={t("prompt.action.stop")}
                                 onClick={() => {
                                     interruptResponseAnimations();
+                                    stopReadAloud();
                                     void engine.actions.abort(selectedSession()!);
                                 }}
                             >
                                 <IconStop class="size-3.5" />
                             </button>
                         </Show>
-                        <button
-                            class="composer-submit flex size-7 items-center justify-center rounded-md text-accent transition-colors hover:bg-raised disabled:pointer-events-none disabled:text-ink-faint disabled:opacity-60"
-                            title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-                            aria-label={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+                        <ComposerSend
+                            busy={busy()}
                             disabled={sendDisabled()}
-                            onClick={() => void submit()}
-                        >
-                            <IconArrowUp class="size-4" />
-                        </button>
+                            onSend={() => void submit()}
+                            onQueue={() => void submitAs(true)}
+                        />
                     </div>
                 </div>
             </div>

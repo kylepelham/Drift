@@ -79,6 +79,58 @@ each workspace's threads, newest first, get a heading at each local day they wer
 in, reading Today, Yesterday, a weekday within the past week, or a date (`dayDividers`); the
 headings roll over at midnight without a restart.
 
+## Worktrees
+
+A thread can work on its own branch while the workspace folder stays as it is. Drift makes git
+worktrees with the `git` CLI (no git library) and never merges them back; committing, merging and
+pull requests stay the user's call.
+
+- A worktree lives at `<data>/worktrees/<workspace id>/<name>` on branch `drift/<name>`, made from
+  the commit the session is on. It is never inside the repository, so it never shows in the
+  repository's status, searches or watchers. Uncommitted changes are not copied, and the result says
+  how many were left behind. A workspace that is a subfolder of its repository works in the same
+  subfolder of the worktree.
+- A session row's `worktree` (the name; empty for the workspace folder) says where it works. A turn
+  reads it when it is planned and again before each step, so the tools' workspace (path resolution,
+  permission checks, the shell's folder, checks, formatters, the system prompt's working directory)
+  is the worktree. Config, instruction files and MCP servers stay the workspace folder's. A worktree
+  that is gone sends the session back to the workspace folder.
+- The model gets `worktree_create` (name), `worktree_list`, `worktree_remove` (name, `force`) and
+  `session_move` (a worktree's directory or name, or the workspace folder), offered only when the
+  workspace is inside a git repository.
+- `session_move` saves the move at once, but the turn reads it only between steps: calls made in the
+  same step still run where the session was, and the next request carries the new working directory
+  as an instruction update.
+- Permissions use the kind `worktree`: `create <name>` and `remove <name>` are allowed by default,
+  `remove --force <name>` asks. Without `force`, removal refuses while the worktree has uncommitted
+  changes (untracked files count) and says so. It also refuses while a running conversation works
+  there; the caller must move out first. Conversations left in a removed worktree move to the
+  workspace folder. The branch goes only through `git branch -d`, so only when it is merged into the
+  workspace's current commit; an unmerged branch is always kept.
+- drift.json `worktree.setup` lists shell commands for a new worktree (copy `.env`, install
+  dependencies). Each is a `bash` ask on the create call, judged before anything runs: a `bash` rule
+  can allow it, and auto-accept answers it as it would a shell line. They run in order in the new
+  worktree with `DRIFT_WORKSPACE` and `DRIFT_WORKTREE` set, under the shell time limit (never moved
+  to the background), and stop at the first failure. The nearest file that sets the list wins, so a
+  project's replaces the user's.
+- Undo works inside a worktree: its writes are recorded under the owner `<workspace id>/<name>`, a
+  shadow repository of its own, and removing the worktree forgets that history.
+- A new thread starts in a worktree from the composer's branch button. The prompt carries
+  `worktree: true`, and the turn runs `worktree_create` (named from the prompt's first words and
+  four random hex characters) and `session_move` as its first calls, before the model answers, so
+  setup commands ask like the model's own calls. A prompt into a running turn cannot ask for one
+  (409). The chat header names the branch.
+- Workers share their parent's worktree: a new session row with a parent copies the parent's. A
+  thread spawned from a conversation in a worktree gets its own new worktree, branched from the
+  parent's worktree.
+- The archive purge removes a deleted conversation's worktree when no other conversation works
+  there, nothing is uncommitted and its branch is merged. Anything else stays, listed by
+  `worktree_list`. Moving a conversation to another workspace sends it back to that workspace's
+  folder.
+- Not built yet: asking at purge time about an unmerged worktree, a worktree switch for a thread
+  that already started, a way to remove worktrees from the UI, and the review panel's diff of a
+  worktree (it shows the workspace folder's).
+
 ## Tool rendering
 
 Double-clicking a path anywhere in the window (prose, inline code, code blocks, shell output)
@@ -242,7 +294,16 @@ audio bytes load only when played and require no asset-copy build step. Custom a
 stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
 only the selected non-English catalog loads as a cached Vite chunk. Every locale carries
 every key in `en.ts`; the only exceptions are the invariants listed in
-`tests/settings.test.ts` (product names, `URL`, `GPU`), which fall back to English. UI text,
+`scripts/i18n/invariants.ts` (product names, `URL`, `GPU`), which fall back to English.
+English is written by hand in `en.ts` and nowhere else; `bun run i18n` fills in the rest:
+it translates the keys each locale lacks, every locale at once (Gemini 3.8 Flash by default,
+`DRIFT_I18N_MODEL` for another `provider/model`), sends them through `drift-engined
+--complete` on the user's saved credentials or the provider's environment key, keeps an
+answer only with the same `{{placeholders}}`, and writes each file in `en.ts`'s order, so a
+run adds lines and never changes a translation already there. When an English string's meaning
+changes, `bun run i18n --update <key...>` translates those keys again in every locale.
+`--complete` sits behind the engine's
+`dev-tools` feature, which only `drift-engined` enables. UI text,
 notices and errors the frontend writes itself all go through `t()`; error text the engine
 sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
@@ -294,13 +355,16 @@ Tool errors use the same clickable disclosure as successful tool rows. A prefere
 controls whether a newly failed tool starts expanded or collapsed; it never locks the
 row in that state.
 
-Settings > General > Thinking indicator styles the row a working turn shows. Style is Shimmer
-(the default: the word with a sweep of light), Orbs, Floating motes, Dots, Pulse, Still (the
-word without motion), or one an interface plugin registered (see `extensibility.md`). Color is
-Grey, the theme's accent, or Spectrum (the accent turning slowly through every hue), and Speed
-is Slow, Normal or Fast. A figure can drop the word; Shimmer and Still are the word, so they
-keep it. The reasoning heading shows beside every style, and with reduced motion the figures
-stand still. The choice is one UI preference, `drift.thinking.indicator`.
+Settings > Appearance > Thinking indicator styles the row a working turn shows. Style is Orbs
+(the default), Floating motes, Dots, Pulse, or one an interface plugin registered (see
+`extensibility.md`). Color is Grey, the theme's accent, or Spectrum (the accent's hue turning
+slowly through every hue at the accent's lightness, so a grey accent like Silver gets colour too),
+and Speed is Slow, Normal or Fast. Show text puts text after any style, off by
+default so only the orbs show; its field sets the text, Thinking when left empty. Shimmer the text
+sweeps light across it. With the text off, the word stays for screen readers. The reasoning
+heading shows beside every style, and with reduced motion the figures stand still. The choice is
+one UI preference, `drift.thinking.indicator`; prefs saved when Shimmer and Still were styles start
+from the new default.
 
 Settings > General > Transcript shapes tool rows. A command row shows the model's
 `description` (the command itself when there is none). "Command output" chooses how its output
@@ -308,8 +372,8 @@ shows: Always collapsed (only the row, open one by clicking it), Open while runn
 live output opens once a command has run for five seconds, so quick ones never flash open, and
 folds again when it finishes), or Always open. The setting was a switch before; on reads as Open
 while running and off as Always open. "Group consecutive tool
-calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
-default): two or more consecutive calls of enabled kinds, across the steps of one turn,
+calls" is one multi-select list of kinds (commands, edits, fetches, MCP tools, other; commands on
+by default), labelled None, All or the kinds chosen: two or more consecutive calls of chosen kinds, across the steps of one turn,
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
 progress while one runs. Its time is the wall time at least one of its calls ran, ticking
 while any still runs: calls side by side count once, calls one after another add up, and the
@@ -347,6 +411,10 @@ removing it in either place removes it from both. Sending turns them into one
 `review-comments.md` text attachment naming each file, line number and side with the line
 itself, so the sent message shows a chip rather than the notes; a draft of only notes can
 be sent.
+
+A code review (`/review`, see [code-review.md](code-review.md)) leaves a findings card in the
+transcript; Walk through in diff opens the panel on All changes with each finding as a note
+under its line and a "Finding N of M" stepper above the files.
 
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with

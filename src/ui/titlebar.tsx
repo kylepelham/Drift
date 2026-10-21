@@ -52,7 +52,7 @@ export function WindowControls(props: { offerUpdate?: boolean }) {
             <Show when={update()}>
                 {(version) => (
                     <button
-                        class="mr-2 flex h-6 items-center rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[0.68rem] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-60"
+                        class="mr-2 flex h-6 items-center rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[length:calc(0.68rem*var(--ui-text-scale,1))] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-60"
                         disabled={installing()}
                         onClick={install}
                     >

@@ -144,7 +144,7 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
                                         <div class="min-w-0 flex-1">
                                             <div class="flex items-center gap-2">
                                                 <span class="truncate text-sm font-medium text-ink">{source.name}</span>
-                                                <span class="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[0.65rem] text-ink-muted">
+                                                <span class="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[length:calc(0.65rem*var(--settings-scale,1))] text-ink-muted">
                                                     {t(`drift.registry.sources.kind.${source.source ?? "url"}`)}
                                                 </span>
                                                 <Show when={source.hasToken}>

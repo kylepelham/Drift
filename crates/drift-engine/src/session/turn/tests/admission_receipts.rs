@@ -77,6 +77,7 @@ async fn submit_rejects_bad_plans() {
         variant: None,
         agent: None,
         submission_id: None,
+        worktree: false,
     };
     assert_eq!(
         h.engine.submit(&h.session.id, no_model).await.err(),

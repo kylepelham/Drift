@@ -67,6 +67,7 @@ impl McpTool {
             }
         };
 
+        let _asking = client.service.service().callers.enter(ctx, &self.server);
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
             () = ctx.abort.cancelled() => Err(CallError::Failed("aborted".into())),
@@ -159,12 +160,18 @@ fn behaves_alike(first: &rmcp::model::Tool, second: &rmcp::model::Tool) -> bool 
 const MAX_NAME: usize = 60;
 
 /// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
-pub(crate) const RESERVED: [&str; 7] = [
+pub(crate) const RESERVED: [&str; 13] = [
     "apply_patch",
     "save_image",
+    "generate_image",
+    "report_findings",
     "task_output",
     "task_stop",
     "read_thread",
+    "worktree_create",
+    "worktree_list",
+    "worktree_remove",
+    "session_move",
     "mcp_resources",
     "mcp_read_resource",
 ];

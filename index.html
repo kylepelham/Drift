@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="drift-dark">
+<html lang="en" data-theme="drift-charcoal">
     <head>
         <meta charset="UTF-8" />
         <meta
@@ -13,6 +13,14 @@
             try {
                 const storedTheme = JSON.parse(localStorage.getItem("drift.theme") || "null");
                 if (typeof storedTheme === "string") document.documentElement.dataset.theme = storedTheme;
+                const accent = JSON.parse(localStorage.getItem("drift.theme.accent") || "null");
+                if (typeof accent === "string" && /^[a-z]{1,16}$/.test(accent))
+                    document.documentElement.dataset.accent = accent;
+                if (typeof accent === "string" && /^#[\da-f]{6}$/i.test(accent))
+                    for (const shade of ["--accent-d", "--accent-l"])
+                        document.documentElement.style.setProperty(shade, accent);
+                const corners = JSON.parse(localStorage.getItem("drift.theme.corners") || "null");
+                if (corners === "sharp" || corners === "round") document.documentElement.dataset.corners = corners;
                 const uiFont = JSON.parse(localStorage.getItem("drift.theme.uiFont") || "null");
                 if (typeof uiFont === "string" && uiFont.trim())
                     document.documentElement.style.setProperty("--ui-font", uiFont);

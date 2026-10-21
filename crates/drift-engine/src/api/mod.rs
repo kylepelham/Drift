@@ -1,12 +1,14 @@
 //! HTTP and WebSocket surface. Every route is documented in the OpenAPI the TS client is built from.
 
 mod auth;
+mod browser;
 mod bundles;
 mod cors;
 mod error;
 mod events;
 pub use events::Lease;
 mod health;
+mod images;
 mod local_servers;
 mod mcp;
 mod permissions;
@@ -15,9 +17,12 @@ mod prompts;
 mod provider_accounts;
 mod providers;
 mod questions;
+mod queue;
 mod review;
 mod sessions;
 mod settings;
+mod voice;
+mod websearch;
 mod workspaces;
 
 use std::sync::Arc;
@@ -33,7 +38,7 @@ use crate::Engine;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Drift Engine", version = crate::VERSION),
-    components(schemas(events::Frame, events::Incoming, error::ErrorBody))
+    components(schemas(events::Frame, events::Incoming, error::ErrorBody, crate::browser::ViewInput))
 )]
 struct Api;
 
@@ -44,6 +49,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(session_routes())
         .merge(session_action_routes())
         .merge(settings_routes())
+        .merge(media_routes())
         .merge(plugin_routes())
         .merge(skill_routes())
         .merge(bundle_routes())
@@ -51,6 +57,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(permission_routes())
         .merge(question_routes())
         .merge(task_routes())
+        .merge(browser_routes())
         .merge(mcp_routes())
         .merge(review_routes())
         .routes(routes!(events::get))
@@ -70,6 +77,9 @@ fn session_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::get, sessions::update, sessions::delete))
         .routes(routes!(sessions::messages))
         .routes(routes!(sessions::submit))
+        .routes(routes!(queue::list, queue::add))
+        .routes(routes!(queue::edit, queue::discard))
+        .routes(routes!(queue::send_now))
         .routes(routes!(sessions::abort))
         .routes(routes!(sessions::command))
 }
@@ -96,6 +106,20 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::get, settings::put))
         .routes(routes!(settings::tools))
         .routes(routes!(settings::fetch_registry))
+        .routes(routes!(websearch::get, websearch::put))
+        .routes(routes!(websearch::add_key, websearch::remove_key))
+}
+
+/// Image generation and voice: settings, keys, and the requests they make.
+fn media_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
+        .routes(routes!(images::get, images::put))
+        .routes(routes!(images::set_key))
+        .routes(routes!(images::blob))
+        .routes(routes!(voice::get))
+        .routes(routes!(voice::set_key, voice::remove_key))
+        .routes(routes!(voice::transcribe))
+        .routes(routes!(voice::speak))
 }
 
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -137,7 +161,7 @@ fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::oauth_finish))
         .routes(routes!(local_servers::get, local_servers::set))
         .routes(routes!(provider_accounts::reorder))
-        .routes(routes!(provider_accounts::rename, provider_accounts::remove))
+        .routes(routes!(provider_accounts::change, provider_accounts::remove))
 }
 
 fn permission_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -164,6 +188,19 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(processes::list))
         .routes(routes!(processes::stop))
+}
+
+/// A conversation's browser and its view socket, and what Settings > Browser manages.
+fn browser_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
+        .routes(routes!(browser::get, browser::start))
+        .routes(routes!(browser::stop))
+        .routes(routes!(browser::view))
+        .routes(routes!(browser::engines))
+        .routes(routes!(browser::download))
+        .routes(routes!(browser::set_path))
+        .routes(routes!(browser::workspace))
+        .routes(routes!(browser::save_credential, browser::remove_credential))
 }
 
 fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {

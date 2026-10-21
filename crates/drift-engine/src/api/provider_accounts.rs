@@ -1,4 +1,5 @@
-//! A provider's accounts: several sign-ins used in order, each renamed, moved or signed out on its own.
+//! A provider's accounts: several sign-ins used in order, each renamed, marked cyber verified, moved or signed out
+//! on its own.
 
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ pub(super) struct ProviderAccount {
     /// What it last reported of its subscription's usage; absent until it has answered a request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limits: Option<Limits>,
+    /// The user says it is in its provider's cyber program; after a cyber refusal only such accounts are tried.
+    pub cyber_verified: bool,
 }
 
 impl ProviderAccount {
@@ -39,6 +42,7 @@ impl ProviderAccount {
             id: account.key,
             label: account.label,
             signed_in,
+            cyber_verified: account.cyber_verified,
         }
     }
 }
@@ -50,9 +54,14 @@ pub(super) struct AccountOrderBody {
 }
 
 #[derive(Deserialize, ToSchema)]
-pub(super) struct AccountLabelBody {
-    /// Empty clears the name.
-    pub label: String,
+#[serde(rename_all = "camelCase")]
+pub(super) struct AccountChangeBody {
+    /// A new name; empty clears it. Left out, the name stays.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Whether it is in its provider's cyber program. Left out, it stays as it is.
+    #[serde(default)]
+    pub cyber_verified: Option<bool>,
 }
 
 #[utoipa::path(put, path = "/providers/{id}/accounts", operation_id = "reorderProviderAccounts", request_body = AccountOrderBody, responses((status = 204), (status = 400)))]
@@ -77,18 +86,34 @@ pub(super) async fn reorder(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[utoipa::path(patch, path = "/providers/{id}/accounts/{account}", operation_id = "renameProviderAccount", request_body = AccountLabelBody, responses((status = 204), (status = 404)))]
-pub(super) async fn rename(
+#[utoipa::path(patch, path = "/providers/{id}/accounts/{account}", operation_id = "changeProviderAccount", request_body = AccountChangeBody, responses((status = 204), (status = 400), (status = 404)))]
+pub(super) async fn change(
     State(engine): State<Arc<Engine>>,
     Path((id, account)): Path<(String, String)>,
-    Json(body): Json<AccountLabelBody>,
+    Json(body): Json<AccountChangeBody>,
 ) -> Result<StatusCode, ApiError> {
-    if !engine
-        .credentials
-        .rename_account(&id, &account, &body.label)
-        .map_err(credentials_error)?
-    {
+    let credentials = &engine.credentials;
+    if !credentials.accounts(&id).iter().any(|listed| listed.key == account) {
         return Err(ApiError::not_found("account"));
+    }
+    // Only Anthropic grants its program to an account; OpenAI's Daybreak is a model the user picks.
+    if body.cyber_verified.is_some() && id != "anthropic" {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid",
+            "only Anthropic accounts can be cyber verified",
+        ));
+    }
+
+    if let Some(label) = &body.label {
+        credentials
+            .rename_account(&id, &account, label)
+            .map_err(credentials_error)?;
+    }
+    if let Some(verified) = body.cyber_verified {
+        credentials
+            .set_cyber_verified(&id, &account, verified)
+            .map_err(credentials_error)?;
     }
 
     engine.hub.publish(crate::event::Event::CatalogUpdated {});

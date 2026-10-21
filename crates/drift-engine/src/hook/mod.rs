@@ -7,14 +7,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::websearch::{Hit, SearchError};
+
 mod error;
 mod events;
+pub mod settings;
 #[cfg(feature = "wasm-plugins")]
 pub mod wasm;
 
 pub use error::Error;
 pub use events::relay_session_events;
 pub(crate) use events::session_event;
+pub use settings::Setting;
 
 /// Where a plugin lives and what it may reach: its drift.json entry, its config, and the engine for host calls.
 pub struct Site {
@@ -206,9 +210,26 @@ pub trait Hook: Send + Sync {
 
     async fn session(&self, _event: &SessionEvent) {}
 
+    /// The settings it declares for Settings to draw; none for a plugin built without them.
+    fn settings(&self) -> Vec<Setting> {
+        Vec::new()
+    }
+
     /// Secrets the model must never see, each with the placeholder it sees instead.
     fn replacements(&self) -> Vec<(String, String)> {
         Vec::new()
+    }
+
+    /// Web search providers this plugin answers for, each an id and a display name.
+    fn search_providers(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
+    async fn search(&self, provider: &str, _query: &str, _limit: u32) -> Result<Vec<Hit>, SearchError> {
+        Err(SearchError::Failed(format!(
+            "{} does not search for {provider}",
+            self.name()
+        )))
     }
 }
 
@@ -260,6 +281,9 @@ pub struct PluginInfo {
     /// The host interfaces it imports: `store`, `files`, `process`, `http`.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// What it declares through the `configurable` world; Settings shows a form for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings: Vec<Setting>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -279,6 +303,7 @@ pub struct Hooks {
 pub struct Loaded {
     pub name: String,
     pub capabilities: Vec<String>,
+    pub settings: Vec<Setting>,
     pub hook: Arc<dyn Hook>,
 }
 
@@ -300,6 +325,33 @@ impl Hooks {
         self.masks.read().unwrap().clone()
     }
 
+    /// Every plugin's web search providers, in plugin order; a repeated id keeps its first plugin.
+    pub fn search_providers(&self) -> Vec<(String, String)> {
+        let mut seen = std::collections::HashSet::new();
+        self.hooks
+            .read()
+            .unwrap()
+            .iter()
+            .flat_map(|hook| hook.search_providers())
+            .filter(|(id, _)| seen.insert(id.clone()))
+            .collect()
+    }
+
+    /// Asks the plugin that answers for `provider`.
+    pub async fn search(&self, provider: &str, query: &str, limit: u32) -> Result<Vec<Hit>, SearchError> {
+        let hook = self
+            .hooks
+            .read()
+            .unwrap()
+            .iter()
+            .find(|hook| hook.search_providers().iter().any(|(id, _)| id == provider))
+            .cloned();
+        match hook {
+            Some(hook) => hook.search(provider, query, limit).await,
+            None => Err(SearchError::Failed(format!("no plugin searches for {provider}"))),
+        }
+    }
+
     /// Replaces the loaded plugins; a failed one is reported with its error, a `disabled` one listed and left alone.
     pub async fn load(
         &self,
@@ -319,6 +371,7 @@ impl Hooks {
                     enabled: false,
                     config,
                     capabilities: vec![],
+                    settings: vec![],
                     error: None,
                 });
                 continue;
@@ -344,6 +397,7 @@ impl Hooks {
                         enabled: true,
                         config,
                         capabilities: plugin.capabilities,
+                        settings: plugin.settings,
                         error: None,
                     });
                     hooks.push(plugin.hook);
@@ -354,6 +408,7 @@ impl Hooks {
                     enabled: true,
                     config,
                     capabilities: vec![],
+                    settings: vec![],
                     error: Some(error.to_string()),
                 }),
             }
@@ -376,6 +431,7 @@ impl Hooks {
         Ok(Loaded {
             name: plugin.name().to_owned(),
             capabilities: plugin.capabilities.clone(),
+            settings: plugin.settings(),
             hook: Arc::new(plugin),
         })
     }

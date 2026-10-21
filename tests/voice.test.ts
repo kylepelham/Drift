@@ -271,19 +271,179 @@ test("custom vocabulary becomes a whisper prompt", async () => {
     expect(parseKeyterms(Array.from({ length: 80 }, (_, index) => `term${index}`).join(","))).toHaveLength(maxKeyterms);
 });
 
-test("dictation stays local and gated behind the enable toggle", async () => {
-    const [composer, dictation, capture] = await Promise.all([
+test("dictation is gated behind the enable toggle and never calls a provider from the webview", async () => {
+    const [composer, dictation, capture, readAloud] = await Promise.all([
         Bun.file("src/ui/composer.tsx").text(),
         Bun.file("src/voice/dictation.ts").text(),
         Bun.file("src/voice/capture.ts").text(),
+        Bun.file("src/voice/read-aloud.ts").text(),
     ]);
     expect(composer).toContain("<Show when={dictationEnabled()}>");
     expect(composer).toContain("modelInstalled(dictationModel())");
     expect(composer).toContain("stopDictation()");
-    expect(dictation).toContain('invoke<string>("voice_transcribe"');
+    expect(dictation).toContain('<string>("voice_transcribe"');
     expect(capture).toContain("sampleRate");
-    for (const source of [composer, dictation, capture]) {
-        expect(source).not.toContain("deepgram");
+    for (const source of [composer, dictation, capture, readAloud]) {
+        expect(source).not.toContain("fetch(");
         expect(source).not.toContain("apiKey");
+        expect(source).not.toMatch(/api\.(openai|groq|deepgram|elevenlabs|assemblyai)/);
+    }
+});
+
+test("cloud voices and read aloud are off until picked", async () => {
+    const voice = await import("../src/state/voice");
+    expect(voice.dictationProvider()).toBe("local");
+    expect(voice.readAloudEnabled()).toBeFalse();
+    expect(voice.readAloudAuto()).toBeFalse();
+    expect(voice.speechProvider()).toBe("local");
+    expect(voice.speechVoices()).toEqual({});
+    expect(voice.normalizeChoice(voice.dictationProviders, "deepgram")).toBe("deepgram");
+    expect(voice.normalizeChoice(voice.dictationProviders, "acme")).toBe("local");
+    expect(voice.normalizeChoice(voice.speechProviders, "groq")).toBe("local");
+    expect(voice.normalizeVoices({ openai: " coral ", elevenlabs: 7, acme: "x" })).toEqual({ openai: "coral" });
+    expect(voice.normalizeVoices("nope")).toEqual({});
+});
+
+const labels = { code: "Code block", table: "A table" };
+
+test("read aloud speaks prose and names code blocks, tables and files", async () => {
+    const { speakableText } = await import("../src/voice/speakable");
+    const reply = [
+        "## Done",
+        "",
+        "I changed `src/ui/composer.tsx` and **fixed** the [docs](https://example.com/a) at crates/drift-engine/src/voice/mod.rs:42.",
+        "",
+        "```ts",
+        "const secret = 1;",
+        "```",
+        "",
+        "| a | b |",
+        "|---|---|",
+        "| 1 | 2 |",
+        "",
+        "- Kept `snake_case_name` as it was",
+        "- See https://github.com/foo/bar",
+        "",
+        "> A quoted note",
+        "",
+        "---",
+        "Ready to merge!",
+    ].join("\n");
+    expect(speakableText(reply, labels).split("\n\n")).toEqual([
+        "Done.",
+        "I changed composer.tsx and fixed the docs at mod.rs.",
+        "Code block.",
+        "A table.",
+        "Kept snake_case_name as it was.",
+        "See github.com.",
+        "A quoted note.",
+        "Ready to merge!",
+    ]);
+});
+
+test("a fence opened with tildes or more backticks hides everything until it closes", async () => {
+    const { speakableText } = await import("../src/voice/speakable");
+    const reply = "Before\n````md\n```\nnot this\n```\n````\n~~~\nnor this\n~~~\nAfter";
+    expect(speakableText(reply, labels)).toBe("Before.\n\nCode block.\n\nCode block.\n\nAfter.");
+    expect(speakableText("```\nonly code\n```", labels)).toBe("Code block.");
+    expect(speakableText("", labels)).toBe("");
+});
+
+test("long speech is cut at paragraphs, then sentences, then words", async () => {
+    const { speechChunks } = await import("../src/voice/speakable");
+    expect(speechChunks("One.\n\nTwo.", 100)).toEqual(["One.\n\nTwo."]);
+    expect(speechChunks("First sentence here. Second sentence here.", 25)).toEqual([
+        "First sentence here.",
+        "Second sentence here.",
+    ]);
+    const words = speechChunks("word ".repeat(40).trim(), 50);
+    expect(words.every((chunk) => chunk.length <= 50)).toBeTrue();
+    expect(words.join(" ")).toBe("word ".repeat(40).trim());
+});
+
+test("the local voice never uses an online system voice", async () => {
+    const { localVoices } = await import("../src/voice/read-aloud");
+    const synth = {
+        getVoices: () => [
+            { name: "Microsoft David", localService: true },
+            { name: "Microsoft Aria Online (Natural)", localService: false },
+        ],
+    } as unknown as SpeechSynthesis;
+    expect(localVoices(synth).map((voice) => voice.name)).toEqual(["Microsoft David"]);
+    expect(localVoices(undefined)).toEqual([]);
+});
+
+/** A microphone that hands the worklet's port to the test, so it can speak into it. */
+function fakeMicrophone() {
+    const ports: { onmessage: ((event: MessageEvent) => void) | null }[] = [];
+    const graph = { connect: () => undefined, disconnect: () => undefined };
+    const globals = {
+        navigator: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } },
+        AudioContext: class {
+            state = "running";
+            destination = {};
+            audioWorklet = { addModule: async () => undefined };
+            createMediaStreamSource = () => graph;
+            close = async () => undefined;
+        },
+        AudioWorkletNode: class {
+            port = { onmessage: null };
+            connect = graph.connect;
+            disconnect = graph.disconnect;
+            constructor() {
+                ports.push(this.port);
+            }
+        },
+    };
+    const previous = Object.keys(globals).map(
+        (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
+    );
+    for (const [key, value] of Object.entries(globals))
+        Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+
+    return {
+        speak: () => ports.at(-1)!.onmessage!({ data: new Float32Array(512 * 20).fill(0.3) } as MessageEvent),
+        restore: () => {
+            for (const [key, descriptor] of previous)
+                if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+                else delete (globalThis as Record<string, unknown>)[key];
+        },
+    };
+}
+
+test("a failed cloud phrase is kept for a retry and never sent anywhere else", async () => {
+    const voice = await import("../src/state/voice");
+    const dictation = await import("../src/voice/dictation");
+    const microphone = fakeMicrophone();
+    const sent: string[] = [];
+    const heard: string[] = [];
+    let refuse = true;
+    const transcriber = async (body: { provider: string }) => {
+        sent.push(body.provider);
+        if (refuse) throw new Error("Groq refused the key: invalid");
+        return "Run the tests.";
+    };
+    try {
+        voice.persistDictationEnabled(true);
+        voice.setDictationProvider("groq");
+        await dictation.startDictation((text) => heard.push(text), transcriber);
+        microphone.speak();
+        dictation.stopDictation();
+        await Bun.sleep(20);
+        expect(sent).toEqual(["groq"]);
+        expect(dictation.dictationError()).toBe("Groq refused the key: invalid");
+        expect(dictation.dictationKept()).toBe(1);
+        expect(heard).toEqual([]);
+
+        refuse = false;
+        dictation.retryDictation();
+        await Bun.sleep(20);
+        expect(sent).toEqual(["groq", "groq"]);
+        expect(heard).toEqual(["Run the tests."]);
+        expect(dictation.dictationKept()).toBe(0);
+    } finally {
+        voice.setDictationProvider("local");
+        voice.persistDictationEnabled(false);
+        microphone.restore();
     }
 });

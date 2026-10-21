@@ -86,9 +86,13 @@ function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: 
             class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40"
             onClick={() => props.onToggle()}
         >
-            <span class="min-w-0 flex-1 truncate text-[0.82rem] text-ink">{props.label}</span>
+            <span class="min-w-0 flex-1 truncate text-[length:calc(0.82rem*var(--settings-scale,1))] text-ink">
+                {props.label}
+            </span>
             <Show when={props.count}>
-                <span class="shrink-0 text-[0.72rem] text-ink-faint">{props.count}</span>
+                <span class="shrink-0 text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint">
+                    {props.count}
+                </span>
             </Show>
             <Toggle label={props.label} checked={props.on} onChange={props.onToggle} />
         </div>

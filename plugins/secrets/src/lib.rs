@@ -1,10 +1,12 @@
 //! Keeps secrets from the model: each secret in this plugin's config is swapped for its placeholder in
 //! everything Drift sends to a model, and back in every tool call the model makes. Drift does the
-//! swapping; this plugin only names the pairs, from `config.replacements` (`{ "<secret>": "<placeholder>" }`).
+//! swapping; this plugin only names the pairs, from `config.replacements` (`{ "<secret>": "<placeholder>" }`),
+//! which Settings edits as rows of a secret and its placeholder.
 
 wit_bindgen::generate!({ world: "masking", path: "../../crates/drift-engine/wit" });
 
 use drift::plugin::host::{Level, config, log};
+use drift::plugin::types::{PairsSetting, SettingKind};
 
 struct Secrets;
 
@@ -13,12 +15,28 @@ impl Guest for Secrets {
         "secrets".into()
     }
 
+    fn settings() -> Vec<Setting> {
+        vec![Setting {
+            key: "replacements".into(),
+            label: "Secrets".into(),
+            description: "Each secret is shown to the model as its placeholder, and put back in what the model runs."
+                .into(),
+            kind: SettingKind::Pairs(PairsSetting {
+                default: Vec::new(),
+                key_label: "Secret".into(),
+                value_label: "Placeholder".into(),
+                secret_keys: true,
+                secret_values: false,
+            }),
+        }]
+    }
+
     fn replacements() -> Vec<(String, String)> {
         let config: serde_json::Value = serde_json::from_str(&config()).unwrap_or_default();
         let Some(pairs) = config["replacements"].as_object() else {
             log(
                 Level::Warn,
-                "no replacements configured; set config.replacements to { \"secret\": \"placeholder\" }",
+                "no replacements configured; add them in Settings > Plugins",
             );
             return Vec::new();
         };

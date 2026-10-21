@@ -87,6 +87,14 @@ pub(crate) fn request() -> Request {
         reasoning: None,
         temperature: None,
         cache_key: None,
+        connection: None,
+        effort_marks: Vec::new(),
+        claude: Default::default(),
+        cache_hour: false,
+        cache_conversation: true,
+        cache_writes_billed: false,
+        deferred_tools: Vec::new(),
+        tool_references: Default::default(),
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,
@@ -479,4 +487,37 @@ async fn http_errors_become_api_errors() {
         }
         other => panic!("unexpected {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn every_tool_schema_root_is_an_object_whatever_an_mcp_server_declared() {
+    let (fake, url) = fake(200, "event: message_stop\ndata: {}\n\n").await;
+    let tool = |input_schema: Value| crate::llm::ToolSpec {
+        name: "mcp_tool".into(),
+        description: "d".into(),
+        input_schema,
+    };
+    let mut request = request();
+    request.tools = vec![tool(serde_json::json!({}))];
+    let key = Credential::ApiKey { key: "k".into() };
+    Anthropic::new(&url)
+        .stream(&request, &key)
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+    let sent = fake.seen.lock().unwrap().as_ref().unwrap().body["tools"][0]["input_schema"].clone();
+    assert_eq!(sent, serde_json::json!({ "type": "object" }));
+
+    let properties = serde_json::json!({ "properties": { "q": { "type": "string" } } });
+    assert_eq!(tool(properties).parameters()["type"], "object", "a bare properties map");
+    let either = serde_json::json!({ "anyOf": [{ "type": "object" }, { "type": "array" }] });
+    assert_eq!(
+        tool(either).parameters(),
+        serde_json::json!({ "type": "object" }),
+        "an empty struct's object-or-array union"
+    );
+    let typed = serde_json::json!({ "type": "object", "required": ["q"] });
+    assert_eq!(tool(typed.clone()).parameters(), typed, "a declared root is kept");
 }

@@ -9,6 +9,31 @@ export type DictationModel = (typeof dictationModels)[number];
 export const maxKeyterms = 50;
 const maxKeytermChars = 80;
 
+/** `local` is whisper on this machine; the rest send each phrase to that provider through the engine. */
+export const dictationProviders = ["local", "openai", "groq", "deepgram", "elevenlabs", "assemblyai"] as const;
+export type DictationProvider = (typeof dictationProviders)[number];
+
+/** `local` is the system's own offline voices; the rest send each piece of a reply to that provider. */
+export const speechProviders = ["local", "openai", "elevenlabs"] as const;
+export type SpeechProvider = (typeof speechProviders)[number];
+
+/** OpenAI's built-in speech voices. */
+export const openaiVoices = [
+    "marin",
+    "cedar",
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+] as const;
+
 // Off by default: dictation needs a model download, and most people never dictate.
 export const [dictationEnabled, persistDictationEnabled] = persisted("drift.voice.dictation.enabled", false);
 export const [dictationInputDeviceId, setDictationInputDeviceId] = persisted<string | null>(
@@ -31,6 +56,56 @@ export const [dictationKeyterms, setDictationKeyterms] = persisted<string[]>(
     [],
     normalizeKeyterms,
 );
+// Local by default: a cloud provider is used only once picked here and given a key.
+export const [dictationProvider, setDictationProvider] = persisted<DictationProvider>(
+    "drift.voice.dictation.provider",
+    "local",
+    (value) => normalizeChoice(dictationProviders, value),
+);
+// Off by default: no play button and nothing spoken until turned on.
+export const [readAloudEnabled, setReadAloudEnabled] = persisted(
+    "drift.voice.readAloud.enabled",
+    false,
+    (value) => value === true,
+);
+export const [readAloudAuto, setReadAloudAuto] = persisted(
+    "drift.voice.readAloud.auto",
+    false,
+    (value) => value === true,
+);
+export const [speechProvider, setSpeechProvider] = persisted<SpeechProvider>(
+    "drift.voice.readAloud.provider",
+    "local",
+    (value) => normalizeChoice(speechProviders, value),
+);
+const [voices, setVoices] = persisted<Partial<Record<SpeechProvider, string>>>(
+    "drift.voice.readAloud.voices",
+    {},
+    normalizeVoices,
+);
+/** The voice picked for each speech provider; a missing one is that provider's default. */
+export const speechVoices = voices;
+
+export function normalizeChoice<T extends string>(choices: readonly T[], value: unknown): T {
+    return choices.includes(value as T) ? (value as T) : choices[0]!;
+}
+
+export function normalizeVoices(value: unknown): Partial<Record<SpeechProvider, string>> {
+    if (!value || typeof value !== "object") return {};
+    const voices: Partial<Record<SpeechProvider, string>> = {};
+    for (const provider of speechProviders) {
+        const voice = (value as Record<string, unknown>)[provider];
+        if (typeof voice === "string" && voice.trim()) voices[provider] = voice.trim().slice(0, 200);
+    }
+    return voices;
+}
+
+export function setSpeechVoice(provider: SpeechProvider, voice: string) {
+    const next = { ...speechVoices() };
+    if (voice.trim()) next[provider] = voice.trim();
+    else delete next[provider];
+    setVoices(next);
+}
 
 export function normalizeLanguage(value: unknown): DictationLanguage {
     return dictationLanguages.includes(value as DictationLanguage) ? (value as DictationLanguage) : "en";

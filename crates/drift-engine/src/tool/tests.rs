@@ -93,17 +93,25 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "edit",
             "bash",
             "process",
+            "browser",
             "save_image",
+            "generate_image",
             "glob",
             "grep",
             "webfetch",
+            "websearch",
             "todowrite",
             "question",
             "skill",
+            "report_findings",
             "task",
             "task_output",
             "task_stop",
-            "read_thread"
+            "read_thread",
+            "worktree_create",
+            "worktree_list",
+            "worktree_remove",
+            "session_move"
         ]
     );
     let patching: Vec<String> = registry
@@ -118,17 +126,25 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "apply_patch",
             "bash",
             "process",
+            "browser",
             "save_image",
+            "generate_image",
             "glob",
             "grep",
             "webfetch",
+            "websearch",
             "todowrite",
             "question",
             "skill",
+            "report_findings",
             "task",
             "task_output",
             "task_stop",
-            "read_thread"
+            "read_thread",
+            "worktree_create",
+            "worktree_list",
+            "worktree_remove",
+            "session_move"
         ]
     );
 
@@ -215,6 +231,7 @@ fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
         path: skill_dir.to_string_lossy().into_owned(),
         instructions: String::new(),
         argument_hint: None,
+        builtin: None,
     });
     sandbox.ctx.config = Arc::new(config);
 
@@ -244,6 +261,47 @@ fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
             .default_allow,
         "reading only"
     );
+}
+
+#[test]
+fn a_users_reference_reads_unasked_writes_ask_and_a_projects_grants_nothing() {
+    use crate::config::references::{Place, Reference};
+
+    let mut sandbox = Sandbox::new("reference-read");
+    let outside = canonical(&sandbox.ctx.workspace.parent().unwrap().join("reference-docs"));
+    let theirs = canonical(&sandbox.ctx.workspace.parent().unwrap().join("project-docs"));
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(&theirs).unwrap();
+    let reference = |name: &str, path: &Path, project: bool| Reference {
+        name: name.into(),
+        description: String::new(),
+        place: Place::Folder { path: path.into() },
+        project,
+    };
+    let mut config = (*sandbox.ctx.config).clone();
+    config.references = vec![reference("docs", &outside, false), reference("theirs", &theirs, true)];
+    sandbox.ctx.config = Arc::new(config);
+
+    let read = |path: &Path| sandbox.ctx.ask_to_read(path, "Read").unwrap().default_allow;
+    assert!(read(&outside.join("guide.md")), "a reference read runs unasked");
+    assert!(
+        sandbox
+            .ctx
+            .ask_if_outside("read", &outside, "Search")
+            .unwrap()
+            .default_allow,
+        "and glob may search it"
+    );
+    assert!(!read(&outside.join(".env")), "secrets still ask");
+    assert!(
+        !sandbox
+            .ctx
+            .ask_to_write(&outside.join("guide.md"), "Edit")
+            .unwrap()
+            .default_allow,
+        "a write into it asks"
+    );
+    assert!(!read(&theirs.join("guide.md")), "a project's reference grants nothing");
 }
 
 #[test]

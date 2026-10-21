@@ -36,3 +36,36 @@ test("a path is written with Windows separators on Windows and slashes elsewhere
     expect(nativePath("src\\ui\\markdown.tsx", false)).toBe("src/ui/markdown.tsx");
     expect(nativePath("/home/kyle/drift", false)).toBe("/home/kyle/drift");
 });
+
+test("a path drawn as several pieces is found whole, and a new block is not joined onto it", async () => {
+    const { pathAcross } = await import("../src/ui/path-copy");
+    const highlighted = [
+        { text: "Read ", newBlock: false },
+        { text: "src/ui/", newBlock: false },
+        { text: "composer", newBlock: false },
+        { text: ".tsx", newBlock: false },
+        { text: " (120 lines)", newBlock: false },
+    ];
+    const found = pathAcross(highlighted, { piece: 2, offset: 3 });
+    expect(found?.path).toBe("src/ui/composer.tsx");
+    expect(found?.start).toEqual({ piece: 1, offset: 0 });
+    expect(found?.end).toEqual({ piece: 3, offset: 4 });
+
+    const twoBlocks = [
+        { text: "docs/engine.md", newBlock: false },
+        { text: "notes/plan.md", newBlock: true },
+    ];
+    expect(pathAcross(twoBlocks, { piece: 0, offset: 3 })?.path).toBe("docs/engine.md");
+});
+
+test("a mention copies without its sign, and a code span keeps the spaces of a path but not of a command", async () => {
+    const { wholePath } = await import("../src/ui/path-copy");
+    expect(clicked("look at @src/ui/compo|ser.tsx")).toBe("src/ui/composer.tsx");
+    const program = String.raw`C:\Program Files\Git\bin\bash.exe`;
+    expect(wholePath(program)).toBe(program);
+    expect(wholePath(" src/ui/app.tsx:40 ")).toBe("src/ui/app.tsx");
+    expect(wholePath("src/ui")).toBe("src/ui");
+    expect(wholePath("git checkout -- src/ui/app.tsx")).toBeUndefined();
+    expect(wholePath("https://example.com/a/b")).toBeUndefined();
+    expect(wholePath("Copy")).toBeUndefined();
+});

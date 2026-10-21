@@ -132,22 +132,34 @@ fn path_reason(context: &Context, directory: &Path, word: &str) -> Option<Reason
     })
 }
 
-/// Where a call runs: its `workdir`, which must be a directory inside the workspace, else the workspace.
+/// Where a call runs: its `workdir`, which must be a directory, else the workspace.
 pub(super) fn workdir(context: &Context, input: &Value) -> Result<PathBuf, ToolError> {
     let Some(asked) = input["workdir"].as_str().filter(|directory| !directory.is_empty()) else {
         return Ok(context.workspace.clone());
     };
     let directory = context.resolve(asked);
-    if !context.inside_workspace(&directory) {
-        return Err(ToolError(format!(
-            "workdir {asked} is outside the workspace; use `cd` in the command instead, which asks"
-        )));
-    }
     if !directory.is_dir() {
         return Err(ToolError(format!("workdir {asked} is not a directory")));
     }
 
     Ok(directory)
+}
+
+/// A workdir outside the workspace asks as a leading `cd` there would. The pattern names the
+/// directory, so an exact approval of the line covers only that place.
+pub(super) fn enter_workdir(context: &Context, directory: &Path, ask: &mut Ask) {
+    if context.inside_workspace(directory) {
+        return;
+    }
+
+    let enter = format!("cd {}", directory.display());
+    ask.pattern = format!("{enter} && {}", ask.pattern);
+    if let Some(commands) = &mut ask.commands {
+        commands.insert(0, enter.clone());
+        if !ask.canonical.is_empty() {
+            ask.canonical.insert(0, enter);
+        }
+    }
 }
 
 /// Drops `cd` steps that stay inside the workspace: moving around it changes nothing, so it needs no

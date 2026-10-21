@@ -8,6 +8,7 @@ import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./i
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
 import { selectedSession, selectSession } from "../state/selection";
 import { messageModel, messageProblem } from "../engine/messages";
+import { createAutoRead, ReadAloudButton } from "./reply-voice";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
 import { EditedFilesCard } from "./edited-files-card";
@@ -24,6 +25,12 @@ import { Markdown } from "./markdown";
 import { ToolRun } from "./tool-run";
 import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
+import {
+    InstructionUpdateRow,
+    ResumedRow,
+    type ContinuationPart,
+    type InstructionUpdatePart,
+} from "./instruction-update";
 
 import type { ContextPart, ProcessExitPart } from "../engine/parts";
 import type { Message, MessageProblem } from "../engine/messages";
@@ -79,7 +86,11 @@ export function messageVisible(entry: MessageEntry) {
     if (entry.info.role === "user")
         return (
             !!messageText(entry) ||
-            entry.parts.some((part) => ["file", "compaction", "context", "process_exit"].includes(part.type))
+            entry.parts.some((part) =>
+                ["file", "compaction", "context", "process_exit", "instruction_update", "continuation"].includes(
+                    part.type,
+                ),
+            )
         );
 
     const info = entry.info;
@@ -180,6 +191,9 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const files = () => props.entry.parts.filter((part) => part.type === "file");
     const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
     const exits = () => props.entry.parts.filter((part): part is ProcessExitPart => part.type === "process_exit");
+    const updates = () =>
+        props.entry.parts.filter((part): part is InstructionUpdatePart => part.type === "instruction_update");
+    const resumed = () => props.entry.parts.filter((part): part is ContinuationPart => part.type === "continuation");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -199,6 +213,8 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                 <>
                     <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
                     <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
+                    <For each={updates()}>{(part) => <InstructionUpdateRow part={part} />}</For>
+                    <For each={resumed()}>{(part) => <ResumedRow part={part} />}</For>
                     <Show when={text() || files().length > 0}>
                         <div class="group flex flex-col items-end gap-1.5">
                             <Show when={files().length > 0}>
@@ -233,7 +249,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                     </Show>
                                 </div>
                             </Show>
-                            <div class="message-actions touch-reveal flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+                            <div class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
                                 <span>
                                     {agentLabel(info().agent ?? "build")} · {model()} · {time()}
                                 </span>
@@ -348,6 +364,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
 
     const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
+    createAutoRead(
+        () => props.entry,
+        () => !!props.footer,
+    );
 
     /**
      * A new conversation with this conversation's history through this reply, opened only if the user is still here.
@@ -429,7 +449,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                     <EditedFilesCard entry={props.entry} />
                 </Show>
                 <Show when={props.footer && info().finishedAt}>
-                    <div class="message-actions touch-reveal flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
+                    <div class="message-actions touch-reveal flex items-center gap-3 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
                         <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>
                         <Show when={tokensPerSecond(props.entry)}>
@@ -450,6 +470,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         >
                             <IconCopy class="size-3.5" />
                         </button>
+                        <ReadAloudButton entry={props.entry} />
                         <button
                             title={t("drift.message.forkHere")}
                             class="rounded p-0.5 hover:bg-raised hover:text-ink"

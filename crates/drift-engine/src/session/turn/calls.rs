@@ -1,3 +1,4 @@
+use crate::config::AgentKind;
 use crate::session::changes::Capture;
 use crate::tool::{Output, Tool, ToolError};
 use serde_json::Value;
@@ -185,19 +186,18 @@ impl Engine {
         if let Part::ToolCall { name: stored, .. } = &mut row.part {
             stored.clone_from(&name);
         }
+        // Repaired where the schema leaves one reading; that input is what runs, what plugins see and what is kept.
+        let input = crate::tool::repair::repair(&tool.spec().input_schema, &input);
+        if let Part::ToolCall { input: stored, .. } = &mut row.part {
+            stored.clone_from(&input);
+        }
         if let Some(reason) = invalid_input(tool.as_ref(), &input) {
             self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
 
         // Read-only agents are checked before plugins rewrite arguments, as before permission asks.
-        let agent = &scope.plan.session.agent;
-        let read_only = scope.plan.config.agent(agent).is_some_and(|agent| agent.read_only);
-        if read_only && !tool.stays_read_only(&context, &input) {
-            let reason = format!(
-                "The {agent} agent only reads, so this call was not run: it would change something. \
-                 Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
-            );
+        if let Some(reason) = read_only_refusal(scope.plan, &context, tool.as_ref(), &input) {
             self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
@@ -387,4 +387,36 @@ fn unparsed(input: &Value) -> String {
         "The call did not run: its arguments were not valid JSON ({reason}). They began: {shown}\n\
          Send it again with one JSON object that fits the tool's schema."
     )
+}
+
+/// Why a read-only agent may not make this call, if it may not. A read-only primary agent (plan) may
+/// still write Markdown plans in its workspace's plans folder, and nowhere else. A read-only subagent runs any
+/// shell command, as opencode's explore does: an interpreter or script cannot be shown to only read, and its
+/// prompt keeps it to reading.
+fn read_only_refusal(plan: &Plan, context: &crate::tool::Context, tool: &dyn Tool, input: &Value) -> Option<String> {
+    let agent = &plan.session.agent;
+    let found = plan.config.agent(agent).filter(|found| found.read_only)?;
+    let trusted_shell = found.kind == AgentKind::Subagent && tool.permissions().contains(&"bash");
+    if trusted_shell || tool.stays_read_only(context, input) {
+        return None;
+    }
+    let plans = context.plans_dir().filter(|_| found.kind.runs_conversations());
+    let Some(plans) = plans else {
+        return Some(format!(
+            "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
+        ));
+    };
+
+    let touched = tool.touches(context, input).unwrap_or_default();
+    let only_plans = !touched.is_empty()
+        && touched
+            .iter()
+            .all(|path| crate::session::plans::is_plan_file(&plans, path));
+
+    (!only_plans).then(|| {
+        format!(
+            "The {agent} agent only reads, so this call was not run: it would change something outside {}. It may write Markdown plans there (a `.md` file in that folder) and nowhere else.",
+            plans.display()
+        )
+    })
 }

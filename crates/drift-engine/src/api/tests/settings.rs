@@ -96,16 +96,19 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
         .send()
         .await
         .unwrap();
+    let sent = |index: usize| format!("{:?}", provider.requests.lock().unwrap()[index].messages);
     submit_and_wait(&harness, &session_id, "two").await;
+    assert_eq!(system(1), system(0), "the session's system prompt is frozen");
     assert!(
-        system(1).starts_with("Claude works this way."),
-        "a family's own wins over the one for every model"
+        sent(1).contains("These instructions changed") && sent(1).contains("Claude works this way."),
+        "a family's own wins over the one for every model, and arrives as an update"
     );
     let reset = json_response(harness.delete("/prompts/claude")).await;
     assert!(reset["prompts"][2].get("custom").is_none());
     harness.delete("/prompts/all").send().await.unwrap();
     submit_and_wait(&harness, &session_id, "three").await;
-    assert!(system(2).starts_with("You are Drift"), "reset, Drift's own is back");
+    assert_eq!(system(2), system(0));
+    assert!(sent(2).contains("You are Drift"), "reset, Drift's own is back");
 
     assert_eq!(
         response_status(harness.put("/prompts/claude").json(&json!({ "text": "  " }))).await,

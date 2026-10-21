@@ -26,7 +26,9 @@ export function UsageLimitsSection() {
     return (
         <div class="space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.usage.settingsDescription")}</p>
+                <p class="text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
+                    {t("drift.usage.settingsDescription")}
+                </p>
                 <button
                     class="h-8 shrink-0 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
                     disabled={loading()}
@@ -91,7 +93,7 @@ function PlanBadge(props: { plan: string | null | undefined }) {
     return (
         <Show when={props.plan}>
             {(plan) => (
-                <span class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[0.68rem] text-ink-muted">
+                <span class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-muted">
                     {planLabel(plan())}
                 </span>
             )}

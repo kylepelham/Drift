@@ -4,6 +4,7 @@
 @theme inline {
     --color-bg: var(--bg);
     --color-surface: var(--surface);
+    --color-sidebar: var(--sidebar);
     --color-raised: var(--raised);
     --color-overlay: var(--overlay);
     --color-edge: var(--edge);
@@ -20,102 +21,187 @@
     --font-mono: var(--code-font);
 }
 
-:root,
-:root[data-theme="drift-dark"] {
-    color-scheme: dark;
+/* The default base. Fonts and code sizes live here so every theme shares them. */
+:root {
     --ui-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     --code-font: "Cascadia Code", Consolas, ui-monospace, monospace;
     --code-size: 13px;
     --code-tab-size: 4;
-    --bg: #141517;
-    --surface: #1a1c1f;
-    --raised: #212429;
-    --overlay: #26292f;
-    --edge: #2a2d33;
-    --edge-strong: #3a3e46;
-    --ink: #e8e9eb;
-    --ink-muted: #9da2ab;
-    --ink-faint: #62666e;
-    --accent: #7ba3e8;
-    --accent-ink: #10131a;
-    --ok: #7fc98b;
-    --warn: #e0b56b;
-    --danger: #e07a7a;
 }
 
-:root[data-theme="drift-graphite"] {
+/* The sidebar takes the surface unless a base gives it its own colour. */
+:root,
+[data-theme-preview] {
+    --sidebar: var(--surface);
+}
+
+/* Only the Claude base gives its sidebar a colour of its own; every other base keeps the surface's. */
+:root[data-theme="drift-claude"],
+[data-theme-preview="drift-claude"] {
+    --sidebar: #121211;
+}
+
+/* Bases: the surfaces and text. The names before 2.4.0 stay as aliases until the window renames them. */
+
+/* Claude: warm neutral greys, a sidebar darker than the conversation and a clay accent, as Claude's desktop app,
+   for people who come from it. */
+:root[data-theme="drift-claude"],
+[data-theme-preview="drift-claude"] {
     color-scheme: dark;
-    --bg: #101112;
-    --surface: #18191b;
-    --raised: #222326;
-    --overlay: #292a2e;
-    --edge: #303136;
-    --edge-strong: #46484f;
-    --ink: #eeeeef;
-    --ink-muted: #a5a6aa;
-    --ink-faint: #66686e;
-    --accent: #b7b9c2;
-    --accent-ink: #151619;
-    --ok: #80c995;
-    --warn: #ddb36b;
-    --danger: #e27d7d;
+    --bg: #171715;
+    --surface: #201f1d;
+    --raised: #292826;
+    --overlay: #2b2a28;
+    --edge: #2e2d2a;
+    --edge-strong: #43413d;
+    --ink: #f5f4ef;
+    --ink-muted: #c2c0b6;
+    --ink-faint: #8f8d85;
+    --accent-d: #d97757;
+    --accent-l: #c15f3c;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
 }
 
-:root[data-theme="drift-midnight"] {
+/* The default Drift base (id drift-charcoal, named Charcoal before): neutral greys with the orange accent.
+   Drift Dark (before 2.4.0) is the same base. */
+:root,
+:root[data-theme="drift-charcoal"],
+:root[data-theme="drift-dark"],
+:root[data-theme="drift-default"],
+:root[data-theme="drift-graphite"],
+[data-theme-preview="drift-charcoal"] {
     color-scheme: dark;
-    --bg: #0c1020;
-    --surface: #12182b;
-    --raised: #19223a;
-    --overlay: #202b47;
-    --edge: #253150;
-    --edge-strong: #34456e;
-    --ink: #e4e9f6;
-    --ink-muted: #9ba8c5;
-    --ink-faint: #5c6988;
-    --accent: #8aa8ff;
-    --accent-ink: #0b1020;
-    --ok: #7bcba2;
-    --warn: #e2b76e;
-    --danger: #ea818b;
+    --bg: #181818;
+    --surface: #1f1f1f;
+    --raised: #282828;
+    --overlay: #2e2e2e;
+    --edge: #303030;
+    --edge-strong: #454545;
+    --ink: #ececec;
+    --ink-muted: #ababab;
+    --ink-faint: #7d7d7d;
+    --accent-d: #f3a25f;
+    --accent-l: #c45c17;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
 }
 
-:root[data-theme="drift-slate"] {
+:root[data-theme="drift-black"],
+[data-theme-preview="drift-black"] {
     color-scheme: dark;
-    --bg: #0f1419;
-    --surface: #151b22;
-    --raised: #1b232c;
-    --overlay: #202a35;
-    --edge: #243040;
-    --edge-strong: #32425a;
-    --ink: #dde5ee;
-    --ink-muted: #92a0b3;
-    --ink-faint: #5a6779;
-    --accent: #6cb2c9;
-    --accent-ink: #0a1218;
-    --ok: #7fc98b;
-    --warn: #e0b56b;
-    --danger: #e07a7a;
+    --bg: #000000;
+    --surface: #0c0c0c;
+    --raised: #171717;
+    --overlay: #1c1c1c;
+    --edge: #242424;
+    --edge-strong: #383838;
+    --ink: #ededed;
+    --ink-muted: #a8a8a8;
+    --ink-faint: #787878;
+    --accent-d: #7aa2f7;
+    --accent-l: #2563d9;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
 }
 
-:root[data-theme="drift-forest"] {
+:root[data-theme="drift-dim"],
+[data-theme-preview="drift-dim"] {
     color-scheme: dark;
-    --bg: #0f1512;
-    --surface: #161e19;
-    --raised: #1d2922;
-    --overlay: #243229;
-    --edge: #29392f;
-    --edge-strong: #395040;
-    --ink: #e1e9e3;
-    --ink-muted: #99aa9e;
-    --ink-faint: #5c6d61;
-    --accent: #82c99a;
-    --accent-ink: #0c1610;
-    --ok: #82c99a;
-    --warn: #dfb873;
-    --danger: #df7d7d;
+    --bg: #22252a;
+    --surface: #282b31;
+    --raised: #31353c;
+    --overlay: #363a42;
+    --edge: #3b3f47;
+    --edge-strong: #50555f;
+    --ink: #e8eaed;
+    --ink-muted: #adb2ba;
+    --ink-faint: #838891;
+    --accent-d: #7aa2f7;
+    --accent-l: #2563d9;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
 }
 
-:root[data-theme="drift-aubergine"] {
+:root[data-theme="drift-mocha"],
+[data-theme-preview="drift-mocha"] {
+    color-scheme: dark;
+    --bg: #1b1714;
+    --surface: #221d1a;
+    --raised: #2b2521;
+    --overlay: #312a25;
+    --edge: #382f2a;
+    --edge-strong: #4e433b;
+    --ink: #eee6dd;
+    --ink-muted: #b8ab9e;
+    --ink-faint: #8b7e72;
+    --accent-d: #df8a63;
+    --accent-l: #b9572f;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
+}
+
+:root[data-theme="drift-midnight"],
+:root[data-theme="drift-slate"],
+[data-theme-preview="drift-midnight"] {
+    color-scheme: dark;
+    --bg: #0e1218;
+    --surface: #131922;
+    --raised: #1a212c;
+    --overlay: #1f2733;
+    --edge: #242d3a;
+    --edge-strong: #364256;
+    --ink: #e3e9f1;
+    --ink-muted: #a1adbd;
+    --ink-faint: #737f91;
+    --accent-d: #7aa2f7;
+    --accent-l: #2563d9;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
+}
+
+:root[data-theme="drift-forest"],
+[data-theme-preview="drift-forest"] {
+    color-scheme: dark;
+    --bg: #111613;
+    --surface: #161c18;
+    --raised: #1d2520;
+    --overlay: #222b25;
+    --edge: #27312b;
+    --edge-strong: #39473e;
+    --ink: #e2eae4;
+    --ink-muted: #a3b1a7;
+    --ink-faint: #75857a;
+    --accent-d: #7ccf8e;
+    --accent-l: #24804a;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
+}
+
+:root[data-theme="drift-plum"],
+:root[data-theme="drift-aubergine"],
+[data-theme-preview="drift-plum"] {
     color-scheme: dark;
     --bg: #171119;
     --surface: #211824;
@@ -126,75 +212,179 @@
     --ink: #eee5f0;
     --ink-muted: #b09db4;
     --ink-faint: #725e76;
-    --accent: #d29ad8;
-    --accent-ink: #1d1120;
+    --accent-d: #d29ad8;
+    --accent-l: #9a4fa3;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #1d1120);
     --ok: #83c896;
     --warn: #dfb46e;
     --danger: #e47e8a;
 }
 
-:root[data-theme="drift-light"] {
+:root[data-theme="drift-light"],
+[data-theme-preview="drift-light"] {
     color-scheme: light;
-    --bg: #f4f4f5;
-    --surface: #fbfbfc;
+    --bg: #f6f6f6;
+    --surface: #fbfbfb;
     --raised: #ffffff;
     --overlay: #ffffff;
-    --edge: #e2e3e6;
-    --edge-strong: #c9cbd1;
-    --ink: #1d1f23;
-    --ink-muted: #5c6067;
-    --ink-faint: #9a9ea6;
-    --accent: #3a6fd8;
-    --accent-ink: #ffffff;
-    --ok: #2e8b47;
-    --warn: #a8721c;
-    --danger: #c04747;
+    --edge: #e3e3e3;
+    --edge-strong: #c9c9c9;
+    --ink: #1b1b1b;
+    --ink-muted: #575757;
+    --ink-faint: #7d7d7d;
+    --accent-d: #7aa2f7;
+    --accent-l: #2563d9;
+    --accent: var(--accent-l);
+    --accent-ink: var(--accent-ink-l, #ffffff);
+    --ok: #24804a;
+    --warn: #956b0c;
+    --danger: #c93a3a;
 }
 
-:root[data-theme="drift-paper"] {
+:root[data-theme="drift-paper"],
+[data-theme-preview="drift-paper"] {
     color-scheme: light;
-    --bg: #eee9df;
-    --surface: #f7f3eb;
-    --raised: #fffdf8;
-    --overlay: #fffdf9;
-    --edge: #ded6c8;
-    --edge-strong: #c5baa8;
-    --ink: #292722;
-    --ink-muted: #666056;
-    --ink-faint: #9c9487;
-    --accent: #97643c;
-    --accent-ink: #ffffff;
-    --ok: #397b4b;
-    --warn: #98681f;
-    --danger: #b54a48;
+    --bg: #f4f1e9;
+    --surface: #f9f7f1;
+    --raised: #fffdf9;
+    --overlay: #ffffff;
+    --edge: #e4ded2;
+    --edge-strong: #cbc2b2;
+    --ink: #2a2620;
+    --ink-muted: #605950;
+    --ink-faint: #857c70;
+    --accent-d: #df8a63;
+    --accent-l: #b9572f;
+    --accent: var(--accent-l);
+    --accent-ink: var(--accent-ink-l, #ffffff);
+    --ok: #24804a;
+    --warn: #956b0c;
+    --danger: #c93a3a;
 }
 
-:root[data-theme="drift-custom"] {
+/* A custom base is the user's three colours; layers step from the surface's own lightness. */
+:root[data-theme="drift-custom"],
+[data-theme-preview="drift-custom"] {
     color-scheme: dark;
     --bg: var(--custom-bg);
     --surface: var(--custom-surface);
     --raised: color-mix(in srgb, var(--custom-surface) 94%, white);
     --overlay: color-mix(in srgb, var(--custom-surface) 90%, white);
     --edge: color-mix(in srgb, var(--custom-surface) 88%, white);
-    --edge-strong: color-mix(in srgb, var(--custom-surface) 78%, white);
+    --edge-strong: color-mix(in srgb, var(--custom-surface) 76%, white);
     --ink: var(--custom-ink);
-    --ink-muted: color-mix(in srgb, var(--custom-ink) 67%, var(--custom-bg));
-    --ink-faint: color-mix(in srgb, var(--custom-ink) 42%, var(--custom-bg));
-    --accent: var(--custom-accent);
-    --accent-ink: var(--custom-bg);
-    --ok: #7fc98b;
-    --warn: #e0b56b;
-    --danger: #e07a7a;
+    --ink-muted: color-mix(in srgb, var(--custom-ink) 70%, var(--custom-bg));
+    --ink-faint: color-mix(in srgb, var(--custom-ink) 50%, var(--custom-bg));
+    --accent-d: var(--custom-accent);
+    --accent-l: var(--custom-accent);
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, var(--custom-bg));
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
 }
 
-/* Layers step up from the surface's own lightness, as the built-in themes do; the text colour never tints them. */
+:root[data-theme="drift-custom"][data-tone="light"] {
+    color-scheme: light;
+    --raised: color-mix(in srgb, var(--custom-surface) 94%, black);
+    --overlay: color-mix(in srgb, var(--custom-surface) 97%, black);
+    --edge: color-mix(in srgb, var(--custom-surface) 88%, black);
+    --edge-strong: color-mix(in srgb, var(--custom-surface) 76%, black);
+    --accent: var(--accent-l);
+    --accent-ink: var(--accent-ink-l, #ffffff);
+    --ok: #24804a;
+    --warn: #956b0c;
+    --danger: #c93a3a;
+}
+
 @supports (color: oklch(from red l c h)) {
-    :root[data-theme="drift-custom"] {
+    :root[data-theme="drift-custom"]:not([data-tone="light"]),
+    [data-theme-preview="drift-custom"] {
         --raised: oklch(from var(--custom-surface) calc(l + 0.03) c h);
         --overlay: oklch(from var(--custom-surface) calc(l + 0.05) c h);
         --edge: oklch(from var(--custom-surface) calc(l + 0.065) c h);
         --edge-strong: oklch(from var(--custom-surface) calc(l + 0.13) c h);
     }
+}
+
+/* Accents, after the bases so a chosen one wins over a base's own: each has a shade for dark and light bases. */
+
+:root[data-accent="blue"],
+[data-accent="blue"] {
+    --accent-d: #7aa2f7;
+    --accent-l: #2563d9;
+}
+
+:root[data-accent="violet"],
+[data-accent="violet"] {
+    --accent-d: #a78bfa;
+    --accent-l: #6d47d9;
+}
+
+:root[data-accent="pink"],
+[data-accent="pink"] {
+    --accent-d: #ec8fc6;
+    --accent-l: #c2367f;
+}
+
+:root[data-accent="red"],
+[data-accent="red"] {
+    --accent-d: #f2797c;
+    --accent-l: #c93a3a;
+}
+
+:root[data-accent="orange"],
+[data-accent="orange"] {
+    --accent-d: #f3a25f;
+    --accent-l: #c45c17;
+}
+
+:root[data-accent="amber"],
+[data-accent="amber"] {
+    --accent-d: #e8c170;
+    --accent-l: #956b0c;
+}
+
+:root[data-accent="green"],
+[data-accent="green"] {
+    --accent-d: #7ccf8e;
+    --accent-l: #24804a;
+}
+
+:root[data-accent="teal"],
+[data-accent="teal"] {
+    --accent-d: #5ec7c2;
+    --accent-l: #1b7f7a;
+}
+
+:root[data-accent="clay"],
+[data-accent="clay"] {
+    --accent-d: #df8a63;
+    --accent-l: #b9572f;
+}
+
+:root[data-accent="silver"],
+[data-accent="silver"] {
+    --accent-d: #cfcfcf;
+    --accent-l: #3f3f3f;
+}
+
+/* Corner styles scale Tailwind's radius steps; the default leaves them as they are. */
+:root[data-corners="sharp"] {
+    --radius-sm: 0.125rem;
+    --radius-md: 0.1875rem;
+    --radius-lg: 0.25rem;
+    --radius-xl: 0.375rem;
+    --radius-2xl: 0.5rem;
+}
+
+:root[data-corners="round"] {
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    --radius-2xl: 1.25rem;
 }
 
 html,
@@ -250,6 +440,15 @@ textarea {
     display: none;
 }
 
+/* The browser's tabs narrow before they scroll, so a bar would only show in the rare overflow. */
+.browser-tabs {
+    scrollbar-width: none;
+}
+
+.browser-tabs::-webkit-scrollbar {
+    display: none;
+}
+
 ::selection {
     background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
@@ -299,6 +498,30 @@ textarea {
     animation: pop-in 130ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
+/* A browser tab still on its way: shown only when it takes longer than a blink. */
+.browser-loading {
+    animation: fade-in 120ms 150ms ease-out both;
+}
+
+.browser-loading-bar {
+    animation: browser-loading-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes browser-loading-slide {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(250%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .browser-loading-bar {
+        animation: pulse-soft 1.4s ease-in-out infinite;
+    }
+}
+
 @keyframes fade-in {
     from {
         opacity: 0;
@@ -329,6 +552,25 @@ textarea {
         both;
 }
 
+/* A dropdown in a settings row reads as a field: inset from the panel, its text from the left. */
+.settings-row-control .picker-trigger {
+    height: 2rem;
+    border-color: var(--edge-strong);
+    background: color-mix(in srgb, var(--bg) 70%, var(--overlay));
+    padding-inline: 0.625rem;
+    color: var(--ink);
+    text-align: left;
+}
+
+.settings-row-control .picker-trigger:hover {
+    background: var(--bg);
+}
+
+.settings-row-control .picker-trigger .picker-label {
+    max-width: none;
+    font-weight: 400;
+}
+
 .picker-label-compact {
     display: none;
 }
@@ -350,6 +592,20 @@ textarea {
     background: linear-gradient(to top, color-mix(in srgb, var(--bg) 96%, transparent), transparent);
 }
 
+/* With a picture behind the conversation, the dock lets it run to the bottom and the composer floats on it. */
+.chat-pane:has(.chat-backdrop) .composer-dock {
+    background: transparent;
+}
+
+.chat-pane:has(.chat-backdrop) .composer-dock::before {
+    display: none;
+}
+
+.chat-pane:has(.chat-backdrop) .composer-box {
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(14px);
+}
+
 .settings-header {
     position: relative;
     background: var(--overlay);
@@ -362,6 +618,86 @@ textarea {
     height: 0.9rem;
     pointer-events: none;
     background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
+}
+
+/* Text sizes per area. Tailwind's text steps read these variables, so an area sets its own and its text follows;
+   one-off sizes in its components multiply by the same scale. Everything outside an area takes the interface's. */
+:root {
+    --text-xs: calc(0.75rem * var(--ui-text-scale, 1));
+    --text-sm: calc(0.875rem * var(--ui-text-scale, 1));
+    --text-base: calc(1rem * var(--ui-text-scale, 1));
+    --text-lg: calc(1.125rem * var(--ui-text-scale, 1));
+    --text-2xl: calc(1.5rem * var(--ui-text-scale, 1));
+    --text-3xl: calc(1.875rem * var(--ui-text-scale, 1));
+}
+
+.app-sidebar {
+    --text-xs: calc(0.75rem * var(--sidebar-scale, 1));
+    --text-sm: calc(0.875rem * var(--sidebar-scale, 1));
+    --text-base: calc(1rem * var(--sidebar-scale, 1));
+    --text-lg: calc(1.125rem * var(--sidebar-scale, 1));
+    --text-2xl: calc(1.5rem * var(--sidebar-scale, 1));
+    --text-3xl: calc(1.875rem * var(--sidebar-scale, 1));
+}
+
+.settings-scale {
+    --text-xs: calc(0.75rem * var(--settings-scale, 1));
+    --text-sm: calc(0.875rem * var(--settings-scale, 1));
+    --text-base: calc(1rem * var(--settings-scale, 1));
+    --text-lg: calc(1.125rem * var(--settings-scale, 1));
+    --text-2xl: calc(1.5rem * var(--settings-scale, 1));
+    --text-3xl: calc(1.875rem * var(--settings-scale, 1));
+}
+
+/* Icons grow from their centre, so a larger one never moves the button around it. */
+.app-icon {
+    scale: var(--icon-scale, 1);
+}
+
+/* Settings' nav sits a shade apart from its pages: a little of the conversation's background in the panel's. */
+.settings-nav-panel {
+    background: color-mix(in srgb, var(--overlay) 72%, var(--bg));
+}
+
+/* The chosen accent's ring is a shadow around the dot itself, so it stays centred at any display scale. */
+.accent-dot-chosen {
+    box-shadow:
+        0 0 0 2px var(--overlay),
+        0 0 0 4px var(--ink);
+}
+
+/* Settings sliders: a thin track filled in the accent up to the thumb. */
+.drift-slider {
+    width: 9rem;
+    height: 1.25rem;
+    appearance: none;
+    cursor: pointer;
+    background: transparent;
+}
+
+.drift-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) var(--fill), var(--edge-strong) var(--fill));
+}
+
+.drift-slider::-webkit-slider-thumb {
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    appearance: none;
+    border: 2px solid var(--surface);
+    border-radius: 999px;
+    background: var(--ink);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.drift-slider:focus-visible {
+    outline: none;
+}
+
+.drift-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .response-speed-slider {
@@ -429,6 +765,11 @@ textarea {
     box-shadow: 0 -14px 38px color-mix(in srgb, black 18%, transparent);
 }
 
+/* Docks stacked on each other tuck in as the last one tucks into the composer: the stack's gap would add 0.5rem. */
+.composer-attention-stack > .composer-layer-card + .composer-layer-card {
+    margin-top: -0.5rem;
+}
+
 .drift-wordmark {
     color: color-mix(in srgb, var(--ink) 72%, var(--accent));
     font-size: 0.66rem;
@@ -494,15 +835,16 @@ textarea {
     transform-origin: 50% 42%;
 }
 
-.startup-splash[data-mascot="bounce"] .startup-jelly {
+/* The mascot swims wherever a container names a motion: the splash, and the empty chat pane. */
+[data-mascot="bounce"] .startup-jelly {
     animation: startup-jelly-bounce 900ms ease-in-out infinite alternate;
 }
 
-.startup-splash[data-mascot="float"] .startup-jelly {
+[data-mascot="float"] .startup-jelly {
     animation: startup-jelly-float 1.7s ease-in-out infinite alternate;
 }
 
-.startup-splash[data-mascot="pulse"] .startup-jelly {
+[data-mascot="pulse"] .startup-jelly {
     animation: startup-jelly-pulse 1.2s ease-in-out infinite alternate;
 }
 
@@ -873,8 +1215,12 @@ textarea {
     --thinking-color: var(--accent);
 }
 
-.thinking-indicator[data-tint="spectrum"] :is(.thinking-figure, .thinking-label, [data-component="text-shimmer"]) {
-    animation: thinking-hue calc(6s * var(--thinking-speed)) linear infinite;
+/* Spectrum turns the accent's hue, keeping its lightness, with a floor on chroma so a grey accent still has colour. */
+@supports (color: oklch(from red l c h)) {
+    .thinking-indicator[data-tint="spectrum"] {
+        --thinking-color: oklch(from var(--accent) l max(c, 0.13) calc(h + var(--thinking-hue)));
+        animation: thinking-hue calc(6s * var(--thinking-speed)) linear infinite;
+    }
 }
 
 .thinking-indicator:not([data-tint="neutral"]) [data-component="text-shimmer"] {
@@ -908,11 +1254,11 @@ textarea {
     background: var(--thinking-color);
 }
 
-.thinking-indicator[data-style="orbs"] .thinking-figure {
+.thinking-figure[data-look="orbs"] {
     animation: thinking-spin calc(1.8s * var(--thinking-speed)) linear infinite;
 }
 
-.thinking-indicator[data-style="orbs"] .thinking-piece {
+.thinking-figure[data-look="orbs"] .thinking-piece {
     top: calc(50% - 0.16rem);
     left: calc(50% - 0.16rem);
     width: 0.32rem;
@@ -923,7 +1269,7 @@ textarea {
     animation-delay: calc(var(--i) * -0.4s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="float"] .thinking-piece {
+.thinking-figure[data-look="float"] .thinking-piece {
     bottom: 0;
     left: calc(var(--i) * 0.2rem);
     width: 0.2rem;
@@ -934,14 +1280,14 @@ textarea {
     animation-delay: calc(var(--i) * -0.44s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="dots"] .thinking-figure {
+.thinking-figure[data-look="dots"] {
     display: inline-flex;
     align-items: center;
     gap: 0.16rem;
     width: auto;
 }
 
-.thinking-indicator[data-style="dots"] .thinking-piece {
+.thinking-figure[data-look="dots"] .thinking-piece {
     position: static;
     width: 0.26rem;
     height: 0.26rem;
@@ -949,7 +1295,7 @@ textarea {
     animation-delay: calc(var(--i) * 0.15s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="pulse"] .thinking-piece {
+.thinking-figure[data-look="pulse"] .thinking-piece {
     top: calc(50% - 0.22rem);
     left: calc(50% - 0.22rem);
     width: 0.44rem;
@@ -1006,18 +1352,26 @@ textarea {
     }
 }
 
+/* Registered so the hue interpolates instead of flipping at the end; a number, since `h + 1deg` is invalid. */
+@property --thinking-hue {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 0;
+}
+
 @keyframes thinking-hue {
     to {
-        filter: hue-rotate(360deg);
+        --thinking-hue: 360;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .thinking-indicator,
     .thinking-indicator :is(.thinking-figure, .thinking-piece, .thinking-label, [data-component="text-shimmer"]) {
         animation: none !important;
     }
 
-    .thinking-indicator[data-style="float"] .thinking-piece {
+    .thinking-figure[data-look="float"] .thinking-piece {
         opacity: 0.7;
         bottom: calc(var(--i) * 0.15rem);
     }
@@ -1119,7 +1473,7 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .startup-splash[data-mascot] .startup-jelly {
+    [data-mascot] .startup-jelly {
         animation: none;
     }
 
@@ -1157,8 +1511,9 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
     }
 }
 
+/* Conversation text follows Settings' size for it; headings are sized against it so they keep their steps. */
 .md {
-    font-size: 0.9375rem;
+    font-size: calc(0.9375rem * var(--conversation-scale, 1));
     line-height: 1.65;
     word-break: break-word;
 }
@@ -1181,15 +1536,15 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 .md :where(h1) {
-    font-size: 1.0625rem;
+    font-size: 1.1333em;
 }
 
 .md :where(h2) {
-    font-size: 0.9375rem;
+    font-size: 1em;
 }
 
 .md :where(h3, h4) {
-    font-size: 0.8125rem;
+    font-size: 0.8667em;
     font-weight: 500;
 }
 

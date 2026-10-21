@@ -7,6 +7,9 @@ pub(in crate::session) struct Settlement {
     pub metadata: Option<ToolMetadata>,
 }
 
+/// How much of a cut-off call's input its error repeats.
+const CUT_OFF_EXCERPT: usize = 2048;
+
 impl Settlement {
     pub(in crate::session) fn new(
         status: ToolStatus,
@@ -155,6 +158,32 @@ impl Engine {
             ) {
                 self.settle(&mut row, Settlement::error(format!("Not run: {reason}")));
             }
+        }
+    }
+
+    /// Closes the calls a reply cut off at its output limit, each with the start of the input it was writing,
+    /// so the model can send it again in smaller pieces.
+    pub(super) fn settle_cut_off(&self, message: &Message) {
+        let Ok(Some(found)) = self.store.with_parts(&message.id) else {
+            return;
+        };
+
+        for mut row in found.parts {
+            let Part::ToolCall {
+                status: ToolStatus::Pending,
+                input,
+                ..
+            } = &row.part
+            else {
+                continue;
+            };
+            let input = input.as_str().map_or_else(|| input.to_string(), str::to_string);
+            let excerpt: String = input.chars().take(CUT_OFF_EXCERPT).collect();
+            let reason = format!(
+                "Not run: the reply hit its output limit while writing this call, so its input is cut short. \
+                 It began:\n{excerpt}\nSplit the payload into smaller pieces: several smaller writes or edits."
+            );
+            self.settle(&mut row, Settlement::error(reason));
         }
     }
 

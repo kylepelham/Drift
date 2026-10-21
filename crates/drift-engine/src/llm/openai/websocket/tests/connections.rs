@@ -6,15 +6,27 @@ use super::*;
 async fn conversations_credentials_and_mode_headers_never_share_a_connection() {
     let h = fixture(Server::default(), None).await;
 
-    // Two conversations at once.
+    // Two conversations at once, sharing one cache as a worker and its parent do.
     let mut other = request();
-    other.cache_key = Some("other".into());
+    other.connection = Some("other".into());
     let (first, credential) = (request(), key());
     let (a, b) = tokio::join!(
         collect(&h.provider, &first, &credential),
         collect(&h.provider, &other, &credential)
     );
     assert!(a.iter().chain(&b).all(Result::is_ok));
+    assert_eq!(
+        h.server.connections(),
+        2,
+        "one socket each, never a shared continuation"
+    );
+    for index in 0..2 {
+        assert_eq!(
+            h.server.body(index)["prompt_cache_key"],
+            "session",
+            "both keep the shared cache"
+        );
+    }
 
     // The same conversation under another key.
     let different = Credential::ApiKey {
@@ -84,6 +96,25 @@ async fn a_quiet_connection_answers_pings_while_tools_run_and_stays_open() {
 
     assert_eq!(h.server.pongs.load(Ordering::SeqCst), 1);
     assert_eq!(h.server.connections(), 1);
+}
+
+#[tokio::test]
+async fn a_notification_between_responses_keeps_the_connection_and_its_chain() {
+    let h = fixture(
+        Server {
+            notify_idle: true,
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+
+    collect(&h.provider, &request(), &key()).await;
+    eventually(async || h.server.closed.load(Ordering::SeqCst) > 0).await;
+    collect(&h.provider, &continued(request()), &key()).await;
+
+    assert_eq!(h.server.connections(), 1);
+    assert_eq!(h.server.body(1)["previous_response_id"], "resp_1");
 }
 
 #[tokio::test]

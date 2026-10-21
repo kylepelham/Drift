@@ -2,11 +2,14 @@
 
 pub mod api;
 pub mod background;
+pub mod browser;
+pub mod code_review;
 pub mod config;
 pub mod edit;
 pub mod event;
 pub mod hook;
 pub mod id;
+pub mod imagegen;
 pub mod llm;
 pub mod lsp;
 pub mod mcp;
@@ -16,6 +19,9 @@ pub mod question;
 pub mod session;
 pub mod store;
 pub mod tool;
+pub mod voice;
+pub mod websearch;
+pub mod worktree;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -94,10 +100,18 @@ pub struct Engine {
     pub unserved: llm::limits::Unserved,
     /// Shell commands running in the background, by the conversation that started them.
     pub processes: background::Processes,
+    /// Each conversation's browser, started by the `browser` tool.
+    pub browsers: browser::Browsers,
+    /// Engines Drift is downloading for the browser tool.
+    pub(crate) browser_downloads: browser::engines::Downloads,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
     pub hooks: hook::Hooks,
+    /// Which web search keys cool or were refused, and the provider each session last used.
+    pub(crate) search_routing: websearch::Routing,
+    /// The reference repositories being cloned or fetched now.
+    pub(crate) reference_fetches: session::references::Fetches,
     /// The engine itself, for work started from a call that only borrows it (a workspace's MCP servers, from planning).
     me: std::sync::Weak<Engine>,
 }
@@ -119,8 +133,12 @@ impl Engine {
     pub fn open_with(data_dir: &Path, options: Options) -> Result<Arc<Self>, Error> {
         let store = Arc::new(store::open(data_dir)?);
         store.abandon_streaming_messages()?;
-        store.interrupt_unfinished_tasks()?;
+        // Background workers that may start again are queued; `start` restarts them once the servers are up.
+        let resumes: bool = store.setting(session::turn::resume::RESUME_KEY)?.unwrap_or(true);
+        let restarting = store.interrupt_unfinished_tasks(resumes)?;
         tool::stage::recover_leftovers(&store);
+        // Taken before anything can run, so a turn started during startup is never mistaken for a cut-off one.
+        let cut_off = store.claimed_turns()?;
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
 
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
@@ -138,7 +156,7 @@ impl Engine {
         let mcp = mcp::Servers::new(credentials.clone(), store.clone());
         let background_limit = session::tasks::stored_background_limit(&store);
 
-        Ok(Arc::new_cyclic(|me| Self {
+        let engine = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             data_dir: data_dir.to_path_buf(),
             store,
@@ -164,9 +182,17 @@ impl Engine {
             limits: Default::default(),
             unserved: Default::default(),
             processes: Default::default(),
+            browsers: Default::default(),
+            browser_downloads: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
-        }))
+            search_routing: Default::default(),
+            reference_fetches: Default::default(),
+        });
+        *engine.turns.cut_off.lock().unwrap() = cut_off;
+        *engine.turns.restarting.lock().unwrap() = restarting;
+
+        Ok(engine)
     }
 
     /// A changed agent model or prompt may be what an owed result was waiting for.
@@ -370,7 +396,8 @@ impl Engine {
     }
 
     /// The catalog as the current credentials see it: ChatGPT sign-ins offer only what the Codex backend takes,
-    /// and what any of their accounts' model lists offers.
+    /// and what any of their accounts' model lists offers. Every model carries its compaction point: the user's own
+    /// size for it, else the compaction setting's.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
         let sign_ins = self.codex_sign_ins();
@@ -379,6 +406,19 @@ impl Engine {
         {
             llm::openai::codex::shape(openai);
             self.codex_offers.apply(openai, &sign_ins);
+        }
+
+        let compact_at = self.compact_at();
+        let chosen = self.model_compact();
+        for (provider, info) in &mut catalog.providers {
+            for (key, model) in &mut info.models {
+                let own = chosen
+                    .get(&format!("{provider}/{key}"))
+                    .and_then(|tokens| session::compaction::chosen_cap(model, *tokens));
+                model.limit.compact = own.unwrap_or_else(|| compact_at.cap(model));
+                // Resolved here so every reader, the UI's meters included, sees the point itself.
+                model.limit.compact = model.compaction_point();
+            }
         }
 
         catalog
@@ -580,21 +620,7 @@ impl Server {
 const RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
-    let _ = engine.runtime.set(tokio::runtime::Handle::current());
-    let starting = engine.clone();
-    tokio::spawn(engine.clone().watch_local());
-    tokio::spawn(engine.clone().watch_codex_offers());
-    tokio::spawn(engine.clone().stop_idle_mcp());
-    tokio::spawn(hook::relay_session_events(engine.clone()));
-    tokio::spawn(async move {
-        starting.reload_plugins().await;
-        starting.connect_all_mcp();
-        starting.refresh_catalog().await;
-        // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
-        starting.mcp.wait_ready(RECOVERY_WAIT).await;
-        starting.recover_tasks().await;
-        starting.maintain().await;
-    });
+    start(&engine);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let addr = listener.local_addr()?;
@@ -604,4 +630,26 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     });
 
     Ok(Server { addr, task })
+}
+
+/// The engine's background work without the HTTP listener; `listen` runs it, other hosts call it themselves.
+pub fn start(engine: &Arc<Engine>) {
+    let _ = engine.runtime.set(tokio::runtime::Handle::current());
+    let starting = engine.clone();
+    tokio::spawn(engine.clone().watch_local());
+    tokio::spawn(engine.clone().watch_codex_offers());
+    tokio::spawn(engine.clone().stop_idle_mcp());
+    tokio::spawn(engine.clone().watch_browsers());
+    tokio::spawn(hook::relay_session_events(engine.clone()));
+    tokio::spawn(async move {
+        starting.reload_plugins().await;
+        starting.connect_all_mcp();
+        starting.refresh_catalog().await;
+        // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
+        starting.mcp.wait_ready(RECOVERY_WAIT).await;
+        starting.recover_tasks().await;
+        starting.restart_workers().await;
+        starting.resume_turns().await;
+        starting.maintain().await;
+    });
 }

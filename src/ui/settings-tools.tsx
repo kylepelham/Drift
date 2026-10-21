@@ -1,6 +1,11 @@
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { BackgroundRows, createShellSettings } from "./settings-background";
+import { ImageGenerationGroup } from "./settings-image-generation";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { PromptCacheGroup } from "./settings-prompt-cache";
+import { ToolSearchGroup } from "./settings-tool-search";
+import { WebSearchGroup } from "./settings-web-search";
+import { TurnsGroup } from "./settings-turns";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -74,7 +79,7 @@ export function ToolExecutionSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(id) => {
                             if (id === "custom") return setCustomOpen(true);
 
@@ -121,6 +126,11 @@ export function ToolExecutionSection() {
                 <div class="text-xs text-danger">{error()}</div>
             </Show>
             <BackgroundLimitGroup />
+            <TurnsGroup />
+            <PromptCacheGroup />
+            <ToolSearchGroup />
+            <WebSearchGroup />
+            <ImageGenerationGroup />
         </div>
     );
 }
@@ -172,7 +182,7 @@ function BackgroundLimitGroup() {
                             bordered
                             chevronAtEnd
                             placement="below"
-                            width="6rem"
+                            width={pickerWidth}
                             onPick={(id) => void pick(Number(id))}
                         />
                     )}

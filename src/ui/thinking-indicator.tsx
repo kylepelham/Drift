@@ -10,18 +10,19 @@ import {
 } from "../thinking-indicators";
 
 const speedScale = { slow: 1.6, normal: 1, fast: 0.6 } as const;
-/** How many pieces each built-in figure is drawn from; Shimmer and Still have none. */
+/** How many pieces each built-in figure is drawn from. */
 const figurePieces: Record<string, number> = { orbs: 3, float: 5, dots: 3, pulse: 1 };
 
-/** The style to draw: a plugin's only while it is registered, Shimmer in its place otherwise. */
+/** The style to draw: a built-in or a registered plugin's, Orbs in place of anything else. */
 export function shownThinkingStyle(style: string, registered: (id: string) => boolean) {
-    if (!style.startsWith(pluginThinkingPrefix)) return style;
-    return registered(style.slice(pluginThinkingPrefix.length)) ? style : "shimmer";
+    if (style.startsWith(pluginThinkingPrefix))
+        return registered(style.slice(pluginThinkingPrefix.length)) ? style : "orbs";
+    return figurePieces[style] ? style : "orbs";
 }
 
-/** Whether the word shows beside the figure: Shimmer and Still are the word. */
-export function thinkingWordShown(style: string, label: boolean) {
-    return style === "shimmer" || style === "still" || (!!figurePieces[style] && label);
+/** The text after the indicator, the translated word Thinking unless the user wrote their own. */
+export function thinkingText(prefs: Pick<ThinkingPrefs, "text">) {
+    return prefs.text.trim() || t("drift.chat.thinking");
 }
 
 export function ThinkingIndicator(props: {
@@ -32,7 +33,7 @@ export function ThinkingIndicator(props: {
 }) {
     const prefs = () => props.prefs ?? thinkingPrefs();
     const style = () => shownThinkingStyle(prefs().style, (id) => !!thinkingIndicator(id));
-    const label = () => t("drift.chat.thinking");
+    const label = () => thinkingText(prefs());
     const plugin = () => (style().startsWith(pluginThinkingPrefix) ? style().slice(pluginThinkingPrefix.length) : "");
     const registered = () => (plugin() ? thinkingIndicator(plugin()) : undefined);
     const context = createMemo<ThinkingContext>(() => ({
@@ -42,51 +43,43 @@ export function ThinkingIndicator(props: {
         speed: speedScale[prefs().speed],
         preview: !!props.preview,
     }));
-    const builtIn = () => <BuiltIn look={style()} label={label()} word={thinkingWordShown(style(), prefs().label)} />;
 
     return (
         <span
             class="thinking-indicator"
-            data-style={style()}
             data-tint={prefs().tint}
             style={{ "--thinking-speed": String(speedScale[prefs().speed]) }}
         >
-            <Show when={registered()} keyed fallback={builtIn()}>
+            <Show when={registered()} keyed fallback={<Figure look={style()} />}>
                 {(indicator) => (
                     <PluginIndicator
                         id={plugin()}
                         indicator={indicator}
                         context={context()}
-                        fallback={<BuiltIn look="shimmer" label={label()} word />}
+                        fallback={<Figure look="orbs" />}
                     />
                 )}
+            </Show>
+            <Show when={prefs().label} fallback={<span class="sr-only">{label()}</span>}>
+                <Show when={prefs().shimmer} fallback={<span class="thinking-label">{label()}</span>}>
+                    <TextShimmer text={label()} />
+                </Show>
             </Show>
             <Show when={props.heading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </span>
     );
 }
 
-function BuiltIn(props: { look: string; label: string; word: boolean }) {
+function Figure(props: { look: string }) {
     const pieces = () => Array.from({ length: figurePieces[props.look] ?? 0 }, (_, index) => index);
     return (
-        <>
-            <Show when={pieces().length}>
-                <span class="thinking-figure" aria-hidden="true">
-                    <For each={pieces()}>
-                        {(index) => <span class="thinking-piece" style={{ "--i": String(index) }} />}
-                    </For>
-                </span>
-            </Show>
-            <Show when={props.word}>
-                <Show when={props.look === "shimmer"} fallback={<span class="thinking-label">{props.label}</span>}>
-                    <TextShimmer text={props.label} />
-                </Show>
-            </Show>
-        </>
+        <span class="thinking-figure" data-look={props.look} aria-hidden="true">
+            <For each={pieces()}>{(index) => <span class="thinking-piece" style={{ "--i": String(index) }} />}</For>
+        </span>
     );
 }
 
-/** A plugin's indicator in its own element, drawn afresh for each registration; one that throws gives way to Shimmer, and is logged. */
+/** A plugin's indicator in its own element, drawn afresh for each registration; one that throws gives way to Orbs, and is logged. */
 function PluginIndicator(props: {
     id: string;
     indicator: ThinkingIndicatorPlugin;

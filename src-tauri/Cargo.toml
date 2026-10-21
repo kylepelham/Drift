@@ -50,6 +50,11 @@ mime_guess = "2"
 rust-embed = "8"
 # The pairing code the Drift app scans; shared with it, no engine inside.
 drift-pairing = { path = "../crates/drift-pairing" }
+# Remote Access from anywhere: OpenTunnel relays TLS it cannot read to this process. Its other dependencies are already
+# in the tree, so it costs one small crate, against reimplementing its bridge protocol and certificate renewal.
+opentunnel = "0.5"
+# The public key in the tunnel's certificate, which the Drift app pins; already in the tree through rustls.
+rustls-webpki = { version = "0.103", default-features = false, features = ["alloc"] }
 
 [target.'cfg(unix)'.dependencies]
 # Lists the network addresses offered in the pairing code; already in the tree through the engine.
@@ -57,5 +62,10 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_Memory"] }
-windows = "0.61"
+# DirectWrite lists the installed fonts for Settings' font pickers.
+windows = { version = "0.61", features = ["Win32_Graphics_DirectWrite"] }
 webview2-com = "0.38.2"
+
+# rustls-webpki is imported by its library name, webpki, which machete does not map back.
+[package.metadata.cargo-machete]
+ignored = ["rustls-webpki"]

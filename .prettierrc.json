@@ -3,5 +3,13 @@
     "printWidth": 120,
     "tabWidth": 4,
     "semi": true,
-    "trailingComma": "all"
+    "trailingComma": "all",
+    "overrides": [
+        {
+            "files": "crates/drift-engine/src/browser/ie_page.js",
+            "options": {
+                "trailingComma": "none"
+            }
+        }
+    ]
 }

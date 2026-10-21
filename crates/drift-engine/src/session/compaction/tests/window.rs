@@ -11,6 +11,7 @@ fn model(context: u64, output: u64) -> Model {
         context,
         output,
         input: 0,
+        compact: 0,
     };
 
     model
@@ -38,9 +39,57 @@ fn used(input: u64) -> Vec<MessageWithParts> {
             summary: false,
             ending: None,
             refusal: None,
+            cache_miss: None,
         },
         parts: Vec::new(),
     }]
+}
+
+#[test]
+fn the_compaction_setting_caps_a_large_window_and_never_raises_a_small_one() {
+    let mut large = model(1_000_000, 128_000);
+    let point = |setting: CompactAt, model: &mut Model| {
+        model.limit.compact = setting.cap(model);
+        model.compaction_point()
+    };
+
+    assert_eq!(point(CompactAt::Auto, &mut large), 400_000);
+    assert_eq!(point(CompactAt::Later, &mut large), 968_000);
+    assert_eq!(point(CompactAt::Earlier, &mut large), 200_000);
+    assert_eq!(point(CompactAt::Auto, &mut model(200_000, 64_000)), 168_000);
+    assert_eq!(
+        point(CompactAt::Earlier, &mut model(200_000, 64_000)),
+        MIN_COMPACT_TOKENS,
+        "a point too early to pay for itself is raised"
+    );
+
+    let mut chosen = model(1_000_000, 128_000);
+    assert_eq!(crate::session::compaction::chosen_cap(&chosen, 250_000), Some(250_000));
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 5_000),
+        Some(MIN_COMPACT_TOKENS)
+    );
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 2_000_000),
+        Some(968_000),
+        "never past the window's own point"
+    );
+    chosen.limit.context = 64_000;
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 250_000),
+        None,
+        "a small window has nothing to choose"
+    );
+
+    // A provider that charges more past 272k gets compacted before it.
+    large.cost.tiers = vec![crate::llm::catalog::CostTier {
+        above: 272_000,
+        input: 0.0,
+        output: 0.0,
+        cache_read: 0.0,
+        cache_write: 0.0,
+    }];
+    assert_eq!(point(CompactAt::Auto, &mut large), 252_000);
 }
 
 #[test]

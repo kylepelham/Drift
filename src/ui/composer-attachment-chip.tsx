@@ -45,12 +45,14 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
                             <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />
                         )}
                     </Show>
-                    <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+                    <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[length:calc(0.6rem*var(--ui-text-scale,1))] font-semibold text-accent uppercase">
                         {label()}
                     </span>
                     <span class="min-w-0">
                         <span class="block truncate">{props.file.filename}</span>
-                        <span class="block truncate text-[0.65rem] text-ink-faint">{detail()}</span>
+                        <span class="block truncate text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint">
+                            {detail()}
+                        </span>
                     </span>
                     {remove}
                 </span>
@@ -68,7 +70,9 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
                         }
                     />
                     <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
-                        <span class="block truncate text-[0.6rem] text-white">{props.file.filename}</span>
+                        <span class="block truncate text-[length:calc(0.6rem*var(--ui-text-scale,1))] text-white">
+                            {props.file.filename}
+                        </span>
                     </div>
                     <button
                         title={t("prompt.attachment.remove")}
@@ -92,12 +96,12 @@ export function CommentChip(props: { comment: ReviewComment; remove: () => void 
             class="flex max-w-64 items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted"
             title={`${props.comment.path}:${props.comment.line}\n\n${props.comment.text}`}
         >
-            <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+            <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[length:calc(0.6rem*var(--ui-text-scale,1))] font-semibold text-accent uppercase">
                 {t("drift.review.comment.chip")}
             </span>
             <span class="min-w-0">
                 <span class="block truncate">{props.comment.text}</span>
-                <span class="block truncate text-[0.65rem] text-ink-faint">
+                <span class="block truncate text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint">
                     {name()}:{props.comment.line}
                 </span>
             </span>

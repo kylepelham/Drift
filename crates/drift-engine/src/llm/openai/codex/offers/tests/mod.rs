@@ -68,7 +68,7 @@ fn list() -> Value {
     let fast = json!([{ "id": "priority", "name": "Fast" }]);
 
     json!({ "models": [
-        { "slug": "gpt-6-sol", "service_tiers": fast, "available_access_programs": { "cyber": ["standard", "daybreak_blue"] } },
+        { "slug": "gpt-6-sol", "service_tiers": fast, "supports_search_tool": true, "available_access_programs": { "cyber": ["standard", "daybreak_blue"] } },
         { "slug": "gpt-6-astra", "service_tiers": fast, "available_access_programs": { "cyber": ["standard"] } },
         { "slug": "gpt-5.6-cyber", "available_access_programs": { "cyber": ["daybreak_red"] } },
         { "slug": "unknown", "available_access_programs": { "cyber": ["future_program"] } },

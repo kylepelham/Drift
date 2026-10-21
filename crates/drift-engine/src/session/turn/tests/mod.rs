@@ -14,20 +14,29 @@ mod admission_receipts;
 mod agents;
 mod attachments;
 mod auto_accept;
+mod cache_affinity;
 mod check_history;
 mod check_reports;
+mod clearing;
 mod conversation;
 mod credentials;
+mod effort_marks;
 mod file_history;
 mod grants;
+mod image_generation;
 mod images;
+mod instruction_baseline;
 mod loop_limits;
 mod orchestrator;
 mod permissions;
+mod plans;
 mod plugin_hooks;
 mod pricing;
 mod processes;
 mod project_commands;
+mod queue;
+mod references;
+mod resume;
 mod retry_waits;
 mod routes;
 mod secret_masks;
@@ -40,6 +49,8 @@ mod tool_order;
 mod tool_validation;
 mod unreadable_images;
 mod variants;
+mod warming;
+mod worktrees;
 
 pub(crate) struct Harness {
     pub(crate) engine: Arc<Engine>,
@@ -93,6 +104,12 @@ pub(crate) async fn harness() -> Harness {
         .credentials
         .set("anthropic", &Credential::ApiKey { key: "k".into() })
         .unwrap();
+    // A search key in the environment would otherwise offer `websearch` on one machine and not another.
+    let off = crate::websearch::WebSearch {
+        provider: "off".into(),
+        order: Vec::new(),
+    };
+    engine.store.set_setting(crate::websearch::SETTINGS_KEY, &off).unwrap();
     let workspace = engine
         .store
         .add_workspace(&workspace.to_string_lossy(), "ws", "")
@@ -176,6 +193,7 @@ pub(crate) fn prompt(text: &str) -> Prompt {
         variant: None,
         agent: None,
         submission_id: None,
+        worktree: false,
     }
 }
 

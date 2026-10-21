@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js";
 import { alertSounds, customSound, systemNotifications, type AttentionKind } from "../state/prefs";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { useEngine, type Engine } from "../engine";
 import { selectSession } from "../state/selection";
 import { playAlertSound } from "./sounds";
@@ -109,7 +109,7 @@ export function AttentionNotifier(props: { engine: Engine }) {
     return null;
 }
 
-export function NoticeHost(props: { children?: JSX.Element }) {
+export function NoticeHost() {
     const engine = useEngine();
     const [now, setNow] = createSignal(Date.now());
     const [dismissed, setDismissed] = createSignal(new Set<string>());
@@ -155,7 +155,6 @@ export function NoticeHost(props: { children?: JSX.Element }) {
                         </button>
                     </div>
                 </Show>
-                {props.children}
                 <For each={visible()}>
                     {(notice) => (
                         <div

@@ -4,7 +4,7 @@ import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
 import { ToolContextMenuHost } from "./ui/tool-context-menu";
-import { RemoteLinkNotice } from "./ui/remote-link-notice";
+import { browserPaneShowing } from "./state/browser-pane";
 import { syncDictationConsent } from "./voice/dictation";
 import { initDevtoolsShortcut } from "./state/devtools";
 import { ImportSummaryHost } from "./ui/import-summary";
@@ -15,8 +15,11 @@ import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
 import { ReviewPanelHost } from "./ui/review-panel";
+import { BrowserPaneHost } from "./ui/browser-pane";
 import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
+import { ChatBackdrop } from "./ui/chat-backdrop";
+import { bindTextSizes } from "./state/text-size";
 import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
@@ -40,6 +43,7 @@ import { t } from "./state/i18n";
 
 export function App() {
     bindTheme();
+    bindTextSizes();
     bindCodePreferences();
     bindLanguage();
     initKeybinds();
@@ -66,20 +70,24 @@ export function App() {
                     <Sidebar />
                     <main inert={mobileDrawerOpen()} class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <div
-                            class="chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                            classList={{ "chat-pane-covered": rightPanelOpen() && !!selectedSession() }}
+                            class="chat-pane relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                            classList={{
+                                "chat-pane-covered": (rightPanelOpen() || browserPaneShowing()) && !!selectedSession(),
+                            }}
                         >
+                            <ChatBackdrop />
                             <div class="relative flex min-h-0 flex-1 flex-col">
                                 <ChatHeader />
                                 <Chat />
                             </div>
                             <div
-                                class="composer-dock shrink-0 px-4 pb-4"
+                                class="composer-dock relative shrink-0 px-4 pb-4"
                                 onWheel={(event) => forwardWheelToChat(event, event.currentTarget)}
                             >
                                 <Composer />
                             </div>
                         </div>
+                        <BrowserPaneHost />
                         <DebugPanel />
                         <ReviewPanelHost />
                     </main>
@@ -91,9 +99,7 @@ export function App() {
                 <PaletteHost />
                 <ToolContextMenuHost />
                 <ImportSummaryHost />
-                <NoticeHost>
-                    <RemoteLinkNotice />
-                </NoticeHost>
+                <NoticeHost />
                 <MirrorConnectionNotice />
             </div>
             <StartupSplash />

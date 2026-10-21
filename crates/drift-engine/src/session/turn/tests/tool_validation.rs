@@ -52,14 +52,21 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
         "the model sees its broken call and why: {replayed:?}"
     );
 
-    let mut cut = call_block("t2", "read", r#"{"path": "a.txt"}"#);
+    let mut cut = vec![
+        Chunk::ToolUseStart {
+            id: "t2".into(),
+            name: "write".into(),
+        },
+        Chunk::ToolInputDelta(r#"{"path": "big.txt", "content": "AAAA"#.into()),
+        Chunk::BlockStop,
+    ];
     cut.push(Chunk::Stop(StopReason::MaxTokens));
-    h.provider.push(cut);
+    h.provider.push(cut).push(text("split it up"));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
 
     let messages = transcript(&h);
-    let last = messages.last().unwrap();
+    let last = &messages[messages.len() - 2];
     let call = tool(&last.parts[0]);
     assert_eq!(
         call.status,
@@ -69,7 +76,7 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     assert!(
         call.output
             .unwrap()
-            .starts_with("Not run: the reply hit its output limit"),
+            .starts_with("Not run: the reply hit its output limit while writing this call"),
         "{:?}",
         call.output
     );
@@ -79,25 +86,44 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
         "the ending is visible: {:?}",
         last.info.error
     );
+    assert!(
+        tool(&last.parts[0])
+            .output
+            .unwrap()
+            .contains(r#"{"path": "big.txt", "content": "AAAA"#),
+        "the cut-off input's start is quoted so the model can split it"
+    );
+    assert!(!h._dir.join("ws/big.txt").exists());
 }
 
 #[tokio::test]
-async fn arguments_that_do_not_fit_the_schema_are_refused_before_the_call_runs() {
+async fn arguments_with_one_reading_are_repaired_and_the_rest_refused_before_the_call_runs() {
     let h = harness().await;
-    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    std::fs::write(h._dir.join("ws/a.txt"), "a\nb\nc\n").unwrap();
     h.provider
-        .push(tool_call("read", r#"{"path": "a.txt", "limit": "20"}"#))
+        .push(tool_call("read", r#"{"path": "a.txt", "limit": "1", "offset": null}"#))
+        .push(tool_call("read", r#"{"path": "a.txt", "limit": "twenty"}"#))
         .push(text("ok"));
     h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
     until_idle(&h).await;
 
     let messages = transcript(&h);
-    let call = tool(&messages[1].parts[0]);
-    assert_eq!(call.status, ToolStatus::Error);
+    let repaired = tool(&messages[1].parts[0]);
+    assert_eq!(repaired.status, ToolStatus::Done, "{:?}", repaired.output);
+    assert_eq!(
+        *repaired.input,
+        json!({ "path": "a.txt", "limit": 1 }),
+        "the repaired input is what is kept and replayed"
+    );
+
+    let refused = tool(&messages[2].parts[0]);
+    assert_eq!(refused.status, ToolStatus::Error);
     assert!(
-        call.output.unwrap().contains("`limit` must be integer, not a string"),
-        "{:?}",
-        call.output
+        refused
+            .output
+            .unwrap()
+            .contains("`limit` must be integer, not a string"),
+        "a string with no number in it is still refused"
     );
 }
 

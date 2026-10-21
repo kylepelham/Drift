@@ -14,6 +14,8 @@ export function SidePanel(props: {
     defaultWidth: number;
     title: JSX.Element;
     actions?: JSX.Element;
+    /** The window's own controls; only the rightmost panel shows them. Default true. */
+    windowControls?: boolean;
     onClose: () => void;
     children: JSX.Element;
 }) {
@@ -55,7 +57,9 @@ export function SidePanel(props: {
                     >
                         <IconX class="size-3.5" />
                     </button>
-                    <WindowControls />
+                    <Show when={props.windowControls ?? true}>
+                        <WindowControls />
+                    </Show>
                 </Show>
             </div>
             {props.children}

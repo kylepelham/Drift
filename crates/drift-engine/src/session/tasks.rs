@@ -481,6 +481,7 @@ impl Engine {
         };
         // A subagent's background processes are its own tools; they end with its run.
         self.processes.stop_session(&task.session_id);
+        self.browsers.stop_session(&task.session_id);
         self.end_task(&task.id, state, &text);
         self.workers.forget(&task.id);
 
@@ -597,6 +598,7 @@ impl Engine {
             variant: None,
             agent: None,
             submission_id: Some(format!("task:{}", task.id)),
+            worktree: false,
         };
         let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
         let how = super::turn::Admission {

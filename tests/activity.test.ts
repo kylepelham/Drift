@@ -906,6 +906,37 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
     }
 });
 
+test("the context meter counts down to the compaction point the user's setting gives the model", async () => {
+    const { contextStats } = await import("../src/engine/store");
+    const [state, set] = createEngineState();
+    set("providers", [
+        {
+            id: "anthropic",
+            name: "Anthropic",
+            models: {
+                "claude-opus-5-5": {
+                    id: "claude-opus-5-5",
+                    limit: { context: 1_000_000, output: 128_000, compact: 400_000 },
+                },
+            },
+        },
+    ] as never);
+    set("transcripts", "s1", [
+        {
+            info: {
+                id: "a1",
+                sessionId: "s1",
+                role: "assistant",
+                model: { provider: "anthropic", model: "claude-opus-5-5" },
+                usage: { input: 150_000, output: 0, cacheRead: 0, cacheWrite: 0 },
+            },
+            parts: [],
+        },
+    ] as never);
+
+    expect(contextStats(state, "s1")).toMatchObject({ percent: 15, untilCompaction: 250_000 });
+});
+
 test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
     const { replyRoom } = await import("../src/engine/store");
     const { modelDetail } = await import("../src/ui/composer-models");
@@ -1192,4 +1223,17 @@ test("a run that read one file names it instead of counting it", async () => {
     const namesakes = [read("p1", "a/x.ts"), read("p2", "b/x.ts")];
     expect(exploredSingle(namesakes, false)).toBeUndefined();
     expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
+});
+
+test("an instruction update names its sources in the user's language, an MCP server or file by its own name", async () => {
+    const { instructionSource } = await import("../src/ui/instruction-update");
+    expect(instructionSource("base:claude")).toBe("Base prompt");
+    expect(instructionSource("skills")).toBe("Skills");
+    expect(instructionSource("deferred")).toBe("Tools loaded on request");
+    expect(instructionSource("mcp:context7")).toBe("context7");
+    expect(instructionSource("file:docs/AGENTS.md")).toBe("docs/AGENTS.md");
+    expect(instructionSource("odd")).toBe("odd");
+
+    const parts = await Bun.file(new URL("../src/ui/parts.tsx", import.meta.url)).text();
+    expect(parts).toContainCode('case "instruction_update":');
 });

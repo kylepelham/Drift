@@ -1,11 +1,14 @@
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins";
 import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator";
+import { InstructionUpdateRow, type InstructionUpdatePart } from "./instruction-update";
 import { createMemo, createSignal, Match, Show, Switch, type JSX } from "solid-js";
 import { IconArrowUpRight, IconCheck, IconInfo, IconPlug } from "./icons";
+import { isOutcomeReport } from "../state/review-findings";
 import { openToolContextMenu } from "./tool-context-menu";
 import { citationFileGroups } from "./citation-files";
 import { promptPartText } from "../engine/parts";
 import { showReasoning } from "../state/prefs";
+import { FindingsCard } from "./findings-card";
 import { TextShimmer } from "./text-shimmer";
 import { FilePartView } from "./file-part";
 import { Dynamic } from "solid-js/web";
@@ -85,6 +88,13 @@ export function PartView(props: {
                     </ToolContextTarget>
                 )}
             </Match>
+            <Match when={findingsCall(props.part)}>
+                {(part) => (
+                    <ToolContextTarget part={part()}>
+                        <FindingsCard part={part()} />
+                    </ToolContextTarget>
+                )}
+            </Match>
             <Match
                 when={
                     props.part.type === "tool_call" &&
@@ -108,11 +118,21 @@ export function PartView(props: {
                     <div class="h-px flex-1 bg-edge" />
                 </div>
             </Match>
+            <Match when={props.part.type === "instruction_update" && props.part}>
+                {(part) => <InstructionUpdateRow part={part() as InstructionUpdatePart} />}
+            </Match>
             <Match when={props.part.type === "file" && props.part}>
                 {(part) => <FilePartView part={part() as FilePart} />}
             </Match>
         </Switch>
     );
+}
+
+/** A finished code review report gets a card; one that only records outcomes stays a plain row. */
+function findingsCall(part: Part) {
+    if (part.type !== "tool_call" || part.name !== "report_findings" || part.status !== "done") return undefined;
+
+    return isOutcomeReport(part.metadata?.findings ?? []) ? undefined : part;
 }
 
 function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {
@@ -167,7 +187,9 @@ export function PluginRow(props: { part: ContextPart; end?: boolean }) {
         >
             <IconPlug class="size-3.5 shrink-0 text-ink-faint" />
             <span class="shrink-0 font-medium text-ink-muted">{props.part.plugin}</span>
-            <span class="min-w-0 truncate text-[0.85rem] text-ink-faint">{props.part.text}</span>
+            <span class="min-w-0 truncate text-[length:calc(0.85rem*var(--ui-text-scale,1))] text-ink-faint">
+                {props.part.text}
+            </span>
         </div>
     );
 }
@@ -186,6 +208,7 @@ export function partVisible(part: Part) {
         case "compaction":
         case "file":
         case "context":
+        case "instruction_update":
             return true;
         default:
             return false;

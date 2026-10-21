@@ -76,7 +76,7 @@ async fn after_its_socket_drops_a_conversation_retries_over_sse_and_others_keep_
     );
 
     let mut other = request();
-    other.cache_key = Some("other".into());
+    other.connection = Some("other".into());
     collect(&h.provider, &other, &key()).await;
     assert_eq!(
         (h.server.requests(), h.server.posts()),

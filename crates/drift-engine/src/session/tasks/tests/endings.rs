@@ -15,6 +15,8 @@ async fn a_worker_cut_off_at_its_output_limit_is_incomplete_not_an_answer() {
             launches(&[json!({ "description": "Write it up", "prompt": "CHILD write a long report" })]),
         )
         .push_for("PARENT", text("it did not finish"))
+        .push_for("CHILD write", cut_off.clone())
+        .push_for("CHILD write", cut_off.clone())
         .push_for("CHILD write", cut_off);
     h.engine.submit(&h.session.id, prompt("PARENT report")).await.unwrap();
     until_idle(&h).await;

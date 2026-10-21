@@ -1,6 +1,5 @@
 //! The system prompt: who the model is, how to work here, and what the workspace says about itself.
 
-use std::fmt::Write as _;
 use std::path::Path;
 
 use super::types::{MessageWithParts, Part, PartRow, Role};
@@ -60,6 +59,8 @@ pub fn family_prompt(family: PromptFamily) -> &'static str {
 pub struct Setting<'a> {
     /// The model family's prompt, or the user's replacement for it; the shared rules follow it either way.
     pub base: &'a str,
+    /// The family `base` was chosen for: a switch to another family starts a new instruction baseline.
+    pub family: PromptFamily,
     pub workspace: &'a Path,
     pub config: &'a Config,
     pub agent: Option<&'a Agent>,
@@ -73,86 +74,224 @@ pub struct Setting<'a> {
     pub model: &'a str,
     /// Instructions from the MCP servers whose tools are offered, by server.
     pub servers: &'a [(String, String)],
+    /// The references the turn's config names, where they are and why one cannot be read freely.
+    pub references: &'a [crate::session::references::Listed],
+    /// The workspace's plans folder, which the environment names.
+    pub plans: Option<&'a Path>,
+    /// The MCP tools `tool_search` loads on request, by server.
+    pub deferred: &'a [(String, Vec<String>)],
 }
 
-pub fn system(setting: &Setting) -> String {
+/// One part of the system prompt, keyed so a session can tell which part changed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Source {
+    /// Stable across turns: `base:<family>`, `agent`, `skills`, `subagents`, `mcp:<server>`, `file:<name>`,
+    /// `references`, `environment`, `model`, `date`.
+    pub key: String,
+    /// How the user and the model hear it named.
+    pub title: String,
+    pub text: String,
+}
+
+impl Source {
+    fn new(key: impl Into<String>, title: impl Into<String>, text: String) -> Self {
+        Self {
+            key: key.into(),
+            title: title.into(),
+            text,
+        }
+    }
+}
+
+/// The deferred tools by server, with how to load them.
+fn deferred_text(deferred: &[(String, Vec<String>)]) -> String {
+    let lines: Vec<String> = deferred
+        .iter()
+        .map(|(server, names)| format!("- {server}: {}", names.join(", ")))
+        .collect();
+
+    format!(
+        "# Tools loaded on request\n\nThese MCP tools are offered but not loaded yet. Load the ones you need with `tool_search`, by a few words or by `select:name,name`, before you call them.\n\n{}",
+        lines.join("\n")
+    )
+}
+
+/// The parts of the system prompt, most shared first: what every session of a model family has, then
+/// what this workspace and agent add, the date last.
+pub fn sources(setting: &Setting) -> Vec<Source> {
     let Setting {
         base,
+        family,
         workspace,
         config,
         agent,
-        delegates,
-        loads_skills,
-        denied,
         model,
         servers,
+        references,
+        plans,
+        deferred,
+        ..
     } = *setting;
-    let mut prompt = format!("{}\n\n{}", base.trim(), SHARED.trim());
+    let mut found = vec![Source::new(
+        format!("base:{}", family.as_str()),
+        "the base prompt",
+        format!("{}\n\n{}", base.trim(), SHARED.trim()),
+    )];
 
     // Primary-agent reminders belong on user prompts, keeping the system prompt cache stable across switches.
     if let Some(agent) = agent.filter(|agent| !agent.prompt.is_empty() && !agent.kind.runs_conversations()) {
-        let _ = write!(prompt, "\n\n{}", agent.prompt);
+        found.push(Source::new(
+            "agent",
+            format!("the {} agent's prompt", agent.name),
+            agent.prompt.clone(),
+        ));
+    }
+    found.extend(listings(setting));
+    for (server, text) in servers {
+        let heading = format!("# Instructions from the {server} MCP server\n\n{text}");
+        found.push(Source::new(
+            format!("mcp:{server}"),
+            format!("the {server} MCP server"),
+            heading,
+        ));
+    }
+    if !deferred.is_empty() {
+        found.push(Source::new(
+            "deferred",
+            "the tools loaded on request",
+            deferred_text(deferred),
+        ));
+    }
+    for instruction in &config.instructions {
+        let text = format!("# Instructions from {}\n\n{}", instruction.name, instruction.text);
+        found.push(Source::new(
+            format!("file:{}", instruction.name),
+            instruction.name.clone(),
+            text,
+        ));
     }
 
-    prompt.push_str("\n\n# Environment\n\n");
-    let _ = writeln!(prompt, "Working directory: {}", workspace.display());
-    let _ = writeln!(
-        prompt,
-        "Git repository: {}",
-        if crate::config::in_repository(workspace) {
-            "yes"
-        } else {
-            "no"
-        }
-    );
-    let _ = writeln!(prompt, "Platform: {}", std::env::consts::OS);
-    let _ = writeln!(prompt, "Date: {}", crate::platform::clock::local_date());
-    let _ = writeln!(prompt, "Model: {model}");
-    let _ = writeln!(
-        prompt,
-        "Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)",
+    if let Some(listed) = references_text(references) {
+        found.push(Source::new("references", "the references", listed));
+    }
+
+    let git = if crate::config::in_repository(workspace) {
+        "yes"
+    } else {
+        "no"
+    };
+    let plans = plans
+        .map(|plans| {
+            format!(
+                "\nPlans directory: {} (Markdown plans written in planning; read them without asking)",
+                plans.display()
+            )
+        })
+        .unwrap_or_default();
+    let environment = format!(
+        "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace){plans}",
+        workspace.display(),
+        std::env::consts::OS,
         crate::tool::scratch_dir().display()
     );
+    found.push(Source::new("environment", "the environment", environment));
+    found.push(Source::new("model", "the model", format!("Model: {model}")));
+    found.push(Source::new(
+        "date",
+        "the date",
+        format!("Date: {}", crate::platform::clock::local_date()),
+    ));
 
-    for (server, text) in servers {
-        let _ = writeln!(prompt, "\n# Instructions from the {server} MCP server\n\n{text}");
+    found
+}
+
+/// Folders and repositories outside the workspace the model may consult, each with where it is.
+fn references_text(references: &[crate::session::references::Listed]) -> Option<String> {
+    if references.is_empty() {
+        return None;
     }
+    let lines: Vec<String> = references
+        .iter()
+        .map(|reference| {
+            let described = match reference.description.as_str() {
+                "" => String::new(),
+                description => format!(": {description}"),
+            };
+            let note = reference.note.map(|note| format!(" ({note})")).unwrap_or_default();
+            format!(
+                "- {}{described}
+  {}{note}",
+                reference.name,
+                reference.path.display()
+            )
+        })
+        .collect();
 
-    // Only what this agent can use is listed: a skill it may load, a subagent it may delegate to.
-    let skills: Vec<&crate::config::Skill> = config
+    Some(format!(
+        "# References
+
+Folders outside the workspace to consult when the task needs them. Read and search in them without asking; writing there asks.
+
+{}",
+        lines.join("
+")
+    ))
+}
+
+/// The skills and subagents this agent may use; a denied skill or subagent is not listed.
+fn listings(setting: &Setting) -> Vec<Source> {
+    let Setting {
+        config,
+        delegates,
+        loads_skills,
+        denied,
+        ..
+    } = *setting;
+    let mut found = Vec::new();
+
+    let skills: Vec<String> = config
         .skills
         .iter()
         .filter(|skill| loads_skills && !denied("skill", &skill.name))
+        .map(|skill| format!("- {}: {}", skill.name, skill.description))
         .collect();
     if !skills.is_empty() {
-        prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
-        for skill in skills {
-            let _ = writeln!(prompt, "- {}: {}", skill.name, skill.description);
-        }
+        let text = format!(
+            "# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n{}",
+            skills.join("\n")
+        );
+        found.push(Source::new("skills", "the skills list", text));
     }
 
     // A broken subagent would only fail when picked, so it is not offered.
-    let subagents: Vec<&Agent> = config
+    let subagents: Vec<String> = config
         .agents
         .iter()
         .filter(|agent| agent.kind.delegated_to() && agent.problem.is_none() && !denied("task", &agent.name))
+        .map(|agent| format!("- {}: {}", agent.name, agent.description))
         .collect();
     if delegates && !subagents.is_empty() {
-        prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
-        for subagent in subagents {
-            let _ = writeln!(prompt, "- {}: {}", subagent.name, subagent.description);
-        }
+        let text = format!(
+            "# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n{}",
+            subagents.join("\n")
+        );
+        found.push(Source::new("subagents", "the subagents list", text));
     }
 
-    for instruction in &config.instructions {
-        let _ = writeln!(
-            prompt,
-            "\n# Instructions from {}\n\n{}",
-            instruction.name, instruction.text
-        );
-    }
+    found
+}
+
+/// The system prompt `sources` make, in their order.
+pub fn render(sources: &[Source]) -> String {
+    let texts: Vec<&str> = sources.iter().map(|source| source.text.trim_end()).collect();
+    let mut prompt = texts.join("\n\n");
+    prompt.push('\n');
 
     prompt
+}
+
+pub fn system(setting: &Setting) -> String {
+    render(&sources(setting))
 }
 
 /// Adds request-only agent reminders where an agent's run begins, retaining the same cached prefix.
@@ -270,6 +409,7 @@ mod tests {
         let servers = [("web-test".to_string(), "Start a session first.".to_string())];
         let setting = |agent: &str, delegates: bool| Setting {
             base: family_prompt(PromptFamily::Claude),
+            family: PromptFamily::Default,
             workspace: &workspace,
             config: &config,
             agent: config.agent(agent),
@@ -278,6 +418,9 @@ mod tests {
             denied: &NONE_DENIED,
             model: "Claude Opus",
             servers: &servers,
+            references: &[],
+            plans: None,
+            deferred: &[],
         };
 
         let prompt = system(&setting("plan", false));
@@ -339,6 +482,7 @@ mod tests {
             path: String::new(),
             instructions: String::new(),
             argument_hint: None,
+            builtin: None,
         };
 
         config.skills = vec![skill("review"), skill("deploy")];
@@ -348,6 +492,7 @@ mod tests {
         let built = |loads_skills: bool, denied: &dyn Fn(&str, &str) -> bool| {
             system(&Setting {
                 base: "b",
+                family: PromptFamily::Default,
                 workspace: &workspace,
                 config: &config,
                 agent: None,
@@ -356,6 +501,9 @@ mod tests {
                 denied,
                 model: "m",
                 servers: &[],
+                references: &[],
+                plans: None,
+                deferred: &[],
             })
         };
 
@@ -384,6 +532,7 @@ mod tests {
         let built = |family| {
             system(&Setting {
                 base: family_prompt(family),
+                family: PromptFamily::Default,
                 workspace: &workspace,
                 config: &config,
                 agent: None,
@@ -392,6 +541,9 @@ mod tests {
                 denied: &NONE_DENIED,
                 model: "m",
                 servers: &[],
+                references: &[],
+                plans: None,
+                deferred: &[],
             })
         };
         let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
@@ -420,6 +572,7 @@ mod tests {
 
         let replaced = system(&Setting {
             base: "You are my agent.",
+            family: PromptFamily::Default,
             workspace: &workspace,
             config: &config,
             agent: None,
@@ -428,6 +581,9 @@ mod tests {
             denied: &NONE_DENIED,
             model: "m",
             servers: &[],
+            references: &[],
+            plans: None,
+            deferred: &[],
         });
         assert!(
             replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"),
@@ -597,6 +753,7 @@ mod tests {
                 summary: false,
                 ending: None,
                 refusal: None,
+                cache_miss: None,
             },
             parts: Vec::new(),
         }

@@ -510,6 +510,9 @@ test("composer attention cards share one stack without suppressing concurrent re
     expect(revert).toContainCode("composer-layer-card");
     expect(css).not.toContainCode(".composer-attention-stack:has(> :nth-child(2))");
     expect(css).not.toMatch(/\.composer-attention-stack[^}]*overflow/s);
+    // The minifier rewrites `@media not (a or b)` into a query browsers drop, so stacked docks would stop tucking.
+    for (const file of ["src/styles/app.css", "src/styles/mobile.css"])
+        expect(await Bun.file(file).text(), file).not.toMatch(/@media\s+not\s*\(/);
 });
 
 test("question steps and answers persist independently by request id", async () => {
@@ -793,4 +796,32 @@ test("the phone composer shortens a model name only by its brand word", async ()
     expect(compactModelName("GPT-6 Sol")).toBe("GPT-6 Sol");
     expect(compactModelName("DeepSeek V3")).toBe("DeepSeek V3");
     expect(compactModelName(undefined)).toBeUndefined();
+});
+
+test("a queued prompt shows its text and counts its files, and Alt+Enter queues rather than steers", async () => {
+    const { loadDictionary } = await import("../src/state/i18n");
+    await loadDictionary("en");
+    const { queuedText } = await import("../src/ui/composer-queue");
+    const queued = (parts: unknown[]) =>
+        ({ id: "q", sessionId: "s", createdAt: 0, prompt: { parts } }) as Parameters<typeof queuedText>[0];
+    expect(queuedText(queued([{ type: "text", text: " fix the tests " }]))).toBe("fix the tests");
+    const file = { type: "file", mime: "image/png", name: "a.png", url: "data:," };
+    expect(queuedText(queued([{ type: "text", text: "look" }, file, file]))).toBe("look 2 files");
+
+    const composer = code(await Bun.file("src/ui/composer.tsx").text());
+    expect(composer).toContain("void submitAs(event.altKey)");
+    expect(composer).toContain("queue:queueing");
+});
+
+test("the send button queues while Alt is held during a turn, or after a long press on a touch screen", async () => {
+    const composer = await Bun.file("src/ui/composer.tsx").text();
+    expect(composer).toContainCode("<ComposerSend busy={busy()} disabled={sendDisabled()}");
+    expect(composer).toContainCode("onQueue={() => void submitAs(true)}");
+    expect(composer).not.toContain("composer-queue flex");
+
+    const send = await Bun.file("src/ui/composer-send.tsx").text();
+    expect(send).toContainCode("const queues = () => props.busy && altHeld();");
+    expect(send).toContainCode('if (event.pointerType !== "touch" || !props.busy || props.disabled) return;');
+    expect(send).toContainCode("if (queues()) props.onQueue(); else props.onSend();");
+    expect(send).toContainCode('window.addEventListener("blur", release);');
 });

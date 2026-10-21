@@ -1,12 +1,14 @@
 /** The Drift app's own requests to its local proxy; the PCs themselves are reached only through it. */
 
-export type Computer = { id: string; name: string; address?: string; words: string[]; active: boolean };
-export type Found = {
-    found: { name: string; address: string; port: number; fingerprint: string; api: number };
-    linked: boolean;
+export type Computer = {
+    id: string;
+    name: string;
+    /** Its address on the network it was last reached on. */
+    address?: string;
+    /** Whether it can be reached away from its network, through its tunnel. */
+    anywhere: boolean;
+    active: boolean;
 };
-export type Linking = { id: string; name: string; code: string; words: string[] };
-export type LinkStatus = "waiting" | "expired" | "linked";
 
 async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/app/api${path}`, {
@@ -23,13 +25,9 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
 
 export const appApi = {
     computers: () => call<{ computers: Computer[] }>("GET", "/computers").then((value) => value.computers),
-    discover: () => call<{ found: Found[] }>("POST", "/discover").then((value) => value.found),
     /** Opens the camera; resolves to the PC linked, or undefined when the user backed out. */
     scan: () =>
         call<{ linked?: string; cancelled?: boolean }>("POST", "/scan").then((value) => value.linked ?? undefined),
-    link: (address: string, port?: number) => call<Linking>("POST", "/link", { address, port }),
-    poll: (id: string) =>
-        call<{ status: LinkStatus }>("GET", `/link/${encodeURIComponent(id)}`).then((value) => value.status),
     use: (id: string) => call<{ ok: true }>("POST", "/use", { id }),
     forget: (id: string) => call<{ ok: true }>("POST", "/forget", { id }),
 };

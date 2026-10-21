@@ -214,3 +214,44 @@ fn a_plan_that_lacks_the_model_is_never_waited_on_and_is_told_apart_from_a_rate_
     let told = lacks.with_headers(&headers(&[("x-should-retry", "true".into())]));
     assert!(!retryable(&told));
 }
+
+#[test]
+fn a_conflict_and_a_streamed_fault_named_only_in_words_retry_and_a_spent_balance_does_not() {
+    assert!(matches!(
+        Error::api(409, "conflict", "x"),
+        Error::Api { retryable: true, .. }
+    ));
+    for message in [
+        "The server is overloaded, please try again later",
+        "Provider returned error",
+        "upstream connect error or disconnect/reset before headers",
+        "Service temporarily unavailable",
+    ] {
+        assert!(
+            matches!(
+                Error::api(STREAMED, "error", message),
+                Error::Api { retryable: true, .. }
+            ),
+            "{message}"
+        );
+    }
+    assert!(
+        matches!(
+            Error::api(
+                STREAMED,
+                "invalid_request_error",
+                "please try again with a shorter prompt"
+            ),
+            Error::Api { retryable: false, .. }
+        ),
+        "a request error stays one whatever it suggests"
+    );
+
+    for message in [
+        "Insufficient balance or no resource package. Please recharge.",
+        "Your package has expired",
+    ] {
+        let spent = Error::api(429, "1113", message).with_headers(&headers(&[("x-should-retry", "true".into())]));
+        assert!(matches!(spent, Error::Api { retryable: false, .. }), "{message}");
+    }
+}

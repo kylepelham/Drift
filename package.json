@@ -1,6 +1,6 @@
 {
     "name": "drift",
-    "version": "2.3.1",
+    "version": "2.4.0",
     "private": true,
     "type": "module",
     "scripts": {
@@ -11,6 +11,7 @@
         "build:tauri": "bun run build",
         "build:whisper": "bun scripts/build-whisper.ts",
         "gen:engine": "bun scripts/gen-engine-client.ts",
+        "i18n": "bun scripts/i18n.ts",
         "bench:engine": "bun scripts/bench-engine.ts",
         "build:native": "bun scripts/release-policy.ts stamp-dev && tauri build --no-bundle",
         "package": "bun scripts/release-policy.ts stamp-dev && tauri build",

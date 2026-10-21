@@ -1,4 +1,4 @@
-import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { requestNotificationPermission } from "./notifications";
 import { createMemo, createSignal, For } from "solid-js";
 import { playAlertSound, soundOptions } from "./sounds";
@@ -111,7 +111,7 @@ function SoundPicker(props: { kind: AttentionKind }) {
                 bordered
                 chevronAtEnd
                 placement="below"
-                width="9.5rem"
+                width={pickerWidth}
                 onPick={(id) => {
                     setAlertSound(props.kind, id);
                     void playAlertSound(id, customSound());

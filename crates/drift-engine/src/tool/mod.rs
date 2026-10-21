@@ -3,9 +3,12 @@
 pub mod apply_patch;
 mod ask;
 pub mod bash;
+pub mod browser;
 pub mod command;
 mod context;
 pub mod edit;
+pub mod findings;
+pub mod generate_image;
 pub mod glob;
 pub mod grep;
 pub mod image;
@@ -16,6 +19,7 @@ pub mod process;
 pub mod question;
 pub mod read;
 mod registry;
+pub mod repair;
 pub mod save_image;
 pub mod schema;
 pub mod sensitive;
@@ -25,7 +29,10 @@ pub(crate) mod stage;
 pub mod task;
 mod text;
 pub mod todo;
+pub mod tool_search;
 pub mod webfetch;
+pub mod websearch;
+pub mod worktree;
 pub mod write;
 
 #[cfg(test)]

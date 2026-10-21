@@ -66,7 +66,10 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         changeAccounts(requireClient().reorderProviderAccounts(id, order));
 
     const renameProviderAccount = (id: string, account: string, label: string) =>
-        changeAccounts(requireClient().renameProviderAccount(id, account, label));
+        changeAccounts(requireClient().changeProviderAccount(id, account, { label }));
+
+    const setProviderAccountCyberVerified = (id: string, account: string, cyberVerified: boolean) =>
+        changeAccounts(requireClient().changeProviderAccount(id, account, { cyberVerified }));
 
     const removeProviderAccount = (id: string, account: string) =>
         changeAccounts(requireClient().removeProviderAccount(id, account));
@@ -172,6 +175,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         providerCallback,
         reorderProviderAccounts,
         renameProviderAccount,
+        setProviderAccountCyberVerified,
         removeProviderAccount,
         applyProviderEvent,
     };

@@ -36,19 +36,26 @@ use crate::tool::{Context, SessionFiles};
 mod accounts;
 mod admission;
 mod approval;
+mod cache_watch;
 mod calls;
 mod checks;
+mod clearing;
+mod effort;
 mod history;
 mod hooks;
 mod images;
+mod instructions;
 mod limits;
 mod planning;
+pub mod provider_options;
 mod receipts;
 mod request;
+pub mod resume;
 mod retry;
 mod settle;
 mod state;
 mod steps;
+pub mod warming;
 
 use hooks::{AfterTool, BeforeTool};
 #[cfg(test)]
@@ -76,7 +83,7 @@ pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
 /// A finished reply's `error` when the provider's safety filter ended it, so it never ends in silence.
 pub const REFUSED_ENDING: &str = "The provider's safety filter ended the reply.";
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
     pub parts: Vec<Part>,
@@ -92,6 +99,10 @@ pub struct Prompt {
     /// Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn.
     #[serde(default)]
     pub submission_id: Option<String>,
+    /// Starts the turn in a new worktree named from the prompt's first words. Only for a prompt that starts a
+    /// turn: one sent while the session runs is refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktree: bool,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -164,8 +175,20 @@ pub struct Turns {
     steerable: tokio::sync::Notify,
     /// The prompt each running turn began at: a fork stops before it, whatever is steered in later.
     began: Mutex<HashMap<String, String>>,
+    /// Sessions whose queued prompts wait for the user since a Stop, rather than starting when a turn ends.
+    queue_held: Mutex<std::collections::HashSet<String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
+    /// The turns under way when the engine last stopped, as the store said at open; taken once, by resume.
+    pub(crate) cut_off: Mutex<Vec<crate::store::TurnClaim>>,
+    /// Background workers a restart queued again, to start once the engine is up.
+    pub(crate) restarting: Mutex<Vec<String>>,
+    /// Conversations whose workers were started again, so their own resumed turn is told not to relaunch them.
+    pub(crate) restarted_owners: Mutex<std::collections::HashSet<String>>,
+    /// Each session's prompt cache warming loop.
+    warmers: warming::Warmers,
+    /// Each session's last request by segment, to say what broke its prompt cache.
+    pub(in crate::session) cache_watch: cache_watch::CacheWatch,
 }
 
 /// The model a running turn makes its next request on, which a steered prompt's files are judged against.
@@ -192,7 +215,12 @@ pub enum TurnEnd {
 /// The fixed admission plan for a queued worker, then the model and agent choices followed at each step.
 pub(crate) struct Plan {
     pub(super) session: Session,
+    /// Where the session works: the workspace folder, or its worktree after a move.
     pub(super) workspace: PathBuf,
+    /// The workspace folder itself, whose config and MCP servers the turn uses wherever it works.
+    pub(super) root: PathBuf,
+    /// Whose undo history the turn's writes join: the workspace's, or its worktree's.
+    pub(super) owner: String,
     pub(super) config: Arc<Config>,
     pub(super) catalog: Arc<crate::llm::catalog::Catalog>,
     pub(super) model_ref: ModelRef,
@@ -214,7 +242,7 @@ pub(crate) struct Plan {
 
 /// How a prompt is admitted beyond the session itself.
 #[derive(Clone, Copy, Default)]
-pub(super) struct Admission<'a> {
+pub(in crate::session) struct Admission<'a> {
     /// Its turn's abort token descends from this, and every wait before admission ends with it.
     pub(super) parent: Option<&'a CancellationToken>,
     /// It carries this worker's result, marked handed over in the same write.
@@ -224,6 +252,8 @@ pub(super) struct Admission<'a> {
     pub(super) bootstrap: &'a [command::Bootstrap],
     /// The prompt's agent and model run this turn only; the session keeps its own, so it never steers.
     pub(super) turn_only: bool,
+    /// It starts a turn of its own or is refused as busy; it never joins a running turn (a queued prompt).
+    pub(in crate::session) new_turn_only: bool,
     pub(super) config: Option<&'a Config>,
 }
 
@@ -258,6 +288,8 @@ enum Step {
     Overflow,
     /// The provider could not read an image the request carried.
     UnreadableImage,
+    /// The reply, by its id, stopped at its output limit; the turn may go on after it.
+    Length(String),
 }
 
 /// Which content refusals a turn has already recovered from; each is tried once.
@@ -320,7 +352,10 @@ struct Switch {
 #[derive(Default)]
 struct Offer {
     tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
-    system: String,
+    /// Offered tools kept out of the model's context until `tool_search` loads them.
+    deferred: std::collections::BTreeSet<String>,
+    /// What the system prompt is made of now; a session sends its frozen baseline of them (`instructions`).
+    sources: Vec<crate::session::prompt::Source>,
 }
 
 struct CallScope<'a> {
@@ -345,6 +380,8 @@ struct StepWrites {
 
 struct Streamed {
     usage: Usage,
+    /// Why the request read much less of the prompt cache than expected, when it did.
+    cache_miss: Option<String>,
     generation_ms: Option<u64>,
     stop: StopReason,
     refusal: Option<types::Refusal>,
@@ -415,6 +452,9 @@ impl std::error::Error for TurnError {}
 impl Engine {
     /// Steps until the model is done, then again for any prompt steered in meanwhile.
     async fn run(self: &Arc<Self>, mut plan: Plan, abort: CancellationToken) {
+        if plan.session.visibility != Visibility::Hidden {
+            let _ = self.store.claim_turn(&plan.session.id);
+        }
         self.title_untitled(&plan.session);
         let started = self.store.newest_prompt(&plan.session.id).ok().flatten();
         if !self.run_bootstrap(&mut plan, &abort).await {
@@ -469,6 +509,7 @@ impl Engine {
             });
             engine.turns.finished.notify_waiters();
             engine.retry_deliveries(Some(&id));
+            engine.drain_queue(&id);
         });
     }
 
@@ -477,6 +518,7 @@ impl Engine {
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
         let turn = self.turns.cancel(session_id);
+        self.turns.hold_queue(session_id);
         let worker = self
             .store
             .task_for_session(session_id)
@@ -543,6 +585,7 @@ impl Engine {
     /// Compaction summaries are bookkeeping, not a subagent's final answer.
     fn record_end(&self, session: &Session, abort: &CancellationToken) {
         if session.visibility != Visibility::Hidden {
+            let _ = self.store.release_turn(&session.id);
             return;
         }
 

@@ -5,7 +5,9 @@ use serde_json::json;
 
 use super::*;
 use crate::permission::{Decision, Policy, Rule};
+use crate::session::turn::Prompt;
 use crate::session::turn::tests::{harness, prompt, text, tool_call, until_idle};
+use crate::session::types::{MessageWithParts, Part, Role};
 
 fn git(root: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -211,6 +213,45 @@ async fn a_turn_review_spans_the_turn_from_before_its_first_change_to_after_its_
         h.engine.turn_review(&h.session.id, &reply).await,
         Err(ReviewError::NotAPrompt)
     ));
+}
+
+#[tokio::test]
+async fn a_turn_review_keeps_edits_made_after_the_engine_carried_the_turn_on() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![Rule {
+            kind: "edit".into(),
+            pattern: "*".into(),
+            decision: Decision::Allow,
+        }],
+    });
+    let write =
+        |path: &str, content: &str| tool_call("write", &json!({ "path": path, "content": content }).to_string());
+    h.provider.push(write("plan.md", "draft\n")).push(text("drafted"));
+    h.engine.submit(&h.session.id, prompt("write the plan")).await.unwrap();
+    until_idle(&h).await;
+
+    // What a worker's result or a drive nudge looks like: a user message the engine wrote.
+    h.provider.push(write("notes.md", "follow up\n")).push(text("noted"));
+    let carry_on = Prompt {
+        parts: vec![Part::Nudge {
+            text: "keep going".into(),
+        }],
+        ..prompt("")
+    };
+    h.engine.submit(&h.session.id, carry_on).await.unwrap();
+    until_idle(&h).await;
+
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let users: Vec<&MessageWithParts> = transcript
+        .iter()
+        .filter(|message| message.info.role == Role::User)
+        .collect();
+    assert!(!is_prompt(users[1]), "a nudge carries the turn on");
+
+    let review = h.engine.turn_review(&h.session.id, &users[0].info.id).await.unwrap();
+    assert_eq!(file(&review, "plan.md").lines, ["+draft"]);
+    assert_eq!(file(&review, "notes.md").lines, ["+follow up"]);
 }
 
 #[test]

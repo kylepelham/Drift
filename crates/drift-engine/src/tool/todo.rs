@@ -56,7 +56,7 @@ impl Tool for TodoWrite {
                 .count();
             Ok(Output {
                 title: format!("{open} of {} remaining", todos.len()),
-                output: serde_json::to_string_pretty(&todos).unwrap(),
+                output: summary(&todos, open),
                 metadata: ToolMetadata {
                     count: Some(todos.len()),
                     open: Some(open),
@@ -65,6 +65,24 @@ impl Tool for TodoWrite {
             })
         })
     }
+}
+
+/// One line for the model: the whole list is in the call it just made, so echoing it back only costs
+/// tokens in every later request.
+fn summary(todos: &[Todo], open: usize) -> String {
+    if todos.is_empty() {
+        return "Todo list cleared.".into();
+    }
+
+    let done = todos.len() - open;
+    let first = |status: TodoStatus| todos.iter().find(|todo| todo.status == status);
+    let focus = match (first(TodoStatus::InProgress), first(TodoStatus::Pending)) {
+        (Some(current), _) => format!(", now: {}", current.content),
+        (None, Some(next)) => format!(", next: {}", next.content),
+        (None, None) => String::new(),
+    };
+
+    format!("Todo list updated: {done} of {} done{focus}.", todos.len())
 }
 
 #[cfg(test)]
@@ -100,6 +118,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out.title, "1 of 2 remaining");
+        assert_eq!(
+            out.output, "Todo list updated: 1 of 2 done, now: b.",
+            "one line instead of the list echoed back"
+        );
         assert_eq!(ctx.engine.store.todos(&session.id).unwrap().len(), 2);
         assert!(matches!(rx.try_recv().unwrap().event, Event::TodoUpdated { .. }));
         assert!(
@@ -108,5 +130,13 @@ mod tests {
                 .await
                 .is_err()
         );
+
+        let next = TodoWrite
+            .run(&ctx, json!({ "todos": [{ "content": "a", "status": "cancelled" }, { "content": "c", "status": "pending" }] }))
+            .await
+            .unwrap();
+        assert_eq!(next.output, "Todo list updated: 1 of 2 done, next: c.");
+        let cleared = TodoWrite.run(&ctx, json!({ "todos": [] })).await.unwrap();
+        assert_eq!(cleared.output, "Todo list cleared.");
     }
 }
