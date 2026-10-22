@@ -24,6 +24,7 @@ pub use connections::blocking;
 pub use import::ImportCheckpoints;
 pub use instructions::{Instruction, Value as InstructionValue};
 pub use mcp::Renamed;
+pub use parts::EditCall;
 pub use queued::QueuedPrompt;
 pub use sessions::{NewSession, Purge, SessionFilter};
 pub use staged::StagedReplacement;

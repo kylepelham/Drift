@@ -108,7 +108,6 @@ test("the edited-files card lists a turn's files once with summed counts, its su
             tool("edit", { filePath: "C:/w/b.ts" }, { status: "error", metadata: { diff: diff(5, 5) } }),
         ]),
     ];
-    const worker = [reply("msg_w", [tool("edit", { filePath: "C:/w/c.ts" }, { metadata: { diff: diff(0, 3) } })])];
 
     const turn = turnOf([prompt, ...steps], "msg_2");
     expect(turn.prompt).toBe(prompt);
@@ -120,10 +119,51 @@ test("the edited-files card lists a turn's files once with summed counts, its su
     expect(turnStartsEarlier(paged, "msg_1"), "a turn longer than the loaded page").toBe(true);
     expect(turnStartsEarlier(paged, null), "the whole session is loaded").toBe(false);
 
-    const files = editedFiles(turn.replies, [{ name: "Fix paths", entries: worker }]);
+    const files = editedFiles(turn.replies, [
+        { name: "Fix paths", edits: [{ path: "C:/w/c.ts", additions: 0, deletions: 3 }] },
+    ]);
     expect(files.map((file) => [file.name, file.additions, file.deletions, file.by])).toEqual([
         ["a.ts", 3, 1, undefined],
         ["c.ts", 0, 3, "Fix paths"],
+    ]);
+});
+
+test("a turn's subagents come from their task records, one per transcript, never loading it", async () => {
+    const { turnWorkers } = await import("../src/ui/edited-files");
+    const record = (id: string, callId: string, sessionId: string, edits?: unknown[]) => ({
+        id,
+        callId,
+        sessionId,
+        description: `record ${id}`,
+        edits,
+    });
+    const first = tool("task", { description: "Fix paths" });
+    const continued = tool("task", { task_id: "tsk_1" });
+    const running = tool("task", { description: "Still going" }, { status: "running" });
+    const unrecorded = tool("task", { description: "Unknown" });
+    const calls = [first, continued, running, unrecorded] as unknown as { callId: string }[];
+    const state = {
+        tasks: {
+            s: [
+                record("tsk_1", calls[0]!.callId, "ses_a", [{ path: "a.ts", additions: 1, deletions: 0 }]),
+                record("tsk_2", calls[1]!.callId, "ses_a", [
+                    { path: "a.ts", additions: 1, deletions: 0 },
+                    { path: "b.ts", additions: 2, deletions: 2 },
+                ]),
+                record("tsk_3", calls[2]!.callId, "ses_b"),
+            ],
+        },
+    } as never;
+
+    // The continued record holds every edit by then, under the name its first call gave it.
+    expect(turnWorkers(state, [reply("msg_1", [first, running]), reply("msg_2", [continued, unrecorded])])).toEqual([
+        {
+            name: "Fix paths",
+            edits: [
+                { path: "a.ts", additions: 1, deletions: 0 },
+                { path: "b.ts", additions: 2, deletions: 2 },
+            ],
+        },
     ]);
 });
 

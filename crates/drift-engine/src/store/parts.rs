@@ -9,6 +9,21 @@ const LAST_IMAGE_NUMBER: &str = "SELECT COALESCE(MAX(json_extract(json, '$.image
 const IMAGE_NUMBERED: &str = "SELECT json FROM part
      WHERE session_id = ?1 AND json_extract(json, '$.image') IS NOT NULL AND json_extract(json, '$.image') = ?2
      ORDER BY id DESC LIMIT 1";
+// Names the session/call index's condition, so only the session's tool calls are read; a diff is read only for a call without per-file records.
+const EDIT_CALLS: &str = "SELECT COALESCE(json_extract(json, '$.input.path'), json_extract(json, '$.input.filePath')),
+     json_extract(json, '$.metadata.files'), json_extract(json, '$.metadata.fileChanges'),
+     CASE WHEN json_extract(json, '$.metadata.fileChanges') IS NULL THEN json_extract(json, '$.metadata.diff') END
+     FROM part WHERE session_id = ?1 AND json_extract(json, '$.type') = 'tool_call'
+     AND json_extract(json, '$.name') IN ('edit', 'write', 'apply_patch') AND json_extract(json, '$.status') = 'done'
+     ORDER BY message_id, id";
+
+/// What a finished file-tool call says it changed, as stored: arrays stay JSON text.
+pub struct EditCall {
+    pub path: Option<String>,
+    pub files: Option<String>,
+    pub file_changes: Option<String>,
+    pub diff: Option<String>,
+}
 
 impl Store {
     /// Finds one call through its session/call-id index, without loading the transcript.
@@ -76,6 +91,22 @@ impl Store {
             .optional()?;
 
         Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
+    }
+
+    /// The session's finished file-tool calls, oldest first.
+    pub fn edit_calls(&self, session_id: &str) -> rusqlite::Result<Vec<EditCall>> {
+        let connection = self.read();
+        let mut statement = connection.prepare_cached(EDIT_CALLS)?;
+        let calls = statement.query_map(params![session_id], |row| {
+            Ok(EditCall {
+                path: row.get(0)?,
+                files: row.get(1)?,
+                file_changes: row.get(2)?,
+                diff: row.get(3)?,
+            })
+        })?;
+
+        calls.collect()
     }
 
     /// The session's messages with a tool call still pending or running.
@@ -149,6 +180,16 @@ mod tests {
         assert!(
             named.iter().any(|step| step.contains("INDEX idx_part_image")),
             "{named:?}"
+        );
+    }
+
+    #[test]
+    fn a_workers_edits_are_read_from_its_tool_calls_alone() {
+        let calls = plan(&store(), super::EDIT_CALLS, ["ses"]);
+
+        assert!(
+            calls.iter().any(|step| step.contains("INDEX idx_part_call")),
+            "{calls:?}"
         );
     }
 }

@@ -279,15 +279,14 @@ pub(super) async fn todos(
     Ok(Json(engine.store.todos(&id)?))
 }
 
-/// Every worker the session launched, oldest first, finished ones included.
+/// Every worker the session launched, oldest first, finished ones included, each without its result.
 #[utoipa::path(get, path = "/sessions/{id}/tasks", operation_id = "listTasks", responses((status = 200, body = Vec<TaskRecord>), (status = 404)))]
 pub(super) async fn tasks(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<TaskRecord>>, ApiError> {
     known(&engine, &id)?;
-
-    Ok(Json(engine.store.tasks_of(&id)?))
+    Ok(Json(engine.listed_tasks(&id)?))
 }
 
 #[utoipa::path(get, path = "/tasks/{id}", operation_id = "getTask", responses((status = 200, body = TaskRecord), (status = 404)))]
@@ -295,9 +294,9 @@ pub(super) async fn task(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskRecord>, ApiError> {
-    Ok(Json(
-        engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?,
-    ))
+    let task = engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?;
+
+    Ok(Json(engine.with_edits(task)?))
 }
 
 /// Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would.

@@ -107,8 +107,12 @@ pub struct TaskRecord {
     /// Why this mode: `requested`, `agent default`, `default` or `background turned off`.
     pub reason: String,
     pub state: TaskState,
+    /// Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    /// Once it has ended, the files its transcript changed, so a turn lists them without loading that transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edits: Option<Vec<WorkerEdit>>,
     /// The result reached the parent (as the call's own result, or delivered later).
     pub delivered: bool,
     /// Kept from waking a stopped parent; it goes along with the parent's next prompt instead.
@@ -546,7 +550,9 @@ impl Engine {
     }
 
     pub fn publish_task(&self, task_id: &str) {
-        if let Ok(Some(task)) = self.store.task(task_id) {
+        if let Ok(Some(task)) = self.store.task(task_id)
+            && let Ok(task) = self.with_edits(task)
+        {
             self.hub.publish(Event::TaskUpdated { task });
         }
     }
@@ -818,6 +824,9 @@ pub(crate) fn clip(text: &str, max: usize) -> String {
     let kept: String = text.chars().take(max).collect();
     format!("{kept}\n\n(truncated)")
 }
+
+mod edits;
+pub use edits::WorkerEdit;
 
 #[cfg(test)]
 mod tests;

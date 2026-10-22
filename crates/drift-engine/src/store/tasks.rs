@@ -8,7 +8,7 @@ use crate::id;
 use crate::session::tasks::{Mode, TaskRecord, TaskState};
 use crate::session::types::{PartRow, Session};
 
-const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error";
+const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error, edits";
 
 // Unary + removes TEXT affinity so SQLite can use both keys of the JSON-expression index.
 const REPAIR_INTERRUPTED_CALLS: &str =
@@ -112,6 +112,20 @@ impl Store {
             ))?
             .query_map([parent], row)?
             .collect()
+    }
+
+    /// Keeps the files ended workers changed, read once from their transcripts, in one write.
+    pub fn save_task_edits(&self, tasks: &[TaskRecord]) -> rusqlite::Result<()> {
+        transaction(&self.lock(), |conn| {
+            let mut update = conn.prepare_cached("UPDATE task SET edits = ?2 WHERE id = ?1")?;
+            for task in tasks {
+                let edits = serde_json::to_string(&task.edits)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?;
+                update.execute(params![task.id, edits])?;
+            }
+
+            Ok(())
+        })
     }
 
     /// Moves a queued worker to running; nothing else moves backwards or sideways.
@@ -264,7 +278,7 @@ fn insert_task(conn: &Connection, new: &NewTask<'_>, session_id: &str) -> rusqli
         TaskState::Running
     };
     let sql = format!(
-        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"
+        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL, NULL)"
     );
     conn.prepare_cached(&sql)?.execute(params![
         task_id,
@@ -307,6 +321,9 @@ fn row(row: &Row) -> rusqlite::Result<TaskRecord> {
         generation: row.get(13)?,
         held: row.get::<_, i64>(14)? == 1,
         delivery_error: row.get(15)?,
+        edits: row
+            .get::<_, Option<String>>(16)?
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
 

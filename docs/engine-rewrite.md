@@ -81,7 +81,7 @@ GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
 POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {session, message}
 POST   /sessions/{id}/abort                 -> {aborted}
-GET    /sessions/{id}/tasks                 workers the session launched, finished ones included
+GET    /sessions/{id}/tasks                 workers the session launched, finished ones included, without results
 GET    /tasks/{id}                          one worker's state and result
 POST   /tasks/{id}/abort                    stop one worker and nothing else
 POST   /sessions/{id}/compact
@@ -937,6 +937,16 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   pending or running, or failed to save), the result is written into that call and marked handed
   over in the same write; otherwise it is settled.
 - `task.updated { task }` is published on launch, start, ending and delivery.
+- An ended worker's record carries `edits`, the files its transcript changed with `edit`, `write`
+  and `apply_patch`: one row per file in first-change order, totalling each call's recorded
+  `fileChanges` (or, for calls older than those, the counts of its diff's hunks). They are read from
+  the worker's own tool calls through `idx_part_call` the first time the record is shown after it
+  ended, then kept in `task.edits`; a resumed worker's later edits belong to the record that resumed
+  it. A turn's edited-files card lists every subagent's files without loading one transcript; it
+  once loaded each, five requests per worker, and could still miss edits beyond a worker's first
+  page. The session list leaves `result` out, which no screen reads from it; `GET /tasks/{id}` and
+  `task.updated` still carry it. Measured on a thread with 598 workers: its list is 5ms once kept;
+  the one-time fill of records older than this read 129MB of their tool calls in 3s.
 - `task_output { task_id, wait_seconds? }` answers for the calling conversation's own background
   tasks only, waiting at most 120 s. A foreground task is refused: its result belongs to the call
   that launched it, which holds the claim from the moment it returns until its result is saved, and

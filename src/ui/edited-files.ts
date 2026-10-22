@@ -1,8 +1,9 @@
 import { toolInput, toolMetadata, type ToolPart } from "../engine/parts";
 import { patchFiles, toolFilename } from "./tool-labels";
+import { taskForCall } from "../engine/store";
 import { parseDiff } from "./diff-panel";
 
-import type { MessageEntry } from "../engine/store";
+import type { EngineState, MessageEntry, TaskRecord } from "../engine/store";
 
 export type EditedFile = {
     path: string;
@@ -12,8 +13,9 @@ export type EditedFile = {
     /** The subagent that changed it; none for the turn's own edits. */
     by?: string;
 };
-/** A subagent a turn launched, with its transcript if loaded. */
-export type TurnWorker = { name: string; entries: MessageEntry[] };
+/** A subagent a turn launched, with the files the engine says it changed. */
+type TurnWorker = { name: string; edits: NonNullable<TaskRecord["edits"]> };
+type Change = { path: string; label: string; additions: number; deletions: number };
 
 const editTools = new Set(["edit", "write", "apply_patch"]);
 
@@ -56,7 +58,7 @@ function counted(patch: string) {
 }
 
 /** Each change one call made: a patch per file, with its counts. */
-function callChanges(part: ToolPart) {
+function callChanges(part: ToolPart): Change[] {
     const patched = patchFiles(part);
     if (patched.length)
         return patched.map((file) => ({
@@ -84,8 +86,8 @@ function editCalls(entries: MessageEntry[]) {
 /** The files a turn and its subagents changed, one row each, in the order they were first changed. */
 export function editedFiles(replies: MessageEntry[], workers: TurnWorker[]): EditedFile[] {
     const files = new Map<string, EditedFile>();
-    const add = (calls: ToolPart[], by?: string) => {
-        for (const change of calls.flatMap(callChanges)) {
+    const add = (changes: Change[], by?: string) => {
+        for (const change of changes) {
             const key = `${by ?? ""}\u0000${change.path.replaceAll("\\", "/").toLowerCase()}`;
             const file = files.get(key) ?? {
                 path: change.path,
@@ -100,15 +102,31 @@ export function editedFiles(replies: MessageEntry[], workers: TurnWorker[]): Edi
         }
     };
 
-    add(editCalls(replies));
-    for (const worker of workers) add(editCalls(worker.entries), worker.name);
+    add(editCalls(replies).flatMap(callChanges));
+    for (const worker of workers)
+        add(
+            worker.edits.map((edit) => ({ ...edit, label: edit.path })),
+            worker.name,
+        );
 
     return [...files.values()];
 }
 
-/** The `task` calls a turn made, whose subagents' edits belong to it. */
-export function turnTasks(replies: MessageEntry[]) {
-    return replies.flatMap((entry) =>
-        entry.parts.filter((part): part is ToolPart => part.type === "tool_call" && part.name === "task"),
-    );
+/** The subagents a turn's ended `task` calls ran, one per transcript, named by the call that first ran it. */
+export function turnWorkers(state: EngineState, replies: MessageEntry[]) {
+    const workers = new Map<string, TurnWorker>();
+    for (const part of replies.flatMap((entry) => entry.parts)) {
+        if (part.type !== "tool_call" || part.name !== "task" || (part.status !== "done" && part.status !== "error"))
+            continue;
+        const task = taskForCall(state, part.sessionId, part.callId, part.metadata?.taskId);
+        if (!task) continue;
+
+        // A continued subagent's later record holds every edit its transcript made by then.
+        const description = toolInput(part).description;
+        const name =
+            workers.get(task.sessionId)?.name ?? (typeof description === "string" ? description : task.description);
+        workers.set(task.sessionId, { name, edits: task.edits ?? [] });
+    }
+
+    return [...workers.values()];
 }

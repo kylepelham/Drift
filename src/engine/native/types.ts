@@ -1029,7 +1029,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every worker the session launched, oldest first, finished ones included. */
+        /** Every worker the session launched, oldest first, finished ones included, each without its result. */
         get: operations["listTasks"];
         put?: never;
         post?: never;
@@ -3357,6 +3357,8 @@ export interface components {
             /** @description Why this owed result has not been handed over yet; it is retried when that may have changed. */
             deliveryError?: string | null;
             description: string;
+            /** @description Once it has ended, the files its transcript changed, so a turn lists them without loading that transcript. */
+            edits?: components["schemas"]["WorkerEdit"][] | null;
             /** Format: int64 */
             finishedAt?: number | null;
             /** @description Kept from waking a stopped parent; it goes along with the parent's next prompt instead. */
@@ -3366,6 +3368,7 @@ export interface components {
             parentSessionId: string;
             /** @description Why this mode: `requested`, `agent default`, `default` or `background turned off`. */
             reason: string;
+            /** @description Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it. */
             result?: string | null;
             /** @description The worker's own transcript. */
             sessionId: string;
@@ -3640,6 +3643,12 @@ export interface components {
             resetsAt?: number | null;
             /** Format: double */
             usedPercent: number;
+        };
+        /** @description One file a worker changed, with the lines its calls added and removed. */
+        WorkerEdit: {
+            additions: number;
+            deletions: number;
+            path: string;
         };
         Workspace: {
             icon: string;
