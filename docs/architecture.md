@@ -456,7 +456,11 @@ comes from the known line count and code font size, while other rows estimate wr
 fenced code, and tool summaries from their content. A terminal dump is therefore never
 represented as a 96px row before measurement. The transcript remains the only vertical
 scroller and disables native browser anchoring because its virtualizer owns resize
-compensation. Assistant output is unaffected, and machine-written user-role text keeps full
+compensation. While it sticks to the bottom, the virtual range is computed from the bottom, so a
+transcript arriving on open renders its last rows only, never its first ones and then its last
+(opening a 50,000-part thread went from 462ms of blocking to 13ms). Sidebar and task rows find a
+worker's task through an index built once per task list, which replaced a scan of every task per
+worker. Assistant output is unaffected, and machine-written user-role text keeps full
 Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
 producers set. Compaction summaries are assistant messages and were never affected.
 

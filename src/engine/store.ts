@@ -322,7 +322,8 @@ function move(index: Record<string, string[]>, id: string, from: string | undefi
         if (rest.length) index[from] = rest;
         else delete index[from];
     }
-    if (to) index[to] = [...(index[to] ?? []), id];
+    // In place: copying the list per member made loading a thread's hundreds of subagents quadratic.
+    if (to) (index[to] ??= []).push(id);
 }
 
 // Live reductions bump revision counters; snapshots captured before a request never overwrite newer state.
@@ -567,23 +568,45 @@ export function putTasks(
     set("tasks", parentId, mergeTasks(state.tasks[parentId], tasks));
 }
 
+// A list is replaced whole on every change, so its index is built once per list and read by every row.
+const taskIndexes = new WeakMap<readonly TaskRecord[], ReturnType<typeof indexTasks>>();
+
+function indexTasks(tasks: readonly TaskRecord[]) {
+    const byId = new Map<string, TaskRecord>();
+    const byCall = new Map<string, TaskRecord>();
+    const newestBySession = new Map<string, TaskRecord>();
+    for (const task of tasks) {
+        byId.set(task.id, task);
+        if (!byCall.has(task.callId)) byCall.set(task.callId, task);
+        newestBySession.set(task.sessionId, task);
+    }
+
+    return { byId, byCall, newestBySession };
+}
+
+function tasksIndexed(state: EngineState, parentId: string) {
+    const tasks = state.tasks[parentId];
+    if (!tasks) return undefined;
+
+    let index = taskIndexes.get(tasks);
+    if (!index) taskIndexes.set(tasks, (index = indexTasks(tasks)));
+
+    return index;
+}
+
 /** The task a `task` tool call launched, when the engine has reported it. */
 export function taskForCall(state: EngineState, sessionId: string, callId: string | undefined, taskId: unknown) {
-    const tasks = state.tasks[sessionId] ?? [];
-    return tasks.find(
-        (task) =>
-            (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId),
-    );
+    const index = tasksIndexed(state, sessionId);
+    const named = typeof taskId === "string" ? index?.byId.get(taskId) : undefined;
+
+    return named ?? (callId === undefined ? undefined : index?.byCall.get(callId));
 }
 
 /** The newest task that ran in a worker's session; tasks are kept oldest first. */
 export function taskForWorker(state: EngineState, sessionId: string) {
     const parentId = hiddenParent(state.sessions[sessionId]);
-    if (!parentId) return undefined;
 
-    const ran = (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId);
-
-    return ran.at(-1);
+    return parentId ? tasksIndexed(state, parentId)?.newestBySession.get(sessionId) : undefined;
 }
 
 /** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */

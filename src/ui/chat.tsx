@@ -227,9 +227,10 @@ export function Chat() {
         return result;
     });
 
-    const range = createMemo(() => {
-        return virtualRange(offsets(), viewTop(), viewHeight());
-    });
+    // Stuck to the bottom, the last rows render before the snap lands, never the top ones first.
+    const range = createMemo(() =>
+        virtualRange(offsets(), stick() ? Number.POSITIVE_INFINITY : viewTop(), viewHeight()),
+    );
 
     const slice = createMemo(() => timeline().slice(range().start, range().end));
 
