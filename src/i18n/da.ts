@@ -366,8 +366,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Når denne pc på dette netværk og hvor som helst fra.",
     "drift.remote.connection.title": "Forbindelse",
     "drift.remote.tunnel.title": "Få adgang hvor som helst fra",
-    "drift.remote.tunnel.description":
-        "Opret forbindelse uden for dette netværk via OpenTunnel, som videresender den krypterede forbindelse uden at kunne læse den. Slået fra kan kun dette netværk og Tailscale nå denne pc.",
+    "drift.remote.tunnel.description": "Tillad forbindelser til Drift udefra dette netværk.",
     "drift.remote.tunnel.phase.off": "Fra",
     "drift.remote.tunnel.phase.setting-up": "Konfigurerer, dette kan tage et minut",
     "drift.remote.tunnel.phase.connecting": "Forbinder",

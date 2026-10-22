@@ -354,8 +354,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "可在此網路及隨處存取此電腦。",
     "drift.remote.connection.title": "連線",
     "drift.remote.tunnel.title": "隨處存取",
-    "drift.remote.tunnel.description":
-        "透過 OpenTunnel 從此網路外部連線。它會轉送加密連線，且無法讀取連線內容。若關閉，則僅有此網路和 Tailscale 可以存取此電腦。",
+    "drift.remote.tunnel.description": "允許從此網路外部連線至 Drift。",
     "drift.remote.tunnel.phase.off": "關閉",
     "drift.remote.tunnel.phase.setting-up": "正在設定，這可能需要一分鐘",
     "drift.remote.tunnel.phase.connecting": "正在連線",

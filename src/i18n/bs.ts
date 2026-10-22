@@ -365,8 +365,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Doseže ovaj PC na ovoj mreži i s bilo kojeg mjesta.",
     "drift.remote.connection.title": "Veza",
     "drift.remote.tunnel.title": "Pristup s bilo kojeg mjesta",
-    "drift.remote.tunnel.description":
-        "Povežite se izvan ove mreže putem OpenTunnela, koji prosljeđuje šifrovanu vezu bez mogućnosti čitanja. Kad je isključeno, samo ova mreža i Tailscale mogu doći do ovog računara.",
+    "drift.remote.tunnel.description": "Dozvolite veze s Driftom izvan ove mreže.",
     "drift.remote.tunnel.phase.off": "Isključeno",
     "drift.remote.tunnel.phase.setting-up": "Postavljanje, ovo može potrajati minut",
     "drift.remote.tunnel.phase.connecting": "Povezivanje",

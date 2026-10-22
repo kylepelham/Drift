@@ -360,8 +360,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "เข้าถึงพีซีเครื่องนี้บนเครือข่ายนี้และจากทุกที่",
     "drift.remote.connection.title": "การเชื่อมต่อ",
     "drift.remote.tunnel.title": "เข้าถึงได้จากทุกที่",
-    "drift.remote.tunnel.description":
-        "เชื่อมต่อจากภายนอกเครือข่ายนี้ผ่าน OpenTunnel ซึ่งส่งต่อการเชื่อมต่อที่เข้ารหัสโดยไม่สามารถอ่านข้อมูลได้ หากปิด จะมีเพียงเครือข่ายนี้และ Tailscale เท่านั้นที่เข้าถึงพีซีเครื่องนี้ได้",
+    "drift.remote.tunnel.description": "อนุญาตการเชื่อมต่อไปยัง Drift จากภายนอกเครือข่ายนี้",
     "drift.remote.tunnel.phase.off": "ปิด",
     "drift.remote.tunnel.phase.setting-up": "กำลังตั้งค่า อาจใช้เวลาสักครู่",
     "drift.remote.tunnel.phase.connecting": "กำลังเชื่อมต่อ",

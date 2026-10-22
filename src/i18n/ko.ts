@@ -362,8 +362,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "이 네트워크 및 어디서나 이 PC에 접근합니다.",
     "drift.remote.connection.title": "연결",
     "drift.remote.tunnel.title": "어디서나 접근",
-    "drift.remote.tunnel.description":
-        "암호화된 연결 내용을 읽을 수 없이 중계하는 OpenTunnel을 통해 이 네트워크 외부에서 연결합니다. 끄면 이 네트워크와 Tailscale에서만 이 PC에 접근할 수 있습니다.",
+    "drift.remote.tunnel.description": "이 네트워크 외부에서 Drift로의 연결을 허용합니다.",
     "drift.remote.tunnel.phase.off": "끔",
     "drift.remote.tunnel.phase.setting-up": "설정 중, 1분 정도 걸릴 수 있습니다",
     "drift.remote.tunnel.phase.connecting": "연결 중",

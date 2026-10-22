@@ -354,8 +354,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "在此网络中以及随时随地访问这台电脑。",
     "drift.remote.connection.title": "连接",
     "drift.remote.tunnel.title": "随时随地访问",
-    "drift.remote.tunnel.description":
-        "通过 OpenTunnel 从此网络外部连接，它会中继加密连接而无法读取内容。关闭时，仅限当前网络和 Tailscale 访问这台电脑。",
+    "drift.remote.tunnel.description": "允许从当前网络之外连接到 Drift。",
     "drift.remote.tunnel.phase.off": "关闭",
     "drift.remote.tunnel.phase.setting-up": "正在设置，可能需要一分钟",
     "drift.remote.tunnel.phase.connecting": "正在连接",

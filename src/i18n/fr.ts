@@ -373,8 +373,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Accède à ce PC sur ce réseau et de partout.",
     "drift.remote.connection.title": "Connexion",
     "drift.remote.tunnel.title": "Accéder de partout",
-    "drift.remote.tunnel.description":
-        "Connectez-vous hors de ce réseau via OpenTunnel, qui relaie la connexion chiffrée sans pouvoir la lire. Désactivé, seuls ce réseau et Tailscale accèdent à ce PC.",
+    "drift.remote.tunnel.description": "Autoriser les connexions à Drift depuis l'extérieur de ce réseau.",
     "drift.remote.tunnel.phase.off": "Désactivé",
     "drift.remote.tunnel.phase.setting-up": "Configuration en cours, cela peut prendre une minute",
     "drift.remote.tunnel.phase.connecting": "Connexion",

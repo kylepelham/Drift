@@ -364,8 +364,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "このネットワーク上およびどこからでもこの PC に接続できます。",
     "drift.remote.connection.title": "接続",
     "drift.remote.tunnel.title": "どこからでもアクセス",
-    "drift.remote.tunnel.description":
-        "OpenTunnel 経由でこのネットワークの外部から接続します。OpenTunnel は暗号化された接続を中継しますが、その内容を読み取ることはできません。オフの場合、このネットワークと Tailscale からのみこの PC に接続できます。",
+    "drift.remote.tunnel.description": "このネットワーク外からの Drift への接続を許可します。",
     "drift.remote.tunnel.phase.off": "オフ",
     "drift.remote.tunnel.phase.setting-up": "セットアップ中、1 分ほどかかる場合があります",
     "drift.remote.tunnel.phase.connecting": "接続中",

@@ -367,8 +367,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Bu bilgisayara bu ağdan ve her yerden erişir.",
     "drift.remote.connection.title": "Bağlantı",
     "drift.remote.tunnel.title": "Her yerden eriş",
-    "drift.remote.tunnel.description":
-        "Şifrelenmiş bağlantıyı okuyamadan aktaran OpenTunnel üzerinden bu ağın dışından bağlanın. Kapalıyken bu bilgisayara yalnızca bu ağ ve Tailscale erişir.",
+    "drift.remote.tunnel.description": "Bu ağın dışından Drift'e bağlantılara izin verin.",
     "drift.remote.tunnel.phase.off": "Kapalı",
     "drift.remote.tunnel.phase.setting-up": "Ayarlanıyor, bu bir dakika sürebilir",
     "drift.remote.tunnel.phase.connecting": "Bağlanıyor",

@@ -358,8 +358,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "يصل إلى هذا الحاسوب عبر هذه الشبكة ومن أي مكان.",
     "drift.remote.connection.title": "الاتصال",
     "drift.remote.tunnel.title": "الوصول من أي مكان",
-    "drift.remote.tunnel.description":
-        "اتصل من خارج هذه الشبكة عبر OpenTunnel، الذي ينقل الاتصال المشفر دون التمكن من قراءته. عند الإيقاف، لا تصل إلى هذا الحاسوب إلا هذه الشبكة وTailscale.",
+    "drift.remote.tunnel.description": "السماح بالاتصال بـ Drift من خارج هذه الشبكة.",
     "drift.remote.tunnel.phase.off": "إيقاف",
     "drift.remote.tunnel.phase.setting-up": "جارٍ الإعداد، قد يستغرق هذا دقيقة",
     "drift.remote.tunnel.phase.connecting": "جارٍ الاتصال",

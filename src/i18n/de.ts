@@ -372,8 +372,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Erreicht diesen PC in diesem Netzwerk und von überall aus.",
     "drift.remote.connection.title": "Verbindung",
     "drift.remote.tunnel.title": "Von überall aus erreichbar",
-    "drift.remote.tunnel.description":
-        "Verbinde dich von außerhalb dieses Netzwerks über OpenTunnel, das die verschlüsselte Verbindung weiterleitet, ohne sie mitlesen zu können. Wenn aus, erreichen diesen PC nur dieses Netzwerk und Tailscale.",
+    "drift.remote.tunnel.description": "Verbindungen zu Drift von außerhalb dieses Netzwerks erlauben.",
     "drift.remote.tunnel.phase.off": "Aus",
     "drift.remote.tunnel.phase.setting-up": "Wird eingerichtet, das kann eine Minute dauern",
     "drift.remote.tunnel.phase.connecting": "Verbindung wird hergestellt",

@@ -366,8 +366,7 @@ export const drift = {
     "drift.remote.app.reach.anywhere": "Доступ до цього ПК у цій мережі та звідусіль.",
     "drift.remote.connection.title": "З'єднання",
     "drift.remote.tunnel.title": "Доступ звідусіль",
-    "drift.remote.tunnel.description":
-        "Підключайтеся з-поза меж цієї мережі через OpenTunnel, який передає зашифроване з'єднання без можливості його прочитати. Якщо вимкнено, доступ до цього ПК є лише з цієї мережі та через Tailscale.",
+    "drift.remote.tunnel.description": "Дозволити з'єднання з Drift з-поза меж цієї мережі.",
     "drift.remote.tunnel.phase.off": "Вимк.",
     "drift.remote.tunnel.phase.setting-up": "Налаштування, це може зайняти хвилину",
     "drift.remote.tunnel.phase.connecting": "Підключення",
