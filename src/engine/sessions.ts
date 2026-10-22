@@ -12,14 +12,6 @@ export function sessionInWorkspace(session: components["schemas"]["Session"], wo
     return { ...session, directory };
 }
 
-/** Points loaded sessions at their workspace's current directory, so a moved workspace keeps its threads. */
-export function rehomeSessions(sessions: Record<string, Session>, workspaces: WorkspaceIndex) {
-    for (const session of Object.values(sessions)) {
-        const directory = workspaces.path(session.workspaceId);
-        if (directory && directory !== session.directory) session.directory = directory;
-    }
-}
-
 /** Only hidden workers nest under their parent; spawned siblings stay in the thread list. */
 export function hiddenParent(session: Pick<Session, "visibility" | "parentId"> | undefined) {
     if (session?.visibility !== "hidden") return undefined;

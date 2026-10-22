@@ -3,6 +3,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "s
 import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
+import { messageText, createRunWatcher } from "./engine/store";
 import { ToolContextMenuHost } from "./ui/tool-context-menu";
 import { browserPaneShowing } from "./state/browser-pane";
 import { syncDictationConsent } from "./voice/dictation";
@@ -25,7 +26,6 @@ import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
 import { rightPanelOpen } from "./state/panels";
 import { bindPathCopy } from "./ui/path-copy";
-import { messageText } from "./engine/store";
 import { SettingsHost } from "./ui/settings";
 import { StartupSplash } from "./ui/startup";
 import { McpServersModal } from "./ui/mcp";
@@ -152,18 +152,11 @@ function PathCopyBinding() {
 /** The engine drives orchestrator turns; this only says how one ended. */
 function OrchestratorBinding() {
     const engine = useEngine();
-    const previous = new Map<string, string>();
-
-    createEffect(() => {
-        for (const [id, status] of Object.entries(engine.state.status)) {
-            const before = previous.get(id);
-            previous.set(id, status.type);
-            // The microtask escapes the effect's tracking scope: reading the transcript must not resubscribe it.
-            if (status.type === "idle" && (before === "busy" || before === "retry"))
-                queueMicrotask(() => report(id, before));
-        }
-        for (const id of previous.keys()) if (!engine.state.status[id]) previous.delete(id);
-    });
+    // Reporting after the update settles, as before: the notice it may post is a write of its own.
+    createRunWatcher(
+        () => engine.state,
+        (id, was) => queueMicrotask(() => report(id, was)),
+    );
 
     function report(id: string, previousStatus: string) {
         const state = engine.state;

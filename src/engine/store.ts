@@ -1,14 +1,15 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
+import { createEffect, untrack } from "solid-js";
 import { hiddenParent } from "./sessions";
 import { messageModel } from "./messages";
 import { promptPartText } from "./parts";
 
 import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
+import type { Session, WorkspaceIndex } from "./sessions";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { ProcessRecord } from "./processes";
 import type { BrowserRecord } from "./browsers";
-import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
 import type {
@@ -144,7 +145,13 @@ export type EngineState = {
     sessionSnapshotEpoch: number;
     providerSnapshotEpoch: number;
     sessions: Record<string, Session>;
+    /** Hidden workers' ids by parent; storeSession and forgetSession keep both indexes, so no view scans every session. */
+    childIds: Record<string, string[]>;
+    /** Thread ids (sessions that are not hidden workers) by normalized directory. */
+    threadIds: Record<string, string[]>;
     status: Record<string, SessionStatus>;
+    /** Sessions busy or retrying now, kept by setStatus so watching runs end never scans every session. */
+    running: Record<string, "busy" | "retry">;
     transcripts: Record<string, MessageEntry[]>;
     loaded: Record<string, boolean>;
     permissions: Record<string, Permission[]>;
@@ -219,7 +226,10 @@ export function createEngineState() {
         sessionSnapshotEpoch: 0,
         providerSnapshotEpoch: 0,
         sessions: {},
+        childIds: {},
+        threadIds: {},
         status: {},
+        running: {},
         transcripts: {},
         loaded: {},
         permissions: {},
@@ -267,7 +277,7 @@ function linkSpawned(links: Record<string, string>, info: Session) {
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
     set(
         produce((draft) => {
-            draft.sessions[info.id] = { revert: undefined, ...info };
+            storeSession(draft, info);
             linkSpawned(draft.links, info);
 
             const model = info.model;
@@ -275,6 +285,44 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
             bumpRevision(draft, sessionRevisionKey(info.id));
         }),
     );
+}
+
+/** Every write to `sessions` goes through here or forgetSession, which keep `childIds` and `threadIds` in step. */
+export function storeSession(draft: EngineState, info: Session) {
+    reindex(draft, info.id, draft.sessions[info.id], info);
+    draft.sessions[info.id] = { revert: undefined, ...info };
+}
+
+export function forgetSession(draft: EngineState, id: string) {
+    reindex(draft, id, draft.sessions[id], undefined);
+    delete draft.sessions[id];
+}
+
+/** Points loaded sessions at their workspace's current directory, so a moved workspace keeps its threads. */
+export function rehomeSessions(draft: EngineState, workspaces: WorkspaceIndex) {
+    for (const session of Object.values(draft.sessions)) {
+        const directory = workspaces.path(session.workspaceId);
+        if (directory && directory !== session.directory) storeSession(draft, { ...session, directory });
+    }
+}
+
+function reindex(draft: EngineState, id: string, before: Session | undefined, after: Session | undefined) {
+    move(draft.childIds, id, hiddenParent(before), hiddenParent(after));
+    move(draft.threadIds, id, threadDirectory(before), threadDirectory(after));
+}
+
+function threadDirectory(session: Session | undefined) {
+    return session && !hiddenParent(session) ? normalizeDir(session.directory) : undefined;
+}
+
+function move(index: Record<string, string[]>, id: string, from: string | undefined, to: string | undefined) {
+    if (from === to) return;
+    if (from) {
+        const rest = (index[from] ?? []).filter((member) => member !== id);
+        if (rest.length) index[from] = rest;
+        else delete index[from];
+    }
+    if (to) index[to] = [...(index[to] ?? []), id];
 }
 
 // Live reductions bump revision counters; snapshots captured before a request never overwrite newer state.
@@ -549,6 +597,35 @@ export function savedChoice(
     return { agent: session.agent, variant: session.variant ?? null, ...model };
 }
 
+export function setStatus(draft: EngineState, id: string, status: SessionStatus) {
+    draft.status[id] = status;
+    if (status.type === "idle") delete draft.running[id];
+    else draft.running[id] = status.type;
+}
+
+/** Calls `finished` once per run that ends idle. */
+export function createRunWatcher(
+    engineState: () => EngineState,
+    finished: (id: string, was: "busy" | "retry") => void,
+) {
+    const running = new Map<string, "busy" | "retry">();
+    createEffect(() => {
+        for (const [id, was] of endedRuns(engineState(), running)) untrack(() => finished(id, was));
+    });
+}
+
+/** Runs in `running` that have since ended, which it then drops; a run cut off by its session's removal is not one. */
+export function endedRuns(state: EngineState, running: Map<string, "busy" | "retry">) {
+    const ended: [string, "busy" | "retry"][] = [];
+    for (const [id, was] of running) {
+        if (state.running[id]) continue;
+        running.delete(id);
+        if (state.status[id]) ended.push([id, was]);
+    }
+    for (const [id, type] of Object.entries(state.running)) running.set(id, type);
+    return ended;
+}
+
 export function sessionBusy(state: EngineState, id: string) {
     const status = state.status[id]?.type;
     return status === "busy" || status === "retry";
@@ -559,15 +636,14 @@ export function normalizeDir(path: string) {
 }
 
 export function sessionsFor(state: EngineState, directory: string) {
-    const dir = normalizeDir(directory);
-    return Object.values(state.sessions)
-        .filter((session) => !hiddenParent(session) && normalizeDir(session.directory) === dir)
+    return (state.threadIds[normalizeDir(directory)] ?? [])
+        .flatMap((id) => state.sessions[id] ?? [])
         .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function childrenOf(state: EngineState, parentId: string) {
-    return Object.values(state.sessions)
-        .filter((session) => hiddenParent(session) === parentId)
+    return (state.childIds[parentId] ?? [])
+        .flatMap((id) => state.sessions[id] ?? [])
         .sort((a, b) => a.createdAt - b.createdAt);
 }
 

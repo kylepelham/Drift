@@ -1,5 +1,6 @@
+import { childrenOf, createEngineState, forgetSession, putSession } from "../src/engine/store";
 import { sessionNeedsAttention, sidebarWorkers } from "../src/state/permission-attention";
-import { createEngineState } from "../src/engine/store";
+import { produce } from "solid-js/store";
 import { expect, test } from "bun:test";
 
 test("every ask that arrives waits on the user: the engine already answered what auto-accept and always cover", () => {
@@ -36,7 +37,7 @@ test("the webview no longer answers asks or keeps an always rule of its own", as
 test("the sidebar shows a subagent while it runs, waits on the user, or is open", () => {
     const [state, set] = createEngineState();
     for (const id of ["running", "asking", "done"])
-        set("sessions", id, { id, parentId: "parent", visibility: "hidden", createdAt: 1, updatedAt: 1 } as never);
+        putSession(set, { id, parentId: "parent", visibility: "hidden", createdAt: 1, updatedAt: 1 } as never);
     set("status", "running", { type: "busy" });
     set("status", "done", { type: "idle" });
     set("questions", "asking", [{ id: "q1", sessionId: "asking", questions: [] }] as never);
@@ -53,7 +54,7 @@ test("the sidebar shows a subagent while it runs, waits on the user, or is open"
 
 test("the sidebar shows a subagent resumed in the background while it waits for a slot", () => {
     const [state, set] = createEngineState();
-    set("sessions", "worker", {
+    putSession(set, {
         id: "worker",
         parentId: "parent",
         visibility: "hidden",
@@ -66,4 +67,24 @@ test("the sidebar shows a subagent resumed in the background while it waits for 
 
     set("tasks", "parent", [{ id: "t1", sessionId: "worker", state: "replied", mode: "background" }] as never);
     expect(sidebarWorkers(state, "parent")).toEqual([]);
+});
+
+test("a thread's workers come from an index that follows each worker's parent", () => {
+    const [state, set] = createEngineState();
+    const worker = (id: string, parentId: string, createdAt: number, visibility = "hidden") =>
+        ({ id, parentId, visibility, directory: "C:/repo", createdAt, updatedAt: createdAt }) as never;
+    putSession(set, worker("late", "a", 2));
+    putSession(set, worker("early", "a", 1));
+    expect(childrenOf(state, "a").map((s) => s.id)).toEqual(["early", "late"]);
+
+    putSession(set, worker("late", "b", 2));
+    expect(childrenOf(state, "a").map((s) => s.id)).toEqual(["early"]);
+    expect(childrenOf(state, "b").map((s) => s.id)).toEqual(["late"]);
+
+    putSession(set, worker("early", "a", 1, "sibling"));
+    expect(state.threadIds).toEqual({ "c:/repo": ["early"] });
+    set(produce((draft) => forgetSession(draft, "late")));
+    set(produce((draft) => forgetSession(draft, "early")));
+    expect(state.childIds).toEqual({});
+    expect(state.threadIds).toEqual({});
 });

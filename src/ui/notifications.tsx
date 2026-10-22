@@ -1,6 +1,7 @@
 import { alertSounds, customSound, systemNotifications, type AttentionKind } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { useEngine, type Engine } from "../engine";
+import { createRunWatcher } from "../engine/store";
 import { selectSession } from "../state/selection";
 import { playAlertSound } from "./sounds";
 import { shellInvoke } from "../shell";
@@ -70,23 +71,18 @@ export function AttentionNotifier(props: { engine: Engine }) {
         }
     });
 
-    const busy = new Set<string>();
-    createEffect(() => {
-        for (const [sessionId, status] of Object.entries(props.engine.state.status)) {
-            const running = status.type === "busy" || status.type === "retry";
-            if (running) busy.add(sessionId);
-            else if (busy.delete(sessionId) && !props.engine.state.errors[sessionId])
-                untrack(() => {
-                    const session = props.engine.state.sessions[sessionId];
-                    show(
-                        "agent",
-                        sessionId,
-                        t("notification.session.responseReady.title"),
-                        session?.title || t("drift.notification.threadFinished"),
-                    );
-                });
-        }
-    });
+    createRunWatcher(
+        () => props.engine.state,
+        (sessionId) => {
+            if (props.engine.state.errors[sessionId]) return;
+            show(
+                "agent",
+                sessionId,
+                t("notification.session.responseReady.title"),
+                props.engine.state.sessions[sessionId]?.title || t("drift.notification.threadFinished"),
+            );
+        },
+    );
 
     const errors = new Map<string, string>();
     createEffect(() => {

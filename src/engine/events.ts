@@ -4,6 +4,7 @@ import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
 import {
     bumpRevision,
+    forgetSession,
     messageRevisionKey,
     normalizeDir,
     pruneSessionRevisions,
@@ -11,8 +12,10 @@ import {
     recordLink,
     revisionAdvanced,
     sessionRevisionKey,
+    setStatus,
     spawnLink,
     statusRevisionKey,
+    storeSession,
     type EngineState,
     type ModelRef,
     type Notice,
@@ -111,7 +114,7 @@ function reduceContentEvent(
 function updateStatus(set: SetEngineState, sessionID: string, status: SessionStatus) {
     set(
         produce((draft) => {
-            draft.status[sessionID] = status;
+            setStatus(draft, sessionID, status);
             bumpRevision(draft, statusRevisionKey(sessionID));
             if (status.type === "idle") clearLiveTools(draft, sessionID);
         }),
@@ -122,7 +125,7 @@ function updateStatus(set: SetEngineState, sessionID: string, status: SessionSta
 
 // The revision bump outlives the purge, so a snapshot taken before deletion cannot resurrect it.
 function purgeSession(draft: EngineState, id: string) {
-    delete draft.sessions[id];
+    forgetSession(draft, id);
     delete draft.transcripts[id];
     delete draft.loaded[id];
     delete draft.permissions[id];
@@ -131,6 +134,7 @@ function purgeSession(draft: EngineState, id: string) {
     delete draft.queued[id];
     delete draft.tasks[id];
     delete draft.status[id];
+    delete draft.running[id];
     delete draft.activity[id];
     delete draft.errors[id];
     delete draft.sessionModels[id];
@@ -156,7 +160,7 @@ export function applySessionSnapshot(
             const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id));
             for (const info of input.sessions) {
                 if (advanced(info.id)) continue;
-                draft.sessions[info.id] = { revert: undefined, ...info };
+                storeSession(draft, info);
                 // Advancing the session stops an older overlapping snapshot (a reconnect flap) undoing this one.
                 bumpRevision(draft, sessionRevisionKey(info.id));
                 const model = info.model;
@@ -187,7 +191,7 @@ export function applyStatusSnapshot(
                 if (!draft.sessions[session.id]) continue;
                 if (revisionAdvanced(draft.revisions, input.captured, statusRevisionKey(session.id))) continue;
                 const status = input.statuses[session.id] ?? { type: "idle" as const };
-                draft.status[session.id] = status;
+                setStatus(draft, session.id, status);
                 if (status.type === "idle") clearLiveTools(draft, session.id);
             }
         }),

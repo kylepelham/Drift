@@ -1,7 +1,16 @@
-import { childrenOf, createEngineState, putSession, savedChoice, sessionsFor } from "../src/engine/store";
-import { hiddenParent, rehomeSessions, sessionInWorkspace } from "../src/engine/sessions";
+import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions";
 import { applySessionSnapshot, reduce } from "../src/engine/events";
+import { produce } from "solid-js/store";
 import { expect, test } from "bun:test";
+import {
+    childrenOf,
+    createEngineState,
+    endedRuns,
+    putSession,
+    rehomeSessions,
+    savedChoice,
+    sessionsFor,
+} from "../src/engine/store";
 
 import type { components } from "../src/engine/native/types";
 
@@ -68,12 +77,32 @@ test("a workspace moved to another folder keeps its loaded threads", () => {
     putSession(set, sessionInWorkspace(session, workspaces));
     const moved = { path: () => "C:/elsewhere", id: () => "workspace" };
 
-    set("sessions", (sessions) => {
-        const next = structuredClone(sessions);
-        rehomeSessions(next, moved);
-        return next;
-    });
+    set(produce((draft) => rehomeSessions(draft, moved)));
 
     expect(sessionsFor(state, "C:/elsewhere").map((current) => current.id)).toEqual(["parent"]);
     expect(sessionsFor(state, "C:/repo")).toEqual([]);
+});
+
+test("a run that ends is reported once with how it ran, and a removed session's run is not", () => {
+    const [state, set] = createEngineState();
+    const running = new Map<string, "busy" | "retry">();
+    const status = (sessionId: string, value: "running" | "idle") =>
+        reduce(set, { type: "session.status", sessionId, status: value } as never);
+    for (const current of ["done", "removed", "retried"]) {
+        putSession(set, sessionInWorkspace({ ...session, id: current }, workspaces));
+        status(current, "running");
+    }
+    reduce(set, { type: "session.retry", sessionId: "retried", attempt: 1, message: "busy", nextAt: 5 } as never);
+    expect(endedRuns(state, running)).toEqual([]);
+    expect(state.running).toEqual({ done: "busy", removed: "busy", retried: "retry" });
+
+    status("done", "idle");
+    status("retried", "idle");
+    reduce(set, { type: "session.deleted", sessionId: "removed" } as never);
+    expect(endedRuns(state, running)).toEqual([
+        ["done", "busy"],
+        ["retried", "retry"],
+    ]);
+    expect(endedRuns(state, running)).toEqual([]);
+    expect(state.running).toEqual({});
 });

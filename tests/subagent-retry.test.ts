@@ -1,5 +1,5 @@
+import { createEngineState, putSession } from "../src/engine/store";
 import { toolDisplay } from "../src/ui/tool-presentation";
-import { createEngineState } from "../src/engine/store";
 import { expect, test } from "bun:test";
 import "./source";
 
@@ -282,7 +282,7 @@ test("a running delegated row recovers its child when parallel task metadata is 
     const { delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } =
         await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
-    set("sessions", "child", {
+    putSession(set, {
         id: "child",
         parentId: "parent",
         visibility: "hidden",
@@ -303,7 +303,7 @@ test("a running delegated row recovers its child when parallel task metadata is 
     expect(status).toBe("running");
     expect(delegatedTaskClickPolicy(status, childId)).toBe("navigate");
 
-    set("sessions", "duplicate", {
+    putSession(set, {
         id: "duplicate",
         parentId: "parent",
         visibility: "hidden",
@@ -317,7 +317,7 @@ test("a running delegated row recovers its child when parallel task metadata is 
 test("a continued task call without metadata resolves its task id to the session it ran in", async () => {
     const { delegatedChildId } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
-    set("sessions", "ses_cleanup", {
+    putSession(set, {
         id: "ses_cleanup",
         parentId: "parent",
         visibility: "hidden",
