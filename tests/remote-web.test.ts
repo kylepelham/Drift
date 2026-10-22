@@ -143,7 +143,8 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(composer).toContainCode('class="composer-options relative flex min-w-0 flex-1');
     expect(composer).not.toContainCode("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden");
     expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0');
-    expect(mobile).toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
+    expect(mobile).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
+    expect(mobile).not.toMatch(/\.composer-options\s*\{[^}]*flex: 1 0 100%/s);
     expect(mobile).toMatch(
         /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full\s*\{\s*display: none/s,
     );
@@ -151,7 +152,9 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(css).not.toMatch(
         /\.composer-actions button,\s*\.composer-actions \[role="button"\]\s*\{[^}]*min-height: 0/s,
     );
-    expect(mobile).toMatch(/\.composer-action-buttons > button\s*\{[^}]*min-width: 44px;[^}]*min-height: 44px/s);
+    expect(mobile).toMatch(
+        /\.composer-shell \.composer-actions button\s*\{[^}]*min-width: 2\.25rem;[^}]*min-height: 2\.25rem/s,
+    );
     // The drawer must not add safe-area padding: the wrapper webview already sits below the
     // status bar, so env(safe-area-inset-top) doubles into a large blank band at the top.
     expect(mobile).not.toMatch(/\.app-sidebar\s*\{[^}]*safe-area-inset-top/s);

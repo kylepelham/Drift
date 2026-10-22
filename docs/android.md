@@ -113,9 +113,11 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
 - Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings use a full-screen labeled section list with Back navigation and
   search. The desktop keeps its sidebar and dialog. Wider fields wrap under their labels, while
   switches stay beside the text. Touch controls have 44-pixel targets and readable secondary text.
-- The phone composer gives its pickers a separate row. Pickers open as dismissible sheets without
+- The phone composer keeps its pickers and buttons on one row under the text, as on the desktop, with
+  36-pixel buttons, and dock cards tuck under it. Pickers open as dismissible sheets without
   opening the keyboard. Touch Enter inserts a newline; Send or Ctrl+Enter submits. Textarea height
   follows the available viewport, and approval cards scroll above it instead of hiding Send.
+- A reply's footer stays on one line on a phone: the model name truncates before Copy or Fork can wrap.
 - The drawer follows horizontal drags, except from controls, dialogs, text selection surfaces, or
   horizontally scrollable content. Its first 24 pixels are left to Android Back. Multiple fingers
   cancel a drawer drag. Threads expose a visible menu rather than requiring hover or long-press.
