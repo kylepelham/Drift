@@ -75,7 +75,7 @@ GET    /providers           GET  /models     catalog with auth state
 POST   /providers/{id}/auth/{method}        key, oauth start, oauth callback
 DELETE /providers/{id}/auth
 GET    /providers/{id}/server  PUT          a local server's address and window limit (drift.json)
-GET    /sessions?workspace=&cursor=&archived=
+GET    /sessions?workspace=&cursor=&archived=&parent=&subagents=active
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
@@ -2783,6 +2783,12 @@ Settled after the first external review of M1; each has a regression test.
 - Session listings page by `(updated_at, id)` keyset until a short page, so equal timestamps
   never skip rows; a snapshot is only authoritative when complete. Each listed session
   carries `running` and the client collects it across every page before setting status.
+- The sidebar's listings are lean (`subagents=active`): threads, plus only the subagents whose
+  newest worker is queued or running, which the sidebar shows under their thread. Opening a thread
+  lists its own subagents (`parent=<id>`), and a remembered selection the listing left out is read
+  by id. A lean snapshot purges a known subagent it left out only when its parent goes, and marks it
+  idle, since leaving it out means its worker has ended. With 2,556 subagent transcripts beside 104
+  threads, startup's listings went from 20 requests and 1.5MB to 3 requests and 38KB.
 - Tool calls keep the model's order: a run of consecutive read-only calls executes together,
   a mutating call waits for everything before it, and reads after it wait for it.
 - `DELETE /sessions/{id}` is the real purge (cascades messages, parts, todos, submissions). It

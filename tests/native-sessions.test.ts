@@ -72,6 +72,28 @@ test("a scoped session snapshot keeps native archived rows and clears dropped re
     expect(state.sessions.parent.revert).toBeUndefined();
 });
 
+test("a lean snapshot keeps an ended subagent it left out, until its thread goes", () => {
+    const [state, set] = createEngineState();
+    const gone = { ...session, id: "gone" };
+    const hidden = { parentId: "parent", visibility: "hidden" as const };
+    for (const current of [
+        session,
+        gone,
+        { ...session, ...hidden, id: "kept" },
+        { ...session, ...hidden, id: "orphan", parentId: "gone" },
+    ])
+        putSession(set, sessionInWorkspace(current, workspaces));
+
+    applySessionSnapshot(set, {
+        sessions: [sessionInWorkspace(session, workspaces)],
+        captured: { ...state.revisions },
+        scope: { directory: "C:/repo" },
+    });
+
+    expect(Object.keys(state.sessions).sort()).toEqual(["kept", "parent"]);
+    expect(childrenOf(state, "parent").map((current) => current.id)).toEqual(["kept"]);
+});
+
 test("a workspace moved to another folder keeps its loaded threads", () => {
     const [state, set] = createEngineState();
     putSession(set, sessionInWorkspace(session, workspaces));

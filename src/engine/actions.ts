@@ -2,13 +2,13 @@ import { errorMessage, type ActionContext, type NoticeInput } from "./actions-co
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
 import { connectBrowserView, type BrowserViewHandlers } from "./browser-view";
 import { produce, type SetStoreFunction } from "solid-js/store";
+import { hiddenParent, sessionInWorkspace } from "./sessions";
 import { createProviderActions } from "./actions-providers";
 import { createSessionActions } from "./actions-sessions";
 import { formatAttachmentBytes } from "../attachments";
 import { createConfigActions } from "./actions-config";
 import { dropBrowser, putBrowser } from "./browsers";
 import { createAskActions } from "./actions-asks";
-import { sessionInWorkspace } from "./sessions";
 import { putProcesses } from "./processes";
 import { untrack } from "solid-js";
 import { t } from "../state/i18n";
@@ -17,6 +17,7 @@ import {
     compareMessages,
     interruptStaleTools,
     mergeTranscriptSnapshot,
+    normalizeDir,
     putSession,
     putTasks,
     savedChoice,
@@ -123,7 +124,8 @@ export function createActions(
         set("loaded", id, true);
         set("cursors", id, messages.length === pageSize ? messages[0]!.id : null);
 
-        const [todos, tasks, processes, browser] = await Promise.all([
+        const [, todos, tasks, processes, browser] = await Promise.all([
+            loadChildren(id).catch(() => undefined),
             requireClient()
                 .todos(id)
                 .catch(() => undefined),
@@ -281,7 +283,7 @@ export function createActions(
     }
 
     /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
-    async function allPages(params: { workspace?: string; archived?: boolean }) {
+    async function allPages(params: { workspace?: string; archived?: boolean; parent?: string; subagents?: "active" }) {
         const all: Session[] = [];
         const running: string[] = [];
         let before: string | undefined;
@@ -302,6 +304,34 @@ export function createActions(
         applyStatusSnapshot(set, { sessions, statuses, captured });
     }
 
+    /** Known subagents a lean listing left out have ended, so they are idle; `directory` narrows it to one workspace. */
+    function endedSubagents(listed: Session[], directory?: string) {
+        const ids = new Set(listed.map((session) => session.id));
+        const scope = directory === undefined ? undefined : normalizeDir(directory);
+
+        return untrack(() =>
+            Object.values(state.sessions).filter(
+                (session) =>
+                    !ids.has(session.id) &&
+                    !!hiddenParent(session) &&
+                    (scope === undefined || normalizeDir(session.directory) === scope),
+            ),
+        );
+    }
+
+    /** The subagents and threads a session launched: lean listings leave its ended subagents out until it opens. */
+    async function loadChildren(id: string) {
+        const captured = untrack(() => captureRevisions(state));
+        const { sessions, running } = await allPages({ parent: id });
+        applySessionSnapshot(set, { sessions, captured });
+        reconcileStatus(sessions, new Set(running), captured);
+    }
+
+    /** A session selected before it was listed, such as an ended subagent remembered from the last run. */
+    async function findSession(id: string) {
+        putSession(set, sessionInWorkspace(await requireClient().session(id), workspaces()));
+    }
+
     // Loaders snapshot state untracked: effects call them, and they write what they read.
     async function loadSessions(directory: string) {
         const { workspace, captured, epoch } = untrack(() => ({
@@ -311,20 +341,23 @@ export function createActions(
         }));
         if (!workspace) return;
 
-        const { sessions, running } = await allPages({ workspace });
+        const { sessions, running } = await allPages({ workspace, subagents: "active" });
 
         if (state.sessionSnapshotEpoch !== epoch) return;
 
         applySessionSnapshot(set, { sessions, captured, scope: { directory } });
-        reconcileStatus(sessions, new Set(running), captured);
+        reconcileStatus([...sessions, ...endedSubagents(sessions, directory)], new Set(running), captured);
     }
 
     async function loadAllSessions() {
         const captured = untrack(() => captureRevisions(state));
-        const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })]);
+        const [live, archived] = await Promise.all([
+            allPages({ subagents: "active" }),
+            allPages({ archived: true, subagents: "active" }),
+        ]);
         const sessions = [...live.sessions, ...archived.sessions];
         applySessionSnapshot(set, { sessions, captured });
-        reconcileStatus(sessions, new Set(live.running), captured);
+        reconcileStatus([...sessions, ...endedSubagents(sessions)], new Set(live.running), captured);
         set("sessionSnapshotAll", true);
     }
 
@@ -470,6 +503,7 @@ export function createActions(
         ...createProviderActions(context),
         ...createConfigActions(context),
         openSession,
+        findSession,
         reconcileSession,
         loadOlder,
         loadSessions,

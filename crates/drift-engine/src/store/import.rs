@@ -290,6 +290,7 @@ mod tests {
                 archived: false,
                 before: None,
                 limit: 10,
+                ..Default::default()
             })
             .unwrap()
             .len()

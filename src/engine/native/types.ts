@@ -5145,6 +5145,10 @@ export interface operations {
                 /** @description Page: sessions updated before this session id. */
                 before?: string | null;
                 limit?: number | null;
+                /** @description Only the sessions this one launched or spawned. */
+                parent?: string | null;
+                /** @description `active` leaves out subagents' transcripts, except those whose newest worker is queued or running. */
+                subagents?: ("all" | "active") | null;
                 /** @description Restrict to one workspace; omit for every workspace. */
                 workspace?: string | null;
             };

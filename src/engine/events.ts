@@ -1,5 +1,5 @@
 import { clearQuestionDraft } from "../state/question-drafts";
-import { sessionInWorkspace } from "./sessions";
+import { hiddenParent, sessionInWorkspace } from "./sessions";
 import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
 import {
@@ -147,6 +147,7 @@ function purgeSession(draft: EngineState, id: string) {
 /**
  * Applies a session-list snapshot; sessions whose revision advanced in flight keep their live state.
  * With `scope` it is complete for that directory and purges absent sessions, so partial ones pass none.
+ * Listings leave ended subagents out, so an absent one goes only with its parent.
  */
 export function applySessionSnapshot(
     set: SetEngineState,
@@ -169,13 +170,14 @@ export function applySessionSnapshot(
 
             if (!input.scope) return;
 
-            for (const session of Object.values(draft.sessions)) {
-                if (ids.has(session.id) || advanced(session.id)) continue;
-                if (!all && normalizeDir(session.directory) !== dir) continue;
+            const absent = Object.values(draft.sessions).filter((session) => {
+                if (ids.has(session.id) || advanced(session.id)) return false;
                 // Scoped listings omit archived sessions; purging them would reload archived transcripts each hydrate.
-                if (!all && session.archivedAt) continue;
-                purgeSession(draft, session.id);
-            }
+                return all || (normalizeDir(session.directory) === dir && !session.archivedAt);
+            });
+            for (const session of absent) if (!hiddenParent(session)) purgeSession(draft, session.id);
+            for (const session of absent)
+                if (!draft.sessions[hiddenParent(session) ?? session.id]) purgeSession(draft, session.id);
         }),
     );
 }
