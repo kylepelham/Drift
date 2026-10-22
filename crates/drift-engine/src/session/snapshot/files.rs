@@ -10,15 +10,10 @@ impl Snapshots {
     /// Imported edits use this for their earlier versions.
     pub async fn store_bytes(&self, workspace: &Path, bytes: &[u8]) -> Result<String, Error> {
         self.ensure(workspace).await?;
-        let blob = self
-            .run(
-                workspace,
-                &["hash-object", "-w", "--no-filters", "--stdin"],
-                Some(bytes),
-            )
-            .await?;
+        let objects = self.git_dir(workspace).join("objects");
+        let bytes = bytes.to_vec();
 
-        Ok(String::from_utf8_lossy(&blob).trim().to_string())
+        blocking(move || blob::store(&objects, &bytes)).await
     }
 
     /// `path`'s blob id now without storing it, to compare against a recorded one.
@@ -42,14 +37,11 @@ impl Snapshots {
             return Err(Error::TooLarge(path.to_string()));
         }
 
-        let file = file.to_string_lossy().into_owned();
-        let args = if store {
-            vec!["hash-object", "-w", "--no-filters", "--", &file]
-        } else {
-            vec!["hash-object", "--no-filters", "--", &file]
-        };
+        let objects = store.then(|| self.git_dir(workspace).join("objects"));
 
-        self.git(workspace, &args).await.map(Some)
+        blocking(move || blob::of_file(&file, objects.as_deref()))
+            .await
+            .map(Some)
     }
 
     /// A stored blob's bytes.
@@ -78,4 +70,10 @@ impl Snapshots {
             .await
             .map_err(|error| Error::Failed(error.to_string()))
     }
+}
+
+async fn blocking(work: impl FnOnce() -> Result<String, Error> + Send + 'static) -> Result<String, Error> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| Error::Failed(error.to_string()))?
 }

@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+mod blob;
 mod capture;
 mod files;
 mod git;

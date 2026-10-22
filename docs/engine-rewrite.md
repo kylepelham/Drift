@@ -681,6 +681,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   file under `* text=auto` or a file with a clean filter is stored as it is on disk and compares
   equal to what undo hashes with `--no-filters`. Repos made before the rule get it on their next
   capture, and their index is dropped then so no cached converted entry survives.
+- A named file's blob is hashed and stored in-process (`snapshot::blob`): the SHA-1 of
+  `blob <len>\0<bytes>`, written zlib-deflated as a loose object, exactly what
+  `git hash-object -w --no-filters` writes. Launching git took about 40ms a call on Windows, and a
+  write or edit records its file before and after, so a run of sequential writes paid it twice
+  per call; a 30-write run dropped from about 3.8s to 1.3s. Git itself still builds trees, diffs and
+  reads blobs back for undo. What remains of a write is the file swap (`tool::stage`), whose
+  2 to 50ms is the filesystem and on-access scanning; its three store records cost about 0.05ms each.
 - Cost, measured with `session::snapshot::tests::capture_cost` (release build, Windows): a first
   capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
   13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
