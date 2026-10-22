@@ -51,7 +51,7 @@ impl Snapshots {
     }
 
     pub(super) fn command(&self, workspace: &Path, args: &[&str], piped: bool) -> Command {
-        let mut command = Command::new("git");
+        let mut command = Command::new(crate::platform::process::plumbing_git());
         // Git pathspecs resolve against the working directory, not --work-tree.
         if workspace.is_dir() {
             command.current_dir(workspace);

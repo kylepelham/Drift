@@ -305,6 +305,30 @@ pub fn which(program: &str) -> Option<std::path::PathBuf> {
     find_in(program, std::env::split_paths(&current_path()))
 }
 
+/// Git for plumbing calls, which run no hooks, filters or helpers. Git for Windows' `cmd\git.exe` only starts
+/// `<arch>\bin\git.exe`, which nearly doubles each call's start, so the binary behind it is used when it is there.
+pub fn plumbing_git() -> std::path::PathBuf {
+    static FOUND: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    if let Some(found) = FOUND.get() {
+        return found.clone();
+    }
+    match which("git") {
+        Some(found) => FOUND.get_or_init(|| behind_launcher(&found).unwrap_or(found)).clone(),
+        None => "git".into(),
+    }
+}
+
+fn behind_launcher(found: &std::path::Path) -> Option<std::path::PathBuf> {
+    let cmd = found.parent()?;
+    if !cmd.file_name()?.eq_ignore_ascii_case("cmd") {
+        return None;
+    }
+    ["mingw64", "clangarm64", "mingw32"]
+        .iter()
+        .map(|arch| cmd.parent().unwrap_or(cmd).join(arch).join("bin").join("git.exe"))
+        .find(|candidate| candidate.is_file())
+}
+
 /// The PATH a program started now should get: Drift's own, then directories added since Drift started, as an install does.
 pub fn current_path() -> std::ffi::OsString {
     merged(&std::env::var_os("PATH").unwrap_or_default(), saved_path())

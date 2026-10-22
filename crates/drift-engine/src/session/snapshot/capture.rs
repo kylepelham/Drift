@@ -7,8 +7,10 @@ const RAW_ATTRIBUTES: &str = "* -text -eol -filter -ident -working-tree-encoding
 
 impl Snapshots {
     /// Records the whole tree with the workspace's ignore rules applied.
-    /// Captures serialize per workspace because sessions and subagents share its shadow index.
+    /// Captures serialize per workspace because sessions and subagents share its shadow index, so one
+    /// that began after this call asked already holds everything it would see, and is shared instead.
     pub async fn take(&self, workspace: &Path) -> Result<Tree, Error> {
+        let asked = std::time::Instant::now();
         let source = self.source(workspace).await;
         if source.is_none() && self.too_many.lock().unwrap().contains(workspace) {
             return Err(Error::TooManyFiles);
@@ -17,36 +19,73 @@ impl Snapshots {
         self.ensure(workspace).await?;
         let lock = self.lock_for(workspace);
         let _held = lock.lock().await;
+        let git_dir = self.git_dir(workspace);
+        if let Some((began, tree)) = self.latest.lock().unwrap().get(&git_dir)
+            && *began > asked
+        {
+            return Ok(tree.clone());
+        }
 
+        let began = std::time::Instant::now();
+        let tree = self.capture(workspace, source.as_ref()).await?;
+        self.latest.lock().unwrap().insert(git_dir, (began, tree.clone()));
+
+        Ok(tree)
+    }
+
+    async fn capture(&self, workspace: &Path, source: Option<&Source>) -> Result<Tree, Error> {
         // Every index writer holds the lock, so a remaining lock file belongs to a stopped capture.
         let _ = tokio::fs::remove_file(self.git_dir(workspace).join("index.lock")).await;
         self.store_raw_bytes(workspace).await?;
-        let oversized = match &source {
+        let (oversized, pending) = match source {
             Some(source) => {
                 self.seed(workspace, source).await;
                 self.leave_out_large_changes(workspace, source).await?
             }
-            None => self.leave_out_large_files(workspace).await?,
+            None => (self.leave_out_large_files(workspace).await?, true),
+        };
+        let id = match self.unchanged_tree(workspace).await.filter(|_| !pending) {
+            Some(id) => id,
+            None => self.write_tree(workspace, source).await?,
         };
 
+        Ok(Tree { id, oversized })
+    }
+
+    /// Adds every change to the shadow index and writes it as a tree, remembered against the index it came from.
+    async fn write_tree(&self, workspace: &Path, source: Option<&Source>) -> Result<String, Error> {
         // --ignore-errors can exit nonzero after indexing usable files; write-tree decides capture success.
         let _ = self
-            .run_with(
-                workspace,
-                &["add", "-A", "--ignore-errors", "--", "."],
-                None,
-                source.as_ref(),
-            )
+            .run_with(workspace, &["add", "-A", "--ignore-errors", "--", "."], None, source)
             .await;
         let write: &[&str] = if source.is_some() {
             &["write-tree", "--missing-ok"]
         } else {
             &["write-tree"]
         };
-        let raw = self.run_with(workspace, write, None, source.as_ref()).await?;
+        let raw = self.run_with(workspace, write, None, source).await?;
         let id = String::from_utf8_lossy(&raw).trim().to_string();
+        if let Some(stamp) = self.index_stamp(workspace).await {
+            self.trees
+                .lock()
+                .unwrap()
+                .insert(self.git_dir(workspace), (stamp, id.clone()));
+        }
 
-        Ok(Tree { id, oversized })
+        Ok(id)
+    }
+
+    /// The tree last written from this shadow index, if nothing has written the index since.
+    async fn unchanged_tree(&self, workspace: &Path) -> Option<String> {
+        let stamp = self.index_stamp(workspace).await?;
+        let trees = self.trees.lock().unwrap();
+        let (written, id) = trees.get(&self.git_dir(workspace))?;
+        (*written == stamp).then(|| id.clone())
+    }
+
+    async fn index_stamp(&self, workspace: &Path) -> Option<Stamp> {
+        let metadata = tokio::fs::metadata(self.git_dir(workspace).join("index")).await.ok()?;
+        Some((metadata.len(), metadata.modified().ok()))
     }
 
     /// The repository at the workspace root, cached for this engine run; none for plain or nested folders.
@@ -93,18 +132,22 @@ impl Snapshots {
     }
 
     /// Sizes only changed, untracked or previously excluded files in a repository, without walking its tree.
-    async fn leave_out_large_changes(&self, workspace: &Path, source: &Source) -> Result<Vec<(String, Stamp)>, Error> {
-        let modified = self
-            .run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source))
-            .await?;
-        let untracked = self
-            .run_with(
+    /// Also says whether anything is pending: with nothing changed or untracked, adding would change nothing.
+    async fn leave_out_large_changes(
+        &self,
+        workspace: &Path,
+        source: &Source,
+    ) -> Result<(Vec<(String, Stamp)>, bool), Error> {
+        let (modified, untracked) = tokio::try_join!(
+            self.run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source)),
+            self.run_with(
                 workspace,
                 &["ls-files", "--others", "--exclude-standard", "-z"],
                 None,
                 Some(source),
-            )
-            .await?;
+            ),
+        )?;
+        let changed = !modified.is_empty() || !untracked.is_empty();
 
         let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info/exclude"))
             .await
@@ -141,9 +184,10 @@ impl Snapshots {
         let large = tokio::task::spawn_blocking(sized)
             .await
             .map_err(|error| Error::Failed(error.to_string()))?;
+        let pending = changed || !large.is_empty() || !excluded.trim().is_empty();
         self.exclude(workspace, &large).await?;
 
-        Ok(large)
+        Ok((large, pending))
     }
 
     /// Installs exact-byte attributes even for shadow repositories created before this rule.
@@ -199,9 +243,12 @@ impl Snapshots {
         for (path, _) in large {
             let _ = writeln!(lines, "/{}", escape_pattern(path));
         }
-        tokio::fs::write(info.join("exclude"), lines)
-            .await
-            .map_err(|error| Error::Failed(error.to_string()))?;
+        let file = info.join("exclude");
+        if tokio::fs::read_to_string(&file).await.ok().as_deref() != Some(lines.as_str()) {
+            tokio::fs::write(file, lines)
+                .await
+                .map_err(|error| Error::Failed(error.to_string()))?;
+        }
 
         if !large.is_empty() {
             let mut paths = String::new();

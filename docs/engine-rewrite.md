@@ -703,6 +703,17 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   record, where before it was recorded nowhere. A file tool's capture records undoable changes, so
   its write breaks the chain (the next command captures afresh, or the file tool's write would be
   taken as observed and its undo lost), and the chain never crosses steps.
+- Whole-tree captures are cut to what changed (`snapshot::capture`). In a repository the two scans
+  for changed and untracked files run at once; when neither finds anything and the shadow index is
+  as it was when its last tree was written, that tree is reused without `add` or `write-tree`, and
+  two equal trees skip `diff-tree`. Captures serialize on the shadow index, so one that began after a
+  caller asked already holds everything that caller would see and is shared with it instead of run
+  again. Shadow-repo git runs `<arch>\bin\git.exe` directly rather than through Git for Windows'
+  `cmd\git.exe` launcher (`platform::process::plumbing_git`), which nearly doubled each call's
+  start; git in the user's own repository keeps the launcher, whose PATH its filters and helpers need.
+  Measured in a 7,000-file repository: a writing shell step's overhead went from about 600ms to 270ms,
+  and to about 100ms for a command whose writes are all ignored (a build or a test run); eight agents
+  running commands at once paid 64 captures with 17 real ones.
 - Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
   it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent or a compaction's boundary
