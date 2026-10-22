@@ -374,7 +374,7 @@ export function mergeTranscriptSnapshot(
         const current = liveById.get(entry.info.id);
         if (!advanced(entry.info.id)) {
             // Reusing an unchanged live object keeps keyed rows mounted; a fresh copy flashed every hydration.
-            return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry];
+            return [current && sameJson(current, entry) ? current : entry];
         }
 
         return current ? [withSnapshotParts(current, entry)] : [];
@@ -383,6 +383,24 @@ export function mergeTranscriptSnapshot(
     merged.push(...raced);
 
     return merged.sort(compareMessages);
+}
+
+/** Equal as JSON would serialize them (an undefined field is no field), without serializing: it stops at the first difference. */
+export function sameJson(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (Array.isArray(a) || Array.isArray(b)) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+
+        return a.every((value, index) => sameJson(value, b[index]));
+    }
+
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+    const count = Object.keys(right).filter((key) => right[key] !== undefined).length;
+
+    return keys.length === count && keys.every((key) => sameJson(left[key], right[key]));
 }
 
 // Repair missing parts and shorter prefixes without replacing newer live metadata.
