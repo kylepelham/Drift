@@ -464,6 +464,17 @@ worker. Assistant output is unaffected, and machine-written user-role text keeps
 Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
 producers set. Compaction summaries are assistant messages and were never affected.
 
+## Window placement
+
+The window opens where it was left: same screen, position, size and maximized state, kept in
+the `window_placement` app setting (`src-tauri/src/placement.rs`). It is saved half a second
+after the window settles and again when it closes; a maximized window keeps the bounds it
+restores to, and a minimized one is never recorded. At launch the saved spot is used only if
+at least 120 pixels of the window's top edge land on a screen's work area, since that edge is
+what it is dragged by. Otherwise, as when its screen was unplugged, the window centres on the
+main screen. A window larger than its screen shrinks to fit and moves onto it, and no window
+starts smaller than its minimum size at that screen's scale.
+
 ## Updates
 
 The updater only runs from an installed copy, detected by an `uninstall.exe` beside the

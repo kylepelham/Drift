@@ -9,6 +9,7 @@ mod fonts;
 mod native;
 mod opencode_import;
 mod permissions;
+mod placement;
 mod prompts;
 mod remote;
 mod remote_auth;
@@ -30,12 +31,15 @@ use voice::VoiceDownload;
 #[cfg(windows)]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Records the first placement of the launch window so it is centered only once.
+/// Records the first placement of the launch window so it is placed only once.
 static WINDOW_REVEALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Places the launch window on screen before its reveal.
+/// Places the launch window where it was left, else centered on the main screen, before its reveal.
 /// The preload reveals the hidden window after paint, independently of engine startup.
 fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    if placement::restore(window) {
+        return Ok(());
+    }
     let Some(monitor) = window.primary_monitor()? else {
         return window.center();
     };
@@ -50,8 +54,12 @@ fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
 }
 
 fn reveal_main_window(window: &tauri::WebviewWindow) {
-    if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) && position_main_window(window).is_err() {
+    let first = !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst);
+    if first && position_main_window(window).is_err() {
         return;
+    }
+    if first {
+        placement::maximize_if_saved(window);
     }
     if window.show().is_err() {
         return;
@@ -193,6 +201,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let dictation_enabled = store.dictation_enabled().unwrap_or(false);
     app.state::<permissions::DictationConsent>().set(dictation_enabled);
     app.manage(store);
+    app.manage(placement::Tracker::default());
+    placement::track(&launch_window, || {
+        WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst)
+    });
     app.manage(ui_state);
     app.manage(shell_timeout);
     app.manage(opencode_import::start(app.handle()));
