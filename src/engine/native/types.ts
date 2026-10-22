@@ -1918,7 +1918,7 @@ export interface components {
             autoCompact?: boolean | null;
             /** @description Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is. */
             backgroundProcesses?: boolean | null;
-            /** @description How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is. */
+            /** @description How many background subagents run at once, 1 to 64; more wait for a slot. Left out of a PUT, it stays as it is. */
             backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;

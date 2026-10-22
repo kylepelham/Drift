@@ -135,7 +135,8 @@ export function ToolExecutionSection() {
     );
 }
 
-const backgroundLimits = Array.from({ length: 16 }, (_, index) => index + 1);
+// One at a time to 16, then in larger steps to the engine's limit of 64.
+const backgroundLimits = [...Array.from({ length: 16 }, (_, index) => index + 1), 24, 32, 48, 64];
 
 /** How many background subagents the engine runs at once; the engine owns the value. */
 function BackgroundLimitGroup() {

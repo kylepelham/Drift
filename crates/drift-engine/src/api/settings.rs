@@ -39,7 +39,7 @@ pub(super) struct EngineSettings {
     /// Let `task` run subagents in the background. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_tasks: Option<bool>,
-    /// How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is.
+    /// How many background subagents run at once, 1 to 64; more wait for a slot. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_task_limit: Option<usize>,
     /// Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is.

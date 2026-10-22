@@ -876,7 +876,7 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
 - Background: the call returns a receipt at once (`outcome: launched`). The worker waits for a
   slot or its token, whichever comes first, and checks its token again after getting a slot,
   before it is marked running. Settings > Execution sets the slot count (`backgroundTaskLimit`,
-  1 to 16, default 4). Raising it starts queued workers at once; lowering it never stops a
+  1 to 64, default 4; the picker steps by one to 16, then 24, 32, 48 and 64). Raising it starts queued workers at once; lowering it never stops a
   running one, and its slots are taken back as running workers finish. Its turn's abort token descends from the
   worker's, so Stop reaches it while queued, starting (before its turn claims the session),
   planning and running.

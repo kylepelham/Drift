@@ -17,8 +17,8 @@ use crate::event::Event;
 
 /// Background workers running at once across the engine unless Settings say otherwise; more wait their turn.
 pub const DEFAULT_BACKGROUND_LIMIT: usize = 4;
-/// The most background workers Settings may allow at once.
-pub const MAX_BACKGROUND_LIMIT: usize = 16;
+/// The most background workers Settings may allow at once; the engine streamed 48 agents with every read unslowed.
+pub const MAX_BACKGROUND_LIMIT: usize = 64;
 pub const BACKGROUND_TASKS_KEY: &str = "backgroundTasks";
 pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How much of a worker's final reply comes back verbatim.
