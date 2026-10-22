@@ -349,8 +349,7 @@ fn spawn(mut process: tokio::process::Command) -> Result<Running, ToolError> {
     let tree = child
         .id()
         .and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
-    #[cfg(windows)]
-    resume_main_thread(&child);
+    crate::platform::process::resume(&child).map_err(|error| ToolError(format!("could not start shell: {error}")))?;
     let pipes = Pipes::take(&mut child);
 
     Ok(Running {
@@ -396,37 +395,4 @@ async fn kill_tree(tree: &Option<crate::platform::process::Tree>, child: &mut to
         tree.kill();
     }
     let _ = child.kill().await;
-}
-
-/// Children start suspended so they join the job before running anything; this lets them go.
-#[cfg(windows)]
-fn resume_main_thread(child: &tokio::process::Child) {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-    };
-    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
-
-    let Some(pid) = child.id() else { return };
-    // SAFETY: entry is correctly sized; the snapshot and every opened thread handle are closed after use.
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        let mut entry: THREADENTRY32 = std::mem::zeroed();
-        entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
-        if Thread32First(snapshot, &mut entry) != 0 {
-            loop {
-                if entry.th32OwnerProcessID == pid {
-                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
-                    if !thread.is_null() {
-                        ResumeThread(thread);
-                        CloseHandle(thread);
-                    }
-                }
-                if Thread32Next(snapshot, &mut entry) == 0 {
-                    break;
-                }
-            }
-        }
-        CloseHandle(snapshot);
-    }
 }

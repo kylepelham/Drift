@@ -103,57 +103,26 @@ mod imp {
         command.creation_flags(0x0800_0000 | 0x0000_0004);
     }
 
-    pub(super) fn resume(child: &tokio::process::Child) -> io::Result<()> {
-        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD};
-        let pid = child
-            .id()
-            .ok_or_else(|| io::Error::other("suspended child has no process ID"))?;
-
-        // SAFETY: this call takes only flags and a process id, and returns an owned snapshot handle.
-        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-        if snapshot == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error());
-        }
-
-        let result = resume_thread(snapshot, pid);
-        // SAFETY: the snapshot is valid and has not been closed by resume_thread.
-        unsafe {
-            CloseHandle(snapshot);
-        }
-
-        result
+    #[link(name = "ntdll", kind = "raw-dylib")]
+    unsafe extern "system" {
+        fn NtResumeProcess(process: HANDLE) -> i32;
     }
 
-    fn resume_thread(snapshot: HANDLE, pid: u32) -> io::Result<()> {
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{THREADENTRY32, Thread32First, Thread32Next};
-        use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
-        // SAFETY: the snapshot is live; entry is correctly sized and each opened thread handle is closed.
-        unsafe {
-            let mut entry: THREADENTRY32 = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of_val(&entry) as u32;
-            if Thread32First(snapshot, &mut entry) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            loop {
-                if entry.th32OwnerProcessID == pid {
-                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
-                    if thread.is_null() {
-                        return Err(io::Error::last_os_error());
-                    }
-                    let resumed = ResumeThread(thread);
-                    let error = io::Error::last_os_error();
-                    CloseHandle(thread);
-                    return if resumed == u32::MAX { Err(error) } else { Ok(()) };
-                }
-                if Thread32Next(snapshot, &mut entry) == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "suspended child thread not found",
-                    ));
-                }
-            }
+    /// Lets a child started suspended run. Its own handle names it, where finding its thread meant a snapshot of every
+    /// thread on the machine, about 100ms that grew with each command run at once.
+    pub(crate) fn resume(child: &tokio::process::Child) -> io::Result<()> {
+        let process = child
+            .raw_handle()
+            .ok_or_else(|| io::Error::other("suspended child has already been reaped"))?;
+        // SAFETY: the handle is the child's own, live while `child` is borrowed, with every process right.
+        let status = unsafe { NtResumeProcess(process) };
+        if status < 0 {
+            return Err(io::Error::other(format!(
+                "could not resume the child: NTSTATUS {status:#x}"
+            )));
         }
+
+        Ok(())
     }
 }
 
@@ -204,7 +173,7 @@ mod imp {
 
     pub(super) fn suspend(_command: &mut tokio::process::Command) {}
 
-    pub(super) fn resume(_child: &tokio::process::Child) -> io::Result<()> {
+    pub(crate) fn resume(_child: &tokio::process::Child) -> io::Result<()> {
         Ok(())
     }
 
@@ -240,6 +209,7 @@ mod imp {
     }
 }
 
+pub(crate) use imp::resume;
 pub use imp::{Tree, prepare};
 
 impl Tree {

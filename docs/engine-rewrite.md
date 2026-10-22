@@ -2634,7 +2634,11 @@ Settled after the first external review of M1; each has a regression test.
   and only until the session goes on: once anything follows a failed reply (a retry, a new prompt), its
   error box goes, and an attempt that showed nothing goes whole. A stop's "Interrupted" divider stays.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
-  process group. Dropping the run future has the same effect as an explicit abort.
+  process group. Dropping the run future has the same effect as an explicit abort. A Windows
+  shell starts suspended, joins its job, then resumes through its own process handle
+  (`NtResumeProcess`). Finding its thread instead took a snapshot of every thread on the machine:
+  about 115ms per command on the runtime's own thread, so sixteen agents running commands at once
+  went from 1.9s per step to 1.1s when it went.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
   else Git's bash on Windows, found beside the `git` on PATH (`<root>/cmd`, `bin` or
   `mingw64/bin` lead to `<root>/bin/bash.exe`, since Git puts only `cmd` on PATH), then in Program
