@@ -276,7 +276,7 @@ test("normal estimates and explicit thinking/summary modes are unaffected", asyn
         expect(estimatedTimelineRow(candidate)).toBeGreaterThanOrEqual(96);
 });
 
-test("clarification UI uses a closed native disclosure with full QAs, copy/revert, and no normal bubble footer", async () => {
+test("clarification UI uses a closed native disclosure with full QAs and the standard actions row under it", async () => {
     const ts = await import("typescript");
     const source = await Bun.file("src/ui/message.tsx").text();
     const parsed = ts.createSourceFile("message.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -305,7 +305,8 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
         (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "fallback",
     )!;
     expect(fallback.getText(parsed)).toContain("bg-surface");
-    expect(fallback.getText(parsed)).toContain("model()");
+    const actions = "<UserActions entry={props.entry} onRevert={revert} copy={text} />";
+    expect(fallback.getText(parsed)).toContain(actions);
 
     // The answer folds in the shared NoteBox, labelled and previewed from the answer.
     elements.length = 0;
@@ -340,13 +341,18 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
     expect(expanded).toContain("whitespace-pre-wrap");
     expect(expanded).not.toMatch(/\btruncate\b|line-clamp|max-h-|\.slice\(/);
 
+    // The answer's actions are the same row every user message has, stacked under it rather than beside it.
     const special = branch.children.map((node) => node.getText(parsed)).join("\n");
-    expect(special).toContain('title={t("drift.message.copy")}');
-    expect(special).toContain("navigator.clipboard.writeText(text())");
-    expect(special).toContain('t("drift.message.revertHere")');
-    expect(special).toContain("onClick={(event) => void revert(event.shiftKey)}");
-    expect(special).toContain("group-focus-within:opacity-100");
-    expect(special).not.toMatch(/bg-surface|<Markdown|<AssistantFlow|\bmodel\(\)|\btime\(\)|\bagentLabel\(/);
+    expect(special).toContain(actions);
+    expect(special).toContain("flex-col items-end");
+    expect(special).not.toMatch(/bg-surface|<Markdown|<AssistantFlow|<button/);
+    const row = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "UserActions")!;
+    expect(row.getText(parsed)).toContain('title={t("drift.message.copy")}');
+    expect(row.getText(parsed)).toContain("navigator.clipboard.writeText(props.copy())");
+    expect(row.getText(parsed)).toContain('t("drift.message.revertHere")');
+    expect(row.getText(parsed)).toContain("props.onRevert(event.shiftKey)");
+    expect(row.getText(parsed)).toContain("group-focus-within:opacity-100");
+    expect(row.getText(parsed)).toMatch(/\bmodel\(\)[^]*\btime\(\)/);
     expect(userBubble.getText(parsed)).toContain("clarification()?.text ?? messageText(props.entry)");
     expect(userBubble.getText(parsed)).toContainCode("engine.actions.revert(info().sessionId, info().id, keepFiles)");
     expect(userBubble.getText(parsed)).toContain("if (clarification()) restored.text = text()");
