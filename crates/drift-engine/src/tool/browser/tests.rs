@@ -825,3 +825,41 @@ async fn lighthouse_audits_a_page_in_the_conversations_browser() {
         "the page is still usable after the audits"
     );
 }
+
+/// The pane's +, switching tabs and closing one each answer at once; headless Camoufox never answered a tab
+/// brought to the front, which held every later input. Needs `DRIFT_TEST_CAMOUFOX` naming Camoufox's program.
+#[tokio::test(flavor = "multi_thread")]
+async fn camoufox_opens_switches_and_closes_tabs_from_the_pane() {
+    let Some(program) = std::env::var_os("DRIFT_TEST_CAMOUFOX") else {
+        return;
+    };
+    let sandbox = Sandbox::new("browser-camoufox-tabs");
+    sandbox
+        .ctx
+        .engine
+        .set_browser_path(crate::browser::Kind::Camoufox, Some(&program.to_string_lossy()))
+        .unwrap();
+    let url = serve("<title>Opening hours</title><p>Monday to Friday, nine till five.</p>").await;
+    call(&sandbox, json!({ "action": "open", "url": url, "engine": "camoufox" }))
+        .await
+        .unwrap();
+    let browser = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let first = browser.active().unwrap();
+    let quickly = |input: crate::browser::ViewInput| {
+        let browser = browser.clone();
+        async move {
+            tokio::time::timeout(std::time::Duration::from_secs(10), browser.input(input))
+                .await
+                .expect("answered")
+                .unwrap();
+        }
+    };
+
+    quickly(crate::browser::ViewInput::NewPage {}).await;
+    let second = browser.active().unwrap();
+    assert_ne!(second, first, "the new tab is shown");
+    quickly(crate::browser::ViewInput::Select { page: first.clone() }).await;
+    assert_eq!(browser.active().as_deref(), Some(first.as_str()));
+    quickly(crate::browser::ViewInput::Close { page: second }).await;
+    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+}

@@ -990,9 +990,10 @@ impl Driver for Firefox {
     }
 
     async fn open_tab(&self, url: &str) -> Result<Arc<dyn Tab>, String> {
+        // Headless Firefox never answers a create that brings the tab to the front; every tab paints anyway.
         let created = self
             .bidi
-            .call("browsingContext.create", json!({ "type": "tab" }))
+            .call("browsingContext.create", json!({ "type": "tab", "background": true }))
             .await?;
         let context = created["context"].as_str().unwrap_or_default().to_string();
         let tab = match self.tab(&context) {
@@ -1013,10 +1014,7 @@ impl Driver for Firefox {
         if self.tab(id).is_none() {
             return Err(format!("no page `{id}`; `pages` lists them"));
         }
-        let _ = self
-            .bidi
-            .call("browsingContext.activate", json!({ "context": id }))
-            .await;
+        // No browsingContext.activate: headless it never answers, and blocked the pane's input behind it.
         *self.active.lock().unwrap() = Some(id.to_string());
         *self.last_frame.lock().unwrap() = 0;
         self.changed();

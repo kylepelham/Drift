@@ -1,8 +1,12 @@
 //! What the pane sees and sends: frames of the active page while it watches, and the user's input.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 use utoipa::ToSchema;
 
+use super::driver::Driver;
 use super::input::{KeyInput, MouseInput};
 
 /// The narrowest and widest layouts a pane gives a page; a narrower pane shows it scaled down, so pages keep their
@@ -77,6 +81,86 @@ pub enum ViewInput {
     Fit { width: f64, height: f64 },
 }
 
+/// Applies the pane's input in the order it was sent. Moves and wheel turns that queued while the browser was busy
+/// are folded together, so a browser that answers each one slowly (Firefox) never falls behind the pointer.
+pub(crate) async fn apply_inputs(driver: Arc<dyn Driver>, mut queued: mpsc::UnboundedReceiver<ViewInput>) {
+    while let Some(first) = queued.recv().await {
+        let mut batch = vec![first];
+        while let Ok(next) = queued.try_recv() {
+            batch.push(next);
+        }
+
+        for input in coalesce(batch) {
+            let _ = driver.input(input).await;
+        }
+    }
+}
+
+/// Folds each run of pointer moves and wheel turns into its last move and one turn summing the rest.
+fn coalesce(batch: Vec<ViewInput>) -> Vec<ViewInput> {
+    let mut folded = Vec::with_capacity(batch.len());
+    let mut run = Run::default();
+
+    for input in batch {
+        match input {
+            ViewInput::Mouse(mouse) if mouse.event == "move" => run.moved(mouse),
+            ViewInput::Mouse(mouse) if mouse.event == "wheel" => run.turned(mouse, &mut folded),
+            other => {
+                run.flush(&mut folded);
+                folded.push(other);
+            }
+        }
+    }
+    run.flush(&mut folded);
+
+    folded
+}
+
+/// A run of moves and wheel turns waiting to be folded.
+#[derive(Default)]
+struct Run {
+    last_move: Option<MouseInput>,
+    turn: Option<MouseInput>,
+    /// Whether the run ended on a move, which then goes last so the pointer stays where it was left.
+    ends_moved: bool,
+}
+
+impl Run {
+    fn moved(&mut self, mouse: MouseInput) {
+        self.last_move = Some(mouse);
+        self.ends_moved = true;
+    }
+
+    fn turned(&mut self, mouse: MouseInput, folded: &mut Vec<ViewInput>) {
+        // A turn with other modifiers held (Ctrl to zoom) is a different gesture.
+        if self.turn.as_ref().is_some_and(|turn| turn.modifiers != mouse.modifiers) {
+            self.flush(folded);
+        }
+        self.turn = Some(match self.turn.take() {
+            Some(sum) => MouseInput {
+                delta_x: Some(sum.delta_x.unwrap_or_default() + mouse.delta_x.unwrap_or_default()),
+                delta_y: Some(sum.delta_y.unwrap_or_default() + mouse.delta_y.unwrap_or_default()),
+                ..mouse
+            },
+            None => mouse,
+        });
+        self.ends_moved = false;
+    }
+
+    fn flush(&mut self, folded: &mut Vec<ViewInput>) {
+        let moved = self.last_move.take().map(ViewInput::Mouse);
+        let turned = self.turn.take().map(ViewInput::Mouse);
+        let (first, second) = if self.ends_moved {
+            (turned, moved)
+        } else {
+            (moved, turned)
+        };
+
+        folded.extend(first);
+        folded.extend(second);
+    }
+}
+
 /// The viewport that fills a pane of this size: a desktop-wide layout in the pane's shape.
 pub(crate) fn pane_viewport(width: f64, height: f64) -> Option<(u64, u64)> {
     if !(width.is_finite() && height.is_finite() && width >= 1.0 && height >= 1.0) {
@@ -123,6 +207,88 @@ mod tests {
                 accept: true,
                 text: None
             }
+        );
+    }
+
+    fn mouse(event: &str, x: f64, delta_y: Option<f64>, modifiers: u8) -> ViewInput {
+        ViewInput::Mouse(MouseInput {
+            event: event.into(),
+            x,
+            y: 10.0,
+            button: None,
+            click_count: None,
+            delta_x: None,
+            delta_y,
+            modifiers,
+        })
+    }
+
+    fn key(event: &str) -> ViewInput {
+        ViewInput::Key(KeyInput {
+            event: event.into(),
+            key: "a".into(),
+            code: "KeyA".into(),
+            key_code: 65,
+            modifiers: 0,
+        })
+    }
+
+    #[test]
+    fn queued_moves_fold_to_the_last_and_everything_else_keeps_its_place() {
+        let batch = vec![
+            mouse("move", 1.0, None, 0),
+            mouse("move", 2.0, None, 0),
+            mouse("down", 2.0, None, 0),
+            mouse("move", 3.0, None, 0),
+            mouse("move", 4.0, None, 0),
+            mouse("up", 4.0, None, 0),
+            key("down"),
+            key("up"),
+            mouse("move", 5.0, None, 0),
+        ];
+
+        let folded = coalesce(batch);
+
+        assert_eq!(
+            folded,
+            [
+                mouse("move", 2.0, None, 0),
+                mouse("down", 2.0, None, 0),
+                mouse("move", 4.0, None, 0),
+                mouse("up", 4.0, None, 0),
+                key("down"),
+                key("up"),
+                mouse("move", 5.0, None, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn queued_wheel_turns_add_up_and_a_modifier_starts_a_new_turn() {
+        let batch = vec![
+            mouse("wheel", 1.0, Some(40.0), 0),
+            mouse("move", 2.0, None, 0),
+            mouse("wheel", 3.0, Some(60.0), 0),
+            mouse("wheel", 3.0, Some(-120.0), 2),
+        ];
+
+        let folded = coalesce(batch);
+
+        let sum = MouseInput {
+            delta_x: Some(0.0),
+            ..match mouse("wheel", 3.0, Some(100.0), 0) {
+                ViewInput::Mouse(mouse) => mouse,
+                _ => unreachable!(),
+            }
+        };
+        assert_eq!(
+            folded,
+            [
+                mouse("move", 2.0, None, 0),
+                ViewInput::Mouse(sum),
+                mouse("wheel", 3.0, Some(-120.0), 2),
+            ],
+            "the move first, since the run ended turning"
         );
     }
 
