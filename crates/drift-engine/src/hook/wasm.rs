@@ -11,8 +11,9 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use super::settings::{Choice, Pair, Setting, SettingKind};
 use super::{
-    AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent,
-    PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd,
+    AfterTool, BeforeTool, Compacting, CompactionEvent, Grammar, Hook, LanguageServer, PermissionAsk,
+    PermissionDecision, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult,
+    TurnEnd,
 };
 use crate::websearch::{Hit, SearchError};
 
@@ -100,7 +101,7 @@ impl Runtime {
             .map_err(|error| Error::CompileTask(error.to_string()))?
             .map_err(|error| Error::Compile(error.to_string()))?;
 
-        let capabilities = capabilities(&self.engine, &component);
+        let mut capabilities = capabilities(&self.engine, &component);
         let state = State {
             name: file_name(path),
             site,
@@ -140,6 +141,12 @@ impl Runtime {
         store.data_mut().settings.clone_from(&settings);
         let replacements = replacements(&mut store, &instance).await;
         let (search_providers, search) = searching(&mut store, &instance).await;
+        let (language_servers, grammars) = languages(&mut store, &instance).await;
+        // Drift runs these programs for it, so Settings says so beside the host calls it makes.
+        if !language_servers.is_empty() {
+            capabilities.push("lsp".to_owned());
+            capabilities.sort();
+        }
 
         Ok(WasmPlugin {
             name,
@@ -149,6 +156,8 @@ impl Runtime {
             replacements,
             search_providers,
             search,
+            language_servers,
+            grammars,
             store: Mutex::new(store),
             bindings,
         })
@@ -270,6 +279,56 @@ async fn searching(
     }
 }
 
+/// The `languages` world's servers and grammars, a grammar that is not one logged and left out; none from a
+/// plugin built without it.
+async fn languages(
+    store: &mut Store<State>,
+    instance: &wasmtime::component::Instance,
+) -> (Vec<LanguageServer>, Vec<Grammar>) {
+    let (Ok(servers), Ok(grammars)) = (
+        instance.get_typed_func::<(), (Vec<wit::LanguageServer>,)>(&mut *store, "language-servers"),
+        instance.get_typed_func::<(), (Vec<wit::Grammar>,)>(&mut *store, "grammars"),
+    ) else {
+        return (Vec::new(), Vec::new());
+    };
+    let name = store.data().name.clone();
+    let servers = match servers.call_async(&mut *store, ()).await {
+        Ok((servers,)) => servers.into_iter().map(LanguageServer::from).collect(),
+        Err(error) => {
+            eprintln!("drift: plugin {name} failed in language-servers: {error}");
+            Vec::new()
+        }
+    };
+    let grammars = match grammars.call_async(&mut *store, ()).await {
+        Ok((grammars,)) => grammars
+            .into_iter()
+            .filter_map(|grammar| {
+                let label = grammar.name.clone();
+                Grammar::parse(&name, grammar.name, grammar.aliases, grammar.extensions, &grammar.json)
+                    .inspect_err(|why| eprintln!("drift: plugin {name}'s grammar {label} {why}"))
+                    .ok()
+            })
+            .collect(),
+        Err(error) => {
+            eprintln!("drift: plugin {name} failed in grammars: {error}");
+            Vec::new()
+        }
+    };
+
+    (servers, grammars)
+}
+
+impl From<wit::LanguageServer> for LanguageServer {
+    fn from(server: wit::LanguageServer) -> Self {
+        Self {
+            id: server.id,
+            command: server.command,
+            extensions: server.extensions,
+            language: server.language,
+        }
+    }
+}
+
 fn capabilities(engine: &Engine, component: &Component) -> Vec<String> {
     let mut found: Vec<String> = component
         .component_type()
@@ -300,6 +359,9 @@ pub struct WasmPlugin {
     /// Web search providers from the `searching` world, read once at load, and its search export.
     search_providers: Vec<(String, String)>,
     search: Option<SearchFunc>,
+    /// Language servers and grammars from the `languages` world, read once at load.
+    language_servers: Vec<LanguageServer>,
+    grammars: Vec<Grammar>,
     store: Mutex<Store<State>>,
     bindings: Plugin,
 }
@@ -336,6 +398,14 @@ impl Hook for WasmPlugin {
 
     fn search_providers(&self) -> Vec<(String, String)> {
         self.search_providers.clone()
+    }
+
+    fn language_servers(&self) -> Vec<LanguageServer> {
+        self.language_servers.clone()
+    }
+
+    fn grammars(&self) -> Vec<Grammar> {
+        self.grammars.clone()
     }
 
     async fn search(&self, provider: &str, query: &str, limit: u32) -> Result<Vec<Hit>, SearchError> {
@@ -613,6 +683,45 @@ pub(crate) mod tests {
             &declared[0].kind,
             SettingKind::Pairs { secret_keys: true, secret_values: false, key_label, .. } if key_label == "Secret"
         ));
+    }
+
+    #[tokio::test]
+    async fn the_roc_plugin_adds_its_grammar_and_a_server_that_settings_names_and_config_can_turn_off() {
+        let Some(roc) = built("roc") else { return };
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let runtime = Runtime::new(&cache).unwrap();
+        let site = |config| Site {
+            entry: "plugins/roc.wasm".into(),
+            config,
+            engine: Weak::new(),
+        };
+
+        let plugin = runtime.load(&roc, site(serde_json::json!({}))).await.unwrap();
+        assert_eq!(
+            plugin.capabilities,
+            ["lsp"],
+            "it calls nothing, but Drift starts its server"
+        );
+        assert_eq!(
+            plugin.language_servers(),
+            [LanguageServer {
+                id: "roc".into(),
+                command: vec!["roc_language_server".into()],
+                extensions: vec![".roc".into()],
+                language: Some("roc".into()),
+            }]
+        );
+        let grammars = plugin.grammars();
+        assert_eq!((grammars[0].name.as_str(), grammars[0].plugin.as_str()), ("roc", "roc"));
+        assert_eq!(grammars[0].grammar["scopeName"], "source.roc");
+
+        let off = runtime
+            .load(&roc, site(serde_json::json!({ "server": "" })))
+            .await
+            .unwrap();
+        assert!(off.language_servers().is_empty() && off.capabilities.is_empty());
+        assert_eq!(off.grammars().len(), 1);
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[tokio::test]

@@ -87,6 +87,9 @@ pub enum Event {
     /// The model catalog was refreshed; clients reload `/providers`.
     #[serde(rename = "catalog.updated")]
     CatalogUpdated {},
+    /// The plugins were loaded again and their grammars changed; clients reload `/grammars`.
+    #[serde(rename = "grammars.updated")]
+    GrammarsUpdated {},
     /// An account reported how much of its subscription's usage it has spent.
     #[serde(rename = "provider.limits")]
     ProviderLimits {

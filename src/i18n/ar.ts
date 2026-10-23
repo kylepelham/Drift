@@ -764,6 +764,7 @@ export const drift = {
     "drift.plugins.capability.process": "تشغّل برامج",
     "drift.plugins.capability.http": "الشبكة",
     "drift.plugins.capability.notify": "تنبيهات",
+    "drift.plugins.capability.lsp": "يشغّل خوادم لغات",
     "drift.registry.sources": "المصادر",
     "drift.registry.sources.editTitle": "تعديل المصدر",
     "drift.registry.sources.kindLabel": "أين يقع",

@@ -747,6 +747,7 @@ export const drift = {
     "drift.plugins.capability.process": "运行程序",
     "drift.plugins.capability.http": "网络",
     "drift.plugins.capability.notify": "通知",
+    "drift.plugins.capability.lsp": "启动语言服务器",
     "drift.registry.sources": "来源",
     "drift.registry.sources.editTitle": "编辑来源",
     "drift.registry.sources.kindLabel": "位置",

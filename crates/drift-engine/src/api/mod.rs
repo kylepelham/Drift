@@ -125,6 +125,7 @@ fn media_routes() -> OpenApiRouter<Arc<Engine>> {
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
         .routes(routes!(settings::plugins))
+        .routes(routes!(settings::grammars))
         .routes(routes!(settings::reload_plugins))
         .routes(routes!(settings::set_plugin_enabled))
         .routes(routes!(settings::install_plugin))

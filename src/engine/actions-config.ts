@@ -188,6 +188,14 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         set("commands", commands);
     }
 
+    /** Plugins' grammars; highlighting goes on with the bundled languages when they cannot be read. */
+    async function refreshGrammars() {
+        const grammars = await requireClient()
+            .grammars()
+            .catch(() => undefined);
+        if (grammars) set("grammars", grammars);
+    }
+
     async function refreshMcp() {
         const servers = await requireClient().mcpServers();
         set("mcpServers", reconcile(Object.fromEntries(servers.map((server) => [server.name, server]))));
@@ -330,6 +338,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         workspaceGrants,
         revokeGrant,
         refreshMcp,
+        refreshGrammars,
         mcpSave,
         mcpRename,
         mcpRemove,

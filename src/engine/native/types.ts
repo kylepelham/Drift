@@ -136,6 +136,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/grammars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The grammars plugins add, which the app highlights code with. */
+        get: operations["listGrammars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2077,6 +2094,9 @@ export interface components {
             /** @enum {string} */
             type: "catalog.updated";
         } | {
+            /** @enum {string} */
+            type: "grammars.updated";
+        } | {
             account: string;
             limits: components["schemas"]["Limits"];
             provider: string;
@@ -2162,6 +2182,18 @@ export interface components {
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
+        /** @description A TextMate grammar a plugin adds, as the app loads it into its highlighter. */
+        Grammar: {
+            aliases: string[];
+            /** @description File name endings (`.roc`), or whole file names (`Rocfile`), it highlights. */
+            extensions: string[];
+            /** @description The `.tmLanguage.json` object. */
+            grammar: Record<string, never>;
+            /** @description The language's name, which a code fence uses; it replaces a bundled language of the same name. */
+            name: string;
+            /** @description The plugin that added it. */
+            plugin: string;
+        };
         /** @description What the user approved with "always": kept for the workspace, across sessions and restarts. */
         Grant: {
             /** @enum {string} */
@@ -2784,7 +2816,7 @@ export interface components {
         };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
-            /** @description The host interfaces it imports: `store`, `files`, `process`, `http`. */
+            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers. */
             capabilities?: string[];
             /** @description Its config object from drift.json, so Settings can show and edit it. */
             config?: unknown;
@@ -3924,6 +3956,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listGrammars: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grammar"][];
+                };
             };
         };
     };

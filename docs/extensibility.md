@@ -6,7 +6,7 @@
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
    servers (see [mcp.md](mcp.md)), per-family base prompts in Settings > Prompts, and engine
-   plugins: WebAssembly components that see tool calls and session events (below). The engine runs
+   plugins: WebAssembly components that see tool calls and session events and can add languages (below). The engine runs
    no JavaScript. Plugins written for opencode are named in the import summary and not run.
 2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
@@ -213,6 +213,30 @@ plugin reaches the network through the `http` host interface; Drift never calls 
 behalf.
 
 `plugins/searxng` is that plugin: it asks the SearXNG instance in `config.url` for JSON results.
+
+### Adding languages
+
+A plugin built for the `languages` world (the `configurable` world plus two exports) adds languages
+Drift does not know. Both exports are asked once, when the plugin loads.
+
+- `language-servers()`: servers Drift starts as it starts the built-in ones and those in drift.json
+  `lsp`. Each has an id, a command found on PATH, the file name endings it handles and optionally the
+  LSP language id it is told. The errors an edit leaves in those files come back with the edit. Your
+  drift.json `lsp` entry of the same id replaces a plugin's server or, set to `false`, turns it off;
+  a project's file can turn it off too. Two plugins naming one id: the first listed wins. A plugin
+  that declares a server lists "starts language servers" among what it can reach, since Drift runs
+  that program for it.
+- `grammars()`: TextMate grammars, each with the language's name, other fence names, the file name
+  endings (`.roc`) or whole file names (`Rocfile`) it highlights, and the grammar's
+  `.tmLanguage.json` text, which must have a `scopeName` and `patterns` (one that does not is logged
+  and left out). The app highlights those files and Markdown code fences named for them, in
+  transcripts, previews and diffs, and a grammar comes before the bundled language for the same file
+  or name. Grammars are served at `GET /grammars`; the engine sends `grammars.updated` when a
+  plugin load changes them, and views shown before they arrived highlight again. Highlighting keeps a grammar it
+  has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
+
+`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and starts
+`roc_language_server` unless `config.server` names another command (empty turns it off).
 
 ## Skills
 

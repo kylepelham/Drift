@@ -341,6 +341,7 @@ test("hydration rejects when any of its loads fail, instead of pretending the sn
         refreshPermissions: async () => undefined,
         refreshAgents: async () => undefined,
         refreshMcp: async () => undefined,
+        refreshGrammars: async () => undefined,
         refreshEngineSettings: async () => undefined,
     };
     await hydrateFrom(good, "C:/repo");

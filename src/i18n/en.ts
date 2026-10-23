@@ -781,6 +781,7 @@ export const drift = {
     "drift.plugins.capability.process": "runs programs",
     "drift.plugins.capability.http": "network",
     "drift.plugins.capability.notify": "notices",
+    "drift.plugins.capability.lsp": "starts language servers",
     "drift.registry.sources": "Sources",
     "drift.registry.sources.editTitle": "Edit source",
     "drift.registry.sources.kindLabel": "Where it is",

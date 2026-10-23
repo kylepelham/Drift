@@ -778,6 +778,7 @@ export const drift = {
     "drift.plugins.capability.process": "запускає програми",
     "drift.plugins.capability.http": "мережа",
     "drift.plugins.capability.notify": "сповіщення",
+    "drift.plugins.capability.lsp": "запускає мовні сервери",
     "drift.registry.sources": "Джерела",
     "drift.registry.sources.editTitle": "Змінити джерело",
     "drift.registry.sources.kindLabel": "Де розташоване",

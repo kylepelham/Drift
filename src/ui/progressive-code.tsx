@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { pluginGrammarsRevision } from "../syntax-grammars";
 import { resolveFileLanguage } from "../syntax-language";
 import { highlightedCode } from "./markdown-syntax";
 import { syntaxTheme } from "../state/code";
@@ -52,6 +53,7 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
 
     createEffect(() => {
         const filename = props.filename;
+        pluginGrammarsRevision();
         const current = ++languageRequest;
 
         setLanguage(undefined);

@@ -777,6 +777,7 @@ export const drift = {
     "drift.plugins.capability.process": "kjører programmer",
     "drift.plugins.capability.http": "nettverk",
     "drift.plugins.capability.notify": "varsler",
+    "drift.plugins.capability.lsp": "starter språkservere",
     "drift.registry.sources": "Kilder",
     "drift.registry.sources.editTitle": "Rediger kilde",
     "drift.registry.sources.kindLabel": "Hvor den er",

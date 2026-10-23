@@ -1,11 +1,12 @@
 import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links";
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { markdownNodeSignature, replaceMarkdownSuffix } from "./markdown-render";
 import { previewParentDirectory, readFilePreview } from "../file-preview";
 import { animateResponses, responseAnimationSpeed } from "../state/prefs";
 import { filePreviewMime, filePreviewType } from "../file-preview-types";
 import { endsInsideFence, prepareMarkdown } from "./markdown-prose";
 import { shouldPreviewFile } from "../state/file-preview-prefs";
+import { pluginGrammarsRevision } from "../syntax-grammars";
 import { sanitizeMarkdownHtml } from "./markdown-sanitize";
 import { observeMarkdownImages } from "./markdown-images";
 import { openFilePreview } from "../state/file-preview";
@@ -414,6 +415,22 @@ export function Markdown(props: {
             },
         );
     });
+
+    // Fences left plain for want of a plugin's grammar highlight once its grammars arrive.
+    createEffect(
+        on(
+            pluginGrammarsRevision,
+            () => {
+                if (!mounted) return;
+                const current = request;
+                const open = !props.done && endsInsideFence(props.text);
+                void highlightBlocks(root, syntaxTheme() as BundledTheme, () => current === request, open).then(() => {
+                    if (current === request) decorateCodeBlocks(root);
+                });
+            },
+            { defer: true },
+        ),
+    );
 
     return (
         <>

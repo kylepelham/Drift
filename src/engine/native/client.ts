@@ -11,6 +11,7 @@ export type Target = { url: string; token: string };
  */
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
+export type Grammar = components["schemas"]["Grammar"];
 export type SkillPack = components["schemas"]["Pack"];
 export type Bundle = components["schemas"]["Bundle"];
 export type InstallBundle = components["schemas"]["InstallBundle"];
@@ -161,6 +162,7 @@ export function createClient(target: Target) {
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
         plugins: () => request<Json<"listPlugins", 200>>("GET", "/plugins"),
+        grammars: () => request<Json<"listGrammars", 200>>("GET", "/grammars"),
         reloadPlugins: () => request<Json<"reloadPlugins", 200>>("POST", "/plugins/reload"),
         setPluginEnabled: (path: string, enabled: boolean) =>
             request<Json<"setPluginEnabled", 200>>("PUT", "/plugins/enabled", { path, enabled }),

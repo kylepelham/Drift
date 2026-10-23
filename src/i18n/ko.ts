@@ -766,6 +766,7 @@ export const drift = {
     "drift.plugins.capability.process": "프로그램 실행",
     "drift.plugins.capability.http": "네트워크",
     "drift.plugins.capability.notify": "알림",
+    "drift.plugins.capability.lsp": "언어 서버 실행",
     "drift.registry.sources": "소스",
     "drift.registry.sources.editTitle": "소스 편집",
     "drift.registry.sources.kindLabel": "위치",

@@ -776,6 +776,7 @@ export const drift = {
     "drift.plugins.capability.process": "プログラムを実行",
     "drift.plugins.capability.http": "ネットワーク",
     "drift.plugins.capability.notify": "通知",
+    "drift.plugins.capability.lsp": "言語サーバーを起動",
     "drift.registry.sources": "ソース",
     "drift.registry.sources.editTitle": "ソースを編集",
     "drift.registry.sources.kindLabel": "場所",
