@@ -367,7 +367,7 @@ impl Engine {
     }
 
     /// Asks the providers that can do `job` in turn: the session's last provider first, then the rest in order,
-    /// skipping keys that cool or were refused. The first answer wins.
+    /// skipping keys that cool or were refused, and a provider's other keys once it fails otherwise. The first answer wins.
     async fn route(&self, session_id: &str, job: &Job<'_>) -> Result<(String, Answer), String> {
         let settings = self.web_search_settings();
         if settings.provider == "off" {
@@ -385,8 +385,9 @@ impl Engine {
         attempts.sort_by_key(|attempt| sticky.as_deref() != Some(provider_of(attempt)));
 
         let mut last = String::from("every web search provider is cooling down or refused its keys");
+        let mut given_up = HashSet::new();
         for attempt in attempts {
-            if self.unusable(&attempt.slot()) {
+            if given_up.contains(provider_of(&attempt)) || self.unusable(&attempt.slot()) {
                 continue;
             }
             match self.ask_provider(&attempt, job).await {
@@ -399,7 +400,13 @@ impl Engine {
                         .insert(session_id.into(), provider.clone());
                     return Ok((provider, answer));
                 }
-                Err(error) => last = self.note_failure(&attempt, error),
+                Err(error) => {
+                    // Only a spent, refused or rate limited key is worth trying another key of the same provider for.
+                    if matches!(error, SearchError::Failed(_)) {
+                        given_up.insert(provider_of(&attempt).to_string());
+                    }
+                    last = self.note_failure(&attempt, error);
+                }
             }
         }
 

@@ -1609,11 +1609,14 @@ listed there.
     is `tool/websearch.rs`, offered only while `web_search_available()` (not off, and some key or
     plugin provider exists). Keys are a JSON list per provider in the credential store under
     `websearch:<id>`, then the environment variable's; Settings shows only their last four
-    characters. Refusals (401 to 403) set a key aside until a key is added; a 429 cools it for its
-    `Retry-After`, 60 s when it names none. Cooldowns are engine-wide rather than per workspace,
-    since a key is the user's whatever the workspace. "Always" on a search grants `websearch *`, as
-    v2 saves it, because an exact query never repeats. API: `GET/PUT /websearch`,
-    `POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
+    characters. Refusals (401 to 403, Tavily's 432 and 433) set a key aside until a key is added; a
+    429 cools it for its `Retry-After`, 60 s when it names none. Only those move to the provider's
+    next key: a timeout, a 5xx or a page it could not read would fail the same way on every key, so
+    that request skips the provider's other keys and goes to the next provider (2.4.2; eleven
+    Firecrawl keys each timing out held one webfetch for 330 s). Cooldowns are engine-wide rather
+    than per workspace, since a key is the user's whatever the workspace. "Always" on a search
+    grants `websearch *`, as v2 saves it, because an exact query never repeats. API:
+    `GET/PUT /websearch`, `POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
   - Decision taken while Kyle slept: no `websearch.provider` in drift.json. The keys live in the
     credential store and Settings manages both, so a second source would only add a precedence
     rule; it can come later if a team wants it set in a file.
