@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn small_output_stays_whole_and_in_memory() {
-        let dir = std::env::temp_dir().join(format!("drift-spool-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-spool-{}", crate::random_hex(4)));
         let mut spool = Spool::new(Some(dir.join("out.log")));
         spool.push(b"hello ");
         spool.push(b"world");
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn large_output_keeps_start_and_end_in_memory_and_all_of_it_on_disk() {
-        let dir = std::env::temp_dir().join(format!("drift-spool-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-spool-{}", crate::random_hex(4)));
         let path = dir.join("out.log");
         let mut spool = Spool::new(Some(path.clone()));
         let chunk: Vec<u8> = (0..4096u32).map(|index| b'a' + (index % 26) as u8).collect();
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn a_result_past_the_limit_is_cut_to_its_ends_and_kept_whole_on_disk() {
-        let dir = std::env::temp_dir().join(format!("drift-bound-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-bound-{}", crate::random_hex(4)));
         let (small, none) = bound("fine".into(), dir.join("small.log"));
         assert_eq!((small.as_str(), none), ("fine", None));
         let big = format!("START{}END", "m".repeat(MAX_RESULT_BYTES * 3));

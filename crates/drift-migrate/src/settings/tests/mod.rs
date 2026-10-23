@@ -29,7 +29,9 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let dir = Dir(std::env::temp_dir().join(format!("drift-settings-{}", drift_engine::id::new("t"))));
+        let dir = Dir(
+            drift_engine::platform::temp::test_run().join(format!("drift-settings-{}", drift_engine::id::new("t")))
+        );
         let engine = Engine::open_with(
             &dir.0.join("data"),
             drift_engine::Options {

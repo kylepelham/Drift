@@ -30,6 +30,7 @@ use crate::store::Workspace;
 use driver::{Driver, Spec};
 pub use input::{KeyInput, MouseInput};
 pub use project::BrowserProject;
+pub(crate) use view::apply_inputs;
 pub use view::{Frame, ViewInput};
 
 /// Settings: whether agents get the `browser` tool, and how its browsers start.

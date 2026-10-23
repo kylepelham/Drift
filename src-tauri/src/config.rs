@@ -30,7 +30,7 @@ pub(crate) fn config_path(root: &Path, path: &str) -> Result<PathBuf, ConfigErro
     Ok(root.join(relative))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn config_read(config: State<ConfigRoot>, path: String) -> Result<Option<String>, String> {
     read_config(&config.0, &path).map_err(|error| error.to_string())
 }

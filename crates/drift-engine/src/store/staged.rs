@@ -50,7 +50,7 @@ impl Store {
     }
 
     pub fn replacements(&self) -> rusqlite::Result<Vec<StagedReplacement>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "SELECT destination, staged, backup, swapped FROM staged_replacement ORDER BY created_at, staged",
             )?

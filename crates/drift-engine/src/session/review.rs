@@ -1,7 +1,7 @@
 //! What a turn, the working tree, a branch or a commit changed, as whole-file line diffs for the review panel.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub struct Review {
 pub struct ReviewFile {
     /// Relative to the workspace with `/` separators, or absolute for a file outside it.
     pub path: String,
+    /// The file on this computer, to open it; none when where it lives is unknown.
+    pub location: Option<String>,
     pub status: FileStatus,
     pub additions: usize,
     pub deletions: usize,
@@ -143,7 +145,7 @@ impl Engine {
             }
             let before = self.recorded(&net.before).await;
             let after = self.recorded(&net.after).await;
-            review.push(net.path, before, after);
+            review.push(net.path, net.file, before, after);
         }
 
         // A write that left no undo record still changed the file; it is listed without lines rather than dropped.
@@ -154,7 +156,7 @@ impl Engine {
                 .iter()
                 .any(|file| file.path.replace('\\', "/").to_lowercase() == key)
             {
-                review.push(path, Side::Unavailable, Side::Unavailable);
+                review.push(path, None, Side::Unavailable, Side::Unavailable);
             }
         }
 
@@ -301,7 +303,7 @@ async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
             continue;
         }
         let after = on_disk(root, path).await;
-        review.push(path.to_string(), Side::Absent, after);
+        review.push(path.to_string(), Some(root.join(path)), Side::Absent, after);
     }
 
     Ok(review)
@@ -359,7 +361,7 @@ async fn push_changes(root: &Path, review: &mut Review, changes: Vec<RawChange>,
                 Source::Disk => on_disk(root, &change.path).await,
                 Source::Blobs => stored(&blobs, change.after.as_deref()),
             };
-            review.push(change.path.clone(), before, after);
+            review.push(change.path.clone(), Some(root.join(&change.path)), before, after);
         }
     }
 }
@@ -508,7 +510,7 @@ impl Review {
         self.files.len() == MAX_FILES
     }
 
-    fn push(&mut self, path: String, before: Side, after: Side) {
+    fn push(&mut self, path: String, location: Option<PathBuf>, before: Side, after: Side) {
         if let (Side::Present(left), Side::Present(right)) = (&before, &after)
             && left == right
         {
@@ -519,7 +521,12 @@ impl Review {
             return;
         }
 
-        self.files.push(review_file(path, &before, &after));
+        // Rebuilt from its components so a `/` from git becomes the platform's separator.
+        let location = location.map(|file| file.components().collect::<PathBuf>().to_string_lossy().into_owned());
+        self.files.push(ReviewFile {
+            location,
+            ..review_file(path, &before, &after)
+        });
     }
 }
 
@@ -531,6 +538,7 @@ fn review_file(path: String, before: &Side, after: &Side) -> ReviewFile {
     };
     let mut file = ReviewFile {
         path,
+        location: None,
         status,
         additions: 0,
         deletions: 0,

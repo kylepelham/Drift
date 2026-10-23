@@ -34,7 +34,7 @@ async fn harness() -> Harness {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).unwrap();
-    let directory = std::env::temp_dir().join(format!("drift-engine-test-{}", u64::from_le_bytes(bytes)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-engine-test-{}", u64::from_le_bytes(bytes)));
     let engine = Engine::open_with(
         &directory,
         crate::Options {

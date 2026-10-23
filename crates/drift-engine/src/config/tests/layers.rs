@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn project_config_layers_over_home_and_discovers_everything() {
-    let root = std::env::temp_dir().join(format!("drift-config-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-{}", crate::random_hex(4)));
     let home = root.join("home");
     let workspace = root.join("ws");
     write_layered_home(&home);

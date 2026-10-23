@@ -139,7 +139,7 @@ impl Engine {
         tool::stage::recover_leftovers(&store);
         // Taken before anything can run, so a turn started during startup is never mistaken for a cut-off one.
         let cut_off = store.claimed_turns()?;
-        let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
+        platform::temp::folder("scratch");
 
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);

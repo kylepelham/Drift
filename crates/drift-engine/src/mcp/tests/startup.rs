@@ -3,7 +3,7 @@ use super::*;
 /// Records a slow server's pid and its grandchild's pid so tests can verify process-tree cleanup.
 fn traced(env: &[(&str, &str)]) -> (ServerConfig, std::path::PathBuf) {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
-    let pids = std::env::temp_dir().join(format!("drift-mcp-pids-{}", crate::random_hex(4)));
+    let pids = crate::platform::temp::test_run().join(format!("drift-mcp-pids-{}", crate::random_hex(4)));
     let mut variables: BTreeMap<String, String> = env
         .iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))

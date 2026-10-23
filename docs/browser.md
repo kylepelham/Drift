@@ -66,6 +66,9 @@ agent. Camoufox started without its Python launcher's fingerprint config names i
 (`Camoufox/156.0.1-beta.36`), and sites that do not know the name serve their oldest pages, so the session
 overrides it with the Firefox it is built on (`Firefox/156.0`) through `emulation.setUserAgentOverride`.
 Pane pictures are sent at the page's own resolution; the agent's screenshots are scaled as Chrome's are.
+Tabs open with `background: true` and switching never calls `browsingContext.activate`: headless, every tab
+paints, and neither a foreground create nor an activate is ever answered, which held all the pane's input
+behind it for the call's 60-second timeout.
 
 ### IE mode
 
@@ -326,7 +329,9 @@ the credential is refused.
   `{"type":"cursor","cursor":...}` when the cursor under the pane's pointer changes. The client sends JSON
   text: `mouse`, `key`, `text`, `select`, `close`, `newPage`, `navigate`, `dialog`, `fit`. Frames flow only
   while at least one view socket is open, and only for the active page. Input is applied in the order it was
-  sent.
+  sent; pointer moves and wheel turns that queue while the browser is busy fold into the last move and one summed
+  turn. Firefox answers each `input.performActions` before the next can start, so without this a high-refresh
+  pointer (about 200 moves a second) left Camoufox seconds behind under load; Chrome folds them itself.
 - `GET /browser/engines` each engine's status, program and download progress;
   `POST /browser/engines/{engine}/download`; `PUT /browser/engines/{engine}/path`.
 - `GET /workspaces/{id}/browser` the workspace's drift.json section and its credentials;

@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn profiles_are_read_from_the_shared_files() {
-        let dir = std::env::temp_dir().join(format!("drift-aws-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-aws-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let credentials = dir.join("credentials");
         let contents = concat!(

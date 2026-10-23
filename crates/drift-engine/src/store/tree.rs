@@ -7,7 +7,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::Store;
 use super::sessions::{NewSession, insert_session, session_from, transaction};
 use crate::id;
-use crate::session::types::{Part, Session};
+use crate::session::types::{HistoryChange, Part, Session};
+
+// Names the partial index's condition and only its columns, so SQLite reads the index alone instead of every part.
+const RECORDED_CHANGES: &str =
+    "SELECT s.workspace_id, json_extract(p.json, '$.metadata.owner'), json_extract(p.json, '$.metadata.changes')
+     FROM part p JOIN session s ON s.id = p.session_id WHERE json_extract(p.json, '$.metadata.changes') IS NOT NULL";
 
 /// Messages copied per transaction when forking.
 const FORK_PAGE: usize = 100;
@@ -37,7 +42,7 @@ fn root_of(conn: &Connection, session_id: &str) -> rusqlite::Result<String> {
 impl Store {
     /// The root of `session_id`'s tree, whose id keys its prompt cache.
     pub fn cache_root(&self, session_id: &str) -> rusqlite::Result<String> {
-        root_of(&self.lock(), session_id)
+        root_of(&self.read(), session_id)
     }
 
     /// Copies finished history in pages; `None` means a selected message disappeared and the copy was removed.
@@ -116,7 +121,7 @@ impl Store {
 
     /// The session and its subagents, at any depth. Branches are independent and stay behind.
     pub fn session_tree(&self, id: &str) -> rusqlite::Result<Vec<String>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "WITH RECURSIVE tree(id) AS (
                      SELECT id FROM session WHERE id = ?1
@@ -129,38 +134,24 @@ impl Store {
 
     /// Every shadow blob a recorded change refers to, archived sessions included, grouped by the
     /// workspace that owns its history (recorded with the change; the session's workspace for older
-    /// records): what undo and redo could still need. Rows are collected under the database lock;
-    /// the JSON is read after it is released.
+    /// records): what undo and redo could still need. Only the owner and changes are read, from
+    /// `idx_part_changes`, under the database lock; they are parsed after it is released.
     pub fn recorded_blobs(&self) -> rusqlite::Result<HashMap<String, Vec<String>>> {
-        let rows: Vec<(String, String)> = {
-            let conn = self.lock();
-            let mut statement = conn.prepare_cached("SELECT s.workspace_id, p.json FROM part p JOIN session s ON s.id = p.session_id WHERE p.json LIKE '%\"changes\"%'")?;
-            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let rows: Vec<(String, Option<String>, String)> = {
+            let conn = self.read();
+            let mut statement = conn.prepare_cached(RECORDED_CHANGES)?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
 
         let mut blobs: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
-        for (session_workspace, json) in rows {
-            let Ok(Part::ToolCall {
-                metadata: Some(metadata),
-                ..
-            }) = serde_json::from_str::<Part>(&json)
-            else {
+        for (session_workspace, owner, changes) in rows {
+            let Ok(changes) = serde_json::from_str::<Vec<HistoryChange>>(&changes) else {
                 continue;
             };
-            let Some(changes) = metadata.changes.as_ref() else {
-                continue;
-            };
-            let owner = metadata.owner.unwrap_or(session_workspace);
-            let kept = blobs.entry(owner).or_default();
+            let kept = blobs.entry(owner.unwrap_or(session_workspace)).or_default();
             for change in changes {
-                kept.extend(
-                    [change.before.as_ref(), change.after.as_ref()]
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .cloned(),
-                );
+                kept.extend([change.before, change.after].into_iter().flatten().flatten());
             }
         }
 
@@ -287,10 +278,32 @@ fn copy_boundary(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use crate::session::types::{MessageStatus, Part, Role, ToolStatus, Visibility};
     use crate::store::NewSession;
     use crate::store::tests::store;
+
+    /// SQLite's plan for `sql`, one line per step.
+    pub(in crate::store) fn plan(store: &crate::store::Store, sql: &str, args: impl rusqlite::Params) -> Vec<String> {
+        store
+            .lock()
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap()
+            .query_map(args, |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn pruning_snapshots_reads_recorded_changes_from_their_index_alone() {
+        let plan = plan(&store(), super::RECORDED_CHANGES, []);
+
+        assert!(
+            plan.iter().any(|step| step.contains("COVERING INDEX idx_part_changes")),
+            "{plan:?}"
+        );
+    }
 
     fn new(workspace: &str) -> NewSession<'_> {
         NewSession {

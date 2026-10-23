@@ -1,7 +1,7 @@
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 // Both engines use an immediate stub provider so the benchmark measures engine time, not provider latency.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tempFolder } from "./temp";
 import path from "node:path";
-import os from "node:os";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -341,9 +341,9 @@ async function timeEach(times: number, act: () => Promise<void>) {
 /** One run: start the engine, then every workload on it. */
 async function run(start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
     const dirs = {
-        home: mkdtempSync(path.join(os.tmpdir(), "drift-bench-home-")),
-        data: mkdtempSync(path.join(os.tmpdir(), "drift-bench-data-")),
-        workspace: mkdtempSync(path.join(os.tmpdir(), "drift-bench-ws-")),
+        home: tempFolder("bench", "bench-home-"),
+        data: tempFolder("bench", "bench-data-"),
+        workspace: tempFolder("bench", "bench-ws-"),
     };
     const file = path.join(dirs.workspace, "notes.md");
     writeFileSync(file, "a line\n".repeat(200));

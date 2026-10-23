@@ -27,6 +27,7 @@ fn create_list_update_archive() {
             archived: false,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(
@@ -52,6 +53,7 @@ fn create_list_update_archive() {
             archived: false,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(active.len(), 1);
@@ -61,9 +63,56 @@ fn create_list_update_archive() {
             archived: true,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(archived[0].id, second.id);
+}
+
+#[test]
+fn a_lean_listing_keeps_threads_and_working_subagents_and_a_parent_lists_its_own() {
+    use crate::session::tasks::{Mode, TaskState};
+    use crate::store::tasks::tests::{child, new_task};
+    let store = store();
+    let parent = store.create_session(new("w")).unwrap();
+    let launch = |call| {
+        store
+            .launch_task(new_task(&parent.id, call, Mode::Background), child(&parent))
+            .unwrap()
+    };
+    let (ended, working, queued) = (launch("a"), launch("b"), launch("c"));
+    store.finish_task(&ended.task.id, TaskState::Replied, "done").unwrap();
+    store.start_task(&working.task.id).unwrap();
+    let other = store.create_session(new("w")).unwrap();
+    let ids = |filter| {
+        let mut ids: Vec<String> = store.sessions(filter).unwrap().into_iter().map(|s| s.id).collect();
+        ids.sort();
+        ids
+    };
+    let sorted = |mut ids: Vec<&str>| {
+        ids.sort();
+        ids.into_iter().map(String::from).collect::<Vec<_>>()
+    };
+
+    let lean = SessionFilter {
+        workspace_id: Some("w"),
+        limit: 10,
+        active_subagents: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        ids(lean),
+        sorted(vec![&parent.id, &other.id, &working.child.id, &queued.child.id])
+    );
+    let own = SessionFilter {
+        parent_id: Some(&parent.id),
+        limit: 10,
+        ..Default::default()
+    };
+    assert_eq!(
+        ids(own),
+        sorted(vec![&ended.child.id, &working.child.id, &queued.child.id])
+    );
 }
 
 #[test]
@@ -84,6 +133,7 @@ fn subagents_are_listed_with_their_parent() {
             archived: false,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(listed.len(), 2);
@@ -112,6 +162,7 @@ fn equal_timestamps_do_not_skip_sessions_across_pages() {
                 archived: false,
                 before: before.as_deref(),
                 limit: 2,
+                ..Default::default()
             })
             .unwrap();
         seen.extend(page.iter().map(|session| session.id.clone()));

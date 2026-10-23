@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn the_active_port_file_is_read_only_once_complete() {
-        let dir = std::env::temp_dir().join(format!("drift-port-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-port-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("DevToolsActivePort");
 

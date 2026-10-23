@@ -36,6 +36,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
             archived: false,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert!(

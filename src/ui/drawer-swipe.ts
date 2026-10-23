@@ -5,6 +5,10 @@ const decideAfter = 10;
 /** The share of the drawer's width, or the speed in px/ms, that carries it the rest of the way on release. */
 const settleShare = 1 / 3;
 const flickSpeed = 0.5;
+/** A thumb's swipe curves; it still counts as sideways while it rises less than this per pixel across. */
+const slope = 1.2;
+/** How long after a drag a tap is swallowed, so the row it ended on is not opened. */
+const tapGuardMs = 400;
 
 export type DrawerState = { open: () => boolean; show: () => void; hide: () => void; narrow: () => boolean };
 
@@ -16,12 +20,13 @@ export function swipeSettles(dx: number, width: number, speed: number, closing: 
     return along > 0 && (along > width * settleShare || pace > flickSpeed);
 }
 
-/** Where a rightward drag belongs to something else: typing, a dialog or menu, or content that can scroll back. */
-function swipeOpensFrom(target: EventTarget | null) {
+/** Where a drag belongs to something else: typing, a slider, a dialog or menu, or content that scrolls sideways. Buttons
+ * and links do not count: nearly every row in the drawer is one, and a drag never becomes their tap. */
+function swipeStartsFrom(target: EventTarget | null) {
     if (!(target instanceof Element)) return true;
     if (
         target.closest(
-            'input, textarea, select, button, a, [role="slider"], [contenteditable="true"], [role="dialog"], [role="menu"], [data-modal-layer], .pop-in',
+            'input, textarea, select, [role="slider"], [contenteditable="true"], [role="dialog"], [role="menu"], [data-modal-layer], .pop-in',
         )
     )
         return false;
@@ -32,6 +37,16 @@ function swipeOpensFrom(target: EventTarget | null) {
     }
 
     return true;
+}
+
+/** Swallows the click a drag can end with, so the button under the finger is not pressed. */
+function swallowTap() {
+    const swallow = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    document.addEventListener("click", swallow, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener("click", swallow, { capture: true }), tapGuardMs);
 }
 
 /** Attaches the gesture to the page for `drawer`; returns the cleanup. */
@@ -53,7 +68,7 @@ export function drawerSwipe(drawer: HTMLElement, state: DrawerState) {
         if (!state.narrow() || event.touches.length !== 1 || !touch) return;
 
         const closing = state.open();
-        if (!swipeOpensFrom(event.target)) return;
+        if (!swipeStartsFrom(event.target)) return;
         if (!closing && touch.clientX < 24) return;
         start = { x: touch.clientX, y: touch.clientY, at: event.timeStamp, closing };
     };
@@ -69,7 +84,7 @@ export function drawerSwipe(drawer: HTMLElement, state: DrawerState) {
         if (!dragging) {
             if (Math.abs(dx) < decideAfter && Math.abs(dy) < decideAfter) return;
             const wrongWay = start.closing ? dx > 0 : dx < 0;
-            if (Math.abs(dy) >= Math.abs(dx) || wrongWay) return void (start = null);
+            if (Math.abs(dy) > Math.abs(dx) * slope || wrongWay) return void (start = null);
             dragging = true;
             drawer.style.transition = "none";
             drawer.style.visibility = "visible";
@@ -89,6 +104,7 @@ export function drawerSwipe(drawer: HTMLElement, state: DrawerState) {
         const speed = dx / Math.max(1, event.timeStamp - start.at);
         const settles = swipeSettles(dx, drawer.offsetWidth, speed, closing);
         reset();
+        swallowTap();
         if (settles && closing) state.hide();
         if (settles && !closing) state.show();
     };

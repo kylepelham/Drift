@@ -10,7 +10,7 @@ impl Store {
     /// `None` when the key was never set or no longer parses as `T`.
     pub fn setting<T: DeserializeOwned>(&self, key: &str) -> rusqlite::Result<Option<T>> {
         let json: Option<String> = self
-            .lock()
+            .read()
             .prepare_cached("SELECT value_json FROM setting WHERE key = ?1")?
             .query_row([key], |row| row.get(0))
             .optional()?;

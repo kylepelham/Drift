@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 47] = [
+pub(super) const MIGRATIONS: [&str; 50] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -224,6 +224,14 @@ pub(super) const MIGRATIONS: [&str; 47] = [
     "ALTER TABLE task ADD COLUMN restarts INTEGER NOT NULL DEFAULT 0;",
     // Why a reply's request read much less of the prompt cache than the one before it left.
     "ALTER TABLE message ADD COLUMN cache_miss TEXT;",
+    // Pasted image numbers and recorded file changes by session, so neither a prompt nor snapshot pruning scans every part.
+    "CREATE INDEX idx_part_image ON part(session_id, json_extract(json, '$.image')) WHERE json_extract(json, '$.image') IS NOT NULL;
+    CREATE INDEX idx_part_changes ON part(session_id, json_extract(json, '$.metadata.owner'), json_extract(json, '$.metadata.changes'))
+        WHERE json_extract(json, '$.metadata.changes') IS NOT NULL;",
+    // Replies still streaming, for startup to close without reading every message.
+    "CREATE INDEX idx_message_streaming ON message(id) WHERE status = 'streaming';",
+    // The files an ended worker changed, kept once read so a task list never reads transcripts again.
+    "ALTER TABLE task ADD COLUMN edits TEXT;",
 ];
 
 #[cfg(test)]

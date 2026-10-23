@@ -216,7 +216,8 @@ async fn the_gateway_listener_serves_https_and_redirects_plain_http() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).unwrap();
-    let directory = std::env::temp_dir().join(format!("drift-gateway-{}", u64::from_ne_bytes(bytes)));
+    let directory =
+        drift_engine::platform::temp::test_run().join(format!("drift-gateway-{}", u64::from_ne_bytes(bytes)));
     let tls = Arc::new(Tls::load_or_create(&directory).unwrap());
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();

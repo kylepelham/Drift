@@ -36,7 +36,7 @@ fn editor_locations_use_one_direct_gui_invocation() {
 
 #[test]
 fn updates_are_only_offered_next_to_the_uninstaller() {
-    let root = std::env::temp_dir().join(format!("drift-updater-test-{}", std::process::id()));
+    let root = drift_engine::platform::temp::test_run().join(format!("drift-updater-test-{}", std::process::id()));
     std::fs::remove_dir_all(&root).ok();
 
     let installed = root.join("installed");

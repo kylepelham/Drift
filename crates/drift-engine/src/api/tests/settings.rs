@@ -47,6 +47,54 @@ async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
 }
 
 #[tokio::test]
+async fn an_ended_worker_is_listed_with_the_files_it_changed_and_without_its_result() {
+    use crate::session::types::{Part, Role, ToolStatus};
+    let harness = harness().await;
+    let (_, session_id) = session_with_model(&harness).await;
+    let store = &harness.engine.store;
+    let parent = store.session(&session_id).unwrap().unwrap();
+    let new = crate::store::tasks::tests::new_task(&session_id, "c", Mode::Background);
+    let launch = store
+        .launch_task(new, crate::store::tasks::tests::child(&parent))
+        .unwrap();
+    let message = store.create_message(&launch.child.id, Role::Assistant, None).unwrap();
+    let change = json!({ "fileChanges": [{ "filePath": "C:/w/a.rs", "relativePath": "a.rs", "type": "update",
+        "patch": "", "additions": 2, "deletions": 1 }] });
+    let add = |name: &str, status| {
+        let call = Part::ToolCall {
+            call_id: String::new(),
+            name: name.into(),
+            input: json!({ "path": "C:/w/a.rs" }),
+            status,
+            title: None,
+            output: None,
+            metadata: Some(Box::new(serde_json::from_value(change.clone()).unwrap())),
+            started_at: Some(1),
+            finished_at: None,
+        };
+        store.add_part(&message.id, &launch.child.id, call).unwrap();
+    };
+    add("edit", ToolStatus::Done);
+    add("write", ToolStatus::Running);
+    add("bash", ToolStatus::Done);
+    let path = format!("/sessions/{session_id}/tasks");
+    assert_eq!(json_response(harness.get(&path)).await[0].get("edits"), None, "running");
+
+    store
+        .finish_task(&launch.task.id, TaskState::Replied, "the reply")
+        .unwrap();
+    let edits = json!([{ "path": "C:/w/a.rs", "additions": 2, "deletions": 1 }]);
+    let listed = json_response(harness.get(&path)).await;
+    assert_eq!((listed[0].get("result"), &listed[0]["edits"]), (None, &edits));
+    let read = json_response(harness.get(&format!("/tasks/{}", launch.task.id))).await;
+    assert_eq!((&read["result"], &read["edits"]), (&json!("the reply"), &edits));
+
+    // Read once and kept: a later edit in a resumed transcript belongs to the record that resumed it.
+    add("edit", ToolStatus::Done);
+    assert_eq!(json_response(harness.get(&path)).await[0]["edits"], edits);
+}
+
+#[tokio::test]
 async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_rules_stay() {
     let harness = harness().await;
     let provider = script_replies(&harness, "ok", 3);

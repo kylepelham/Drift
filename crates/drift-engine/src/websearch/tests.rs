@@ -158,7 +158,7 @@ async fn serve(behaviour: Arc<Behaviour>) -> String {
 
 async fn engine(behaviour: &Arc<Behaviour>) -> (Arc<Engine>, String) {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let directory = std::env::temp_dir().join(format!("drift-websearch-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-websearch-{}", crate::random_hex(4)));
     let options = crate::Options {
         file_credentials: true,
         ..Default::default()
@@ -294,7 +294,7 @@ async fn a_plugin_provider_answers() {
     };
     let behaviour = Arc::new(Behaviour::default());
     let (engine, url) = engine(&behaviour).await;
-    let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+    let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
     let listed = crate::hook::Listed {
         entry: "plugins/searxng.wasm".into(),
         path: Ok(path),

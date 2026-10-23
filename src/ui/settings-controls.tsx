@@ -9,7 +9,7 @@ import type { JSX } from "solid-js";
 export function SettingsGroup(props: { title: string; action?: JSX.Element; children: JSX.Element }) {
     return (
         <section>
-            <div class="mb-1.5 flex items-center justify-between gap-3">
+            <div class="settings-group-head mb-1.5 flex items-center justify-between gap-3">
                 <div class="text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wide text-ink-faint uppercase">
                     {props.title}
                 </div>

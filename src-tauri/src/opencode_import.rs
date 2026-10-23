@@ -83,7 +83,7 @@ pub(crate) fn start(app: &AppHandle) -> Importer {
 }
 
 /// The last import's summary, once: a second call returns nothing until another run brings something in.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summary> {
     importer.summary.lock().unwrap().take()
 }
@@ -393,7 +393,8 @@ mod tests {
 
     #[test]
     fn the_shared_database_goes_first_and_only_opencode_databases_are_read() {
-        let dir = std::env::temp_dir().join(format!("drift-import-sources-{}", drift_engine::id::new("t")));
+        let dir = drift_engine::platform::temp::test_run()
+            .join(format!("drift-import-sources-{}", drift_engine::id::new("t")));
         std::fs::create_dir_all(&dir).unwrap();
         for name in [
             "opencode-master.db",
@@ -414,7 +415,8 @@ mod tests {
 
     #[test]
     fn a_broken_opencode_json_falls_back_to_opencode_jsonc() {
-        let dir = std::env::temp_dir().join(format!("drift-import-config-{}", drift_engine::id::new("t")));
+        let dir = drift_engine::platform::temp::test_run()
+            .join(format!("drift-import-config-{}", drift_engine::id::new("t")));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("opencode.json"), "{ \"model\": ").unwrap();
         std::fs::write(

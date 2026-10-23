@@ -50,7 +50,7 @@ fn cloud_routes_offer_only_what_their_adapters_speak_and_openrouter_is_a_provide
 
 #[test]
 fn cache_is_reused_when_fresh_and_round_trips() {
-    let directory = std::env::temp_dir().join(format!("drift-catalog-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-catalog-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&directory).unwrap();
     let mut catalog = Catalog::bundled();
     catalog.providers.retain(|id, _| id == "anthropic");

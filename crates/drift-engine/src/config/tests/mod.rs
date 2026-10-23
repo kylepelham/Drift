@@ -12,7 +12,7 @@ fn write(root: &Path, relative: &str, text: &str) {
 
 #[test]
 fn plugins_come_from_the_users_file_and_stay_under_its_directory() {
-    let root = std::env::temp_dir().join(format!("drift-config-plugins-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-plugins-{}", crate::random_hex(4)));
     let (home, workspace) = (root.join("home"), root.join("ws"));
     write(
         &home,
@@ -48,7 +48,7 @@ fn plugins_come_from_the_users_file_and_stay_under_its_directory() {
 
 #[test]
 fn only_commands_the_project_file_names_wait_for_the_users_say_so() {
-    let root = std::env::temp_dir().join(format!("drift-config-trust-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-trust-{}", crate::random_hex(4)));
     let (home, workspace) = (root.join("home"), root.join("ws"));
     write(
         &home,
@@ -104,7 +104,7 @@ fn only_commands_the_project_file_names_wait_for_the_users_say_so() {
 
 #[test]
 fn skill_commands_and_the_wrappers_that_call_them_offer_the_skills_choices() {
-    let workspace = std::env::temp_dir().join(format!("drift-config-arguments-{}", crate::random_hex(4)));
+    let workspace = crate::platform::temp::test_run().join(format!("drift-config-arguments-{}", crate::random_hex(4)));
     let skill = "---\nname: test-skill\ndescription: Skill description\nargument-hint: \"[audit|polish] [target]\"\n---\n| Command | Description |\n|---|---|\n| audit [target] | Check accessibility |\n| polish [target] | Final quality pass |";
     let template = r#"Call skill({ name: "test-skill" }) and follow its Commands section to handle $ARGUMENTS."#;
     write(&workspace, ".drift/skills/test-skill/SKILL.md", skill);
@@ -168,7 +168,7 @@ fn skill_commands_and_the_wrappers_that_call_them_offer_the_skills_choices() {
 
 #[test]
 fn agent_modes_hidden_disable_and_the_default_agent_read_as_opencode_reads_them() {
-    let root = std::env::temp_dir().join(format!("drift-modes-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-modes-{}", crate::random_hex(4)));
     let workspace = root.join("ws");
     write_agent_modes(&workspace);
 
@@ -268,7 +268,7 @@ fn assert_agent_modes(config: &Config) {
 
 #[test]
 fn an_empty_workspace_still_has_the_builtin_agents() {
-    let workspace = std::env::temp_dir().join(format!("drift-config-empty-{}", crate::random_hex(4)));
+    let workspace = crate::platform::temp::test_run().join(format!("drift-config-empty-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&workspace).unwrap();
     let config = Config::load_with_home(&workspace, None);
     let kinds: Vec<(&str, AgentKind)> = config
@@ -317,7 +317,7 @@ fn an_empty_workspace_still_has_the_builtin_agents() {
 
 #[test]
 fn agent_tool_lists_in_every_shape_restrict_and_match_any_case() {
-    let workspace = std::env::temp_dir().join(format!("drift-config-tools-{}", crate::random_hex(4)));
+    let workspace = crate::platform::temp::test_run().join(format!("drift-config-tools-{}", crate::random_hex(4)));
     write(
         &workspace,
         ".drift/agents/listed.md",
@@ -421,7 +421,7 @@ fn command_arguments_fill_placeholders_or_follow_the_template() {
 
 #[test]
 fn instructions_come_from_home_and_every_directory_up_to_the_repo_root() {
-    let root = std::env::temp_dir().join(format!("drift-config-chain-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-chain-{}", crate::random_hex(4)));
     let (home, repository) = (root.join("home"), root.join("repo"));
     let workspace = repository.join("apps/web");
     write(&home, ".config/drift/AGENTS.md", "mine everywhere");
@@ -457,7 +457,7 @@ fn instructions_come_from_home_and_every_directory_up_to_the_repo_root() {
 
 #[test]
 fn listed_instructions_take_globs_absolute_paths_and_home() {
-    let root = std::env::temp_dir().join(format!("drift-config-listed-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-listed-{}", crate::random_hex(4)));
     let (home, workspace, elsewhere) = (root.join("home"), root.join("ws"), root.join("shared"));
     write(&home, "notes/style.md", "home style");
     write(&workspace, "docs/rules/a.md", "rule a");
@@ -493,7 +493,7 @@ fn listed_instructions_take_globs_absolute_paths_and_home() {
 
 #[test]
 fn a_jsonc_drift_json_applies_and_a_broken_one_is_reported_not_ignored() {
-    let workspace = std::env::temp_dir().join(format!("drift-config-jsonc-{}", crate::random_hex(4)));
+    let workspace = crate::platform::temp::test_run().join(format!("drift-config-jsonc-{}", crate::random_hex(4)));
     write(
         &workspace,
         "drift.json",
@@ -523,7 +523,7 @@ fn a_jsonc_drift_json_applies_and_a_broken_one_is_reported_not_ignored() {
 fn references_come_in_three_shapes_and_a_project_never_replaces_the_users() {
     use super::references::Place;
 
-    let root = std::env::temp_dir().join(format!("drift-config-references-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-config-references-{}", crate::random_hex(4)));
     let (home, workspace) = (root.join("home"), root.join("ws"));
     write(
         &home,

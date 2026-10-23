@@ -12,7 +12,8 @@ impl Drop for Dir {
 
 #[test]
 fn stats_count_conversations_and_size_the_database_and_the_engines_folders() {
-    let dir = Dir(std::env::temp_dir().join(format!("drift-storage-{}", drift_engine::id::new("t"))));
+    let dir =
+        Dir(drift_engine::platform::temp::test_run().join(format!("drift-storage-{}", drift_engine::id::new("t"))));
     let store = drift_engine::store::open(&dir.0).unwrap();
     let workspace = store.add_workspace("C:/w", "w", "").unwrap();
     let new_session = |title: &str, parent: Option<&str>, visibility| {

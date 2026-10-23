@@ -303,3 +303,29 @@ fn moving_around_the_workspace_asks_nothing_and_leaving_it_still_asks() {
         "the user still sees the whole line"
     );
 }
+
+#[test]
+fn a_url_is_judged_by_its_text_without_contacting_its_host() {
+    let sandbox = Sandbox::new("bash-url");
+    let bash = Bash::with(Shell::Bash("bash".into()));
+    // A TEST-NET address never answers, and a fresh one each run keeps Windows from failing it from its cache.
+    let host = format!(
+        "192.0.2.{}",
+        1 + u8::from_str_radix(&crate::random_hex(1), 16).unwrap() % 250
+    );
+    let started = std::time::Instant::now();
+
+    let ask = bash
+        .ask(
+            &sandbox.ctx,
+            &json!({ "command": format!("curl -s http://{host}/status") }),
+        )
+        .unwrap();
+
+    assert_eq!(ask.reason, Some(Reason::Outside));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+}

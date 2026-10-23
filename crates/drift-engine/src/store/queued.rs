@@ -49,7 +49,7 @@ impl Store {
     /// The session's queue, first to start first.
     pub fn queued_prompts(&self, session_id: &str) -> rusqlite::Result<Vec<QueuedPrompt>> {
         let sql = format!("SELECT {COLUMNS} FROM queued_prompt WHERE session_id = ?1 ORDER BY position");
-        self.lock()
+        self.read()
             .prepare_cached(&sql)?
             .query_map([session_id], |row| {
                 Ok(queued((
@@ -65,7 +65,7 @@ impl Store {
 
     pub fn queued_prompt(&self, id: &str) -> rusqlite::Result<Option<QueuedPrompt>> {
         let sql = format!("SELECT {COLUMNS} FROM queued_prompt WHERE id = ?1");
-        self.lock()
+        self.read()
             .prepare_cached(&sql)?
             .query_row([id], |row| {
                 Ok(queued((

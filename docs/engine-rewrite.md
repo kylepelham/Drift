@@ -75,13 +75,13 @@ GET    /providers           GET  /models     catalog with auth state
 POST   /providers/{id}/auth/{method}        key, oauth start, oauth callback
 DELETE /providers/{id}/auth
 GET    /providers/{id}/server  PUT          a local server's address and window limit (drift.json)
-GET    /sessions?workspace=&cursor=&archived=
+GET    /sessions?workspace=&cursor=&archived=&parent=&subagents=active
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
 POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {session, message}
 POST   /sessions/{id}/abort                 -> {aborted}
-GET    /sessions/{id}/tasks                 workers the session launched, finished ones included
+GET    /sessions/{id}/tasks                 workers the session launched, finished ones included, without results
 GET    /tasks/{id}                          one worker's state and result
 POST   /tasks/{id}/abort                    stop one worker and nothing else
 POST   /sessions/{id}/compact
@@ -681,6 +681,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   file under `* text=auto` or a file with a clean filter is stored as it is on disk and compares
   equal to what undo hashes with `--no-filters`. Repos made before the rule get it on their next
   capture, and their index is dropped then so no cached converted entry survives.
+- A named file's blob is hashed and stored in-process (`snapshot::blob`): the SHA-1 of
+  `blob <len>\0<bytes>`, written zlib-deflated as a loose object, exactly what
+  `git hash-object -w --no-filters` writes. Launching git took about 40ms a call on Windows, and a
+  write or edit records its file before and after, so a run of sequential writes paid it twice
+  per call; a 30-write run dropped from about 3.8s to 1.3s. Git itself still builds trees, diffs and
+  reads blobs back for undo. What remains of a write is the file swap (`tool::stage`), whose
+  2 to 50ms is the filesystem and on-access scanning; its three store records cost about 0.05ms each.
 - Cost, measured with `session::snapshot::tests::capture_cost` (release build, Windows): a first
   capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
   13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
@@ -696,6 +703,17 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   record, where before it was recorded nowhere. A file tool's capture records undoable changes, so
   its write breaks the chain (the next command captures afresh, or the file tool's write would be
   taken as observed and its undo lost), and the chain never crosses steps.
+- Whole-tree captures are cut to what changed (`snapshot::capture`). In a repository the two scans
+  for changed and untracked files run at once; when neither finds anything and the shadow index is
+  as it was when its last tree was written, that tree is reused without `add` or `write-tree`, and
+  two equal trees skip `diff-tree`. Captures serialize on the shadow index, so one that began after a
+  caller asked already holds everything that caller would see and is shared with it instead of run
+  again. Shadow-repo git runs `<arch>\bin\git.exe` directly rather than through Git for Windows'
+  `cmd\git.exe` launcher (`platform::process::plumbing_git`), which nearly doubled each call's
+  start; git in the user's own repository keeps the launcher, whose PATH its filters and helpers need.
+  Measured in a 7,000-file repository: a writing shell step's overhead went from about 600ms to 270ms,
+  and to about 100ms for a command whose writes are all ignored (a build or a test run); eight agents
+  running commands at once paid 64 captures with 17 real ones.
 - Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
   it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent or a compaction's boundary
@@ -858,7 +876,7 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
 - Background: the call returns a receipt at once (`outcome: launched`). The worker waits for a
   slot or its token, whichever comes first, and checks its token again after getting a slot,
   before it is marked running. Settings > Execution sets the slot count (`backgroundTaskLimit`,
-  1 to 16, default 4). Raising it starts queued workers at once; lowering it never stops a
+  1 to 64, default 4; the picker steps by one to 16, then 24, 32, 48 and 64). Raising it starts queued workers at once; lowering it never stops a
   running one, and its slots are taken back as running workers finish. Its turn's abort token descends from the
   worker's, so Stop reaches it while queued, starting (before its turn claims the session),
   planning and running.
@@ -919,6 +937,16 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   pending or running, or failed to save), the result is written into that call and marked handed
   over in the same write; otherwise it is settled.
 - `task.updated { task }` is published on launch, start, ending and delivery.
+- An ended worker's record carries `edits`, the files its transcript changed with `edit`, `write`
+  and `apply_patch`: one row per file in first-change order, totalling each call's recorded
+  `fileChanges` (or, for calls older than those, the counts of its diff's hunks). They are read from
+  the worker's own tool calls through `idx_part_call` the first time the record is shown after it
+  ended, then kept in `task.edits`; a resumed worker's later edits belong to the record that resumed
+  it. A turn's edited-files card lists every subagent's files without loading one transcript; it
+  once loaded each, five requests per worker, and could still miss edits beyond a worker's first
+  page. The session list leaves `result` out, which no screen reads from it; `GET /tasks/{id}` and
+  `task.updated` still carry it. Measured on a thread with 598 workers: its list is 5ms once kept;
+  the one-time fill of records older than this read 129MB of their tool calls in 3s.
 - `task_output { task_id, wait_seconds? }` answers for the calling conversation's own background
   tasks only, waiting at most 120 s. A foreground task is refused: its result belongs to the call
   that launched it, which holds the claim from the moment it returns until its result is saved, and
@@ -2606,7 +2634,11 @@ Settled after the first external review of M1; each has a regression test.
   and only until the session goes on: once anything follows a failed reply (a retry, a new prompt), its
   error box goes, and an attempt that showed nothing goes whole. A stop's "Interrupted" divider stays.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
-  process group. Dropping the run future has the same effect as an explicit abort.
+  process group. Dropping the run future has the same effect as an explicit abort. A Windows
+  shell starts suspended, joins its job, then resumes through its own process handle
+  (`NtResumeProcess`). Finding its thread instead took a snapshot of every thread on the machine:
+  about 115ms per command on the runtime's own thread, so sixteen agents running commands at once
+  went from 1.9s per step to 1.1s when it went.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
   else Git's bash on Windows, found beside the `git` on PATH (`<root>/cmd`, `bin` or
   `mingw64/bin` lead to `<root>/bin/bash.exe`, since Git puts only `cmd` on PATH), then in Program
@@ -2755,6 +2787,12 @@ Settled after the first external review of M1; each has a regression test.
 - Session listings page by `(updated_at, id)` keyset until a short page, so equal timestamps
   never skip rows; a snapshot is only authoritative when complete. Each listed session
   carries `running` and the client collects it across every page before setting status.
+- The sidebar's listings are lean (`subagents=active`): threads, plus only the subagents whose
+  newest worker is queued or running, which the sidebar shows under their thread. Opening a thread
+  lists its own subagents (`parent=<id>`), and a remembered selection the listing left out is read
+  by id. A lean snapshot purges a known subagent it left out only when its parent goes, and marks it
+  idle, since leaving it out means its worker has ended. With 2,556 subagent transcripts beside 104
+  threads, startup's listings went from 20 requests and 1.5MB to 3 requests and 38KB.
 - Tool calls keep the model's order: a run of consecutive read-only calls executes together,
   a mutating call waits for everything before it, and reads after it wait for it.
 - `DELETE /sessions/{id}` is the real purge (cascades messages, parts, todos, submissions). It
@@ -3211,7 +3249,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     not (`>~/.bashrc`, `2>../err`, `<>rw`, `</etc/passwd`; `command::redirect_target`), stream
     sinks such as `/dev/null` and `$null` excepted, and every target in `Ask::writes` is judged
     the same way. Any word that names something on disk is judged where it resolves, so
-    `cat notes`, with `notes` a link out of the workspace, asks. So `cargo test`, `rm -rf dist`,
+    `cat notes`, with `notes` a link out of the workspace, asks. A network path (`\\host\share`, which
+    a URL's `//host/path` part becomes on Windows) is judged by its text and never looked up: Windows
+    contacts the host for it, which blocked the turn, and with it Stop, for 20 to 40 seconds per URL.
+    So `cargo test`, `rm -rf dist`,
     `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`, `ls > ../x`,
     `echo x >> ~/.bashrc`, `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first.
     Undo does not make this safe on its own: it keeps the workspace's tracked and untracked files
@@ -3456,7 +3497,7 @@ engine's start is what 1.3 waited on.
   prompt follows as before. The environment section
   gives the working directory, whether it is a git repository, platform, the date (local, as
   opencode gives it: `platform::clock`, so a US evening is not already tomorrow) and the model's
-  catalog name, and the scratch directory (`tool::scratch_dir`: `Drift` in the system temp
+  catalog name, and the scratch directory (`tool::scratch_dir`: `Drift/scratch` in the system temp
   directory, made when the engine opens), where reading, writing, editing and patching ask
   nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
   asks the model to say whether a subagent should change code or only report, how to check its

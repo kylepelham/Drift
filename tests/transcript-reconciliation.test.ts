@@ -1,8 +1,14 @@
-import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store";
 import { sessionInWorkspace } from "../src/engine/sessions";
 import { reduce, withDelta } from "../src/engine/events";
 import { createActions } from "../src/engine/actions";
 import { expect, test } from "bun:test";
+import {
+    captureRevisions,
+    createEngineState,
+    mergeTranscriptSnapshot,
+    messageRevisionKey,
+    sameJson,
+} from "../src/engine/store";
 
 import type { Client, MessageWithParts } from "../src/engine/native/client";
 
@@ -143,4 +149,20 @@ test("a removed message survives a racing transcript snapshot", () => {
 
     const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions);
     expect(merged).toEqual([]);
+});
+
+test("an unchanged message keeps its live object, compared as JSON would without serializing it", () => {
+    const live = { info: { id: "m", sessionId: "s", role: "user", createdAt: 1 }, parts: [{ id: "p", text: "hi" }] };
+    const snapshot = structuredClone(live);
+    const merged = mergeTranscriptSnapshot([live] as never, [snapshot] as never, "s", {}, {});
+    expect(merged[0]).toBe(live as never);
+    const edited = { ...snapshot, parts: [{ id: "p", text: "hello" }] };
+    expect(mergeTranscriptSnapshot([live] as never, [edited] as never, "s", {}, {})[0]).toBe(edited as never);
+
+    expect(sameJson({ a: 1, b: [1, { c: "x" }] }, { b: [1, { c: "x" }], a: 1 }), "key order").toBe(true);
+    expect(sameJson({ a: 1, gone: undefined }, { a: 1 }), "an undefined field is no field").toBe(true);
+    expect(sameJson({ a: [] }, { a: {} })).toBe(false);
+    expect(sameJson({ a: null }, { a: {} })).toBe(false);
+    expect(sameJson([1, 2], [1, 2, 3])).toBe(false);
+    expect(sameJson({ a: 1 }, { a: 1, b: 2 })).toBe(false);
 });

@@ -401,8 +401,12 @@ file, from before its first change to after its last, so it includes what comman
 change while they ran. Files are unified diffs whose headers stay pinned while their lines
 scroll, with three lines of context, expandable "N unmodified lines" bars and Collapse all /
 Expand all; a file's lines are built only once it scrolls near the view, since the engine
-sends both versions merged line by line (read from git in one `cat-file --batch`). While it
-is open on the desktop, the window controls move to its header.
+sends both versions merged line by line (read from git in one `cat-file --batch`). Each
+file's header has an open button, on the desktop host for files that still exist, which
+opens the file in its default app from the `location` the engine sends with it (a turn's
+files can live in a worktree, so the UI never joins paths itself). The diff text is
+selectable for copying; line numbers, change symbols and the + button stay out of a copy.
+While it is open on the desktop, the window controls move to its header.
 
 The + beside a diff line opens a note on it (Enter saves, Shift+Enter breaks the line,
 Escape gives up). Notes belong to the composer draft of the conversation beside the panel:
@@ -452,9 +456,24 @@ comes from the known line count and code font size, while other rows estimate wr
 fenced code, and tool summaries from their content. A terminal dump is therefore never
 represented as a 96px row before measurement. The transcript remains the only vertical
 scroller and disables native browser anchoring because its virtualizer owns resize
-compensation. Assistant output is unaffected, and machine-written user-role text keeps full
+compensation. While it sticks to the bottom, the virtual range is computed from the bottom, so a
+transcript arriving on open renders its last rows only, never its first ones and then its last
+(opening a 50,000-part thread went from 462ms of blocking to 13ms). Sidebar and task rows find a
+worker's task through an index built once per task list, which replaced a scan of every task per
+worker. Assistant output is unaffected, and machine-written user-role text keeps full
 Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
 producers set. Compaction summaries are assistant messages and were never affected.
+
+## Window placement
+
+The window opens where it was left: same screen, position, size and maximized state, kept in
+the `window_placement` app setting (`src-tauri/src/placement.rs`). It is saved half a second
+after the window settles and again when it closes; a maximized window keeps the bounds it
+restores to, and a minimized one is never recorded. At launch the saved spot is used only if
+at least 120 pixels of the window's top edge land on a screen's work area, since that edge is
+what it is dragged by. Otherwise, as when its screen was unplugged, the window centres on the
+main screen. A window larger than its screen shrinks to fit and moves onto it, and no window
+starts smaller than its minimum size at that screen's scale.
 
 ## Updates
 

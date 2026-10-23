@@ -21,7 +21,7 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 fn repo() -> std::path::PathBuf {
-    let root = std::env::temp_dir().join(format!("drift-review-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-review-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&root).unwrap();
     git(&root, &["init", "-q", "-b", "main"]);
     std::fs::write(root.join("kept.txt"), "one\ntwo\nthree\n").unwrap();
@@ -56,6 +56,9 @@ async fn uncommitted_lists_edits_deletions_and_untracked_files_with_every_line()
     assert_eq!(file(&review, "gone.txt").status, FileStatus::Deleted);
     assert_eq!(file(&review, "new.txt").lines, ["+fresh"]);
     assert_eq!(review.files.len(), 3);
+    let location = |path: &str| file(&review, path).location.clone().map(std::path::PathBuf::from);
+    assert_eq!(location("kept.txt"), Some(root.join("kept.txt")), "a tracked file");
+    assert_eq!(location("new.txt"), Some(root.join("new.txt")), "an untracked one");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -136,7 +139,7 @@ async fn a_target_that_is_an_option_or_unknown_is_refused() {
 
 #[tokio::test]
 async fn outside_a_repository_there_is_nothing_to_pick() {
-    let root = std::env::temp_dir().join(format!("drift-review-plain-{}", crate::random_hex(4)));
+    let root = crate::platform::temp::test_run().join(format!("drift-review-plain-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&root).unwrap();
 
     assert!(!git_refs(&root).await.repo);
@@ -195,6 +198,11 @@ async fn a_turn_review_spans_the_turn_from_before_its_first_change_to_after_its_
     let first = h.engine.turn_review(&h.session.id, &prompts[0]).await.unwrap();
     assert_eq!(file(&first, "a.txt").lines, ["+one"]);
     assert_eq!(file(&first, "a.txt").status, FileStatus::Added);
+    assert_eq!(
+        file(&first, "a.txt").location.as_deref().map(std::path::Path::new),
+        Some(crate::tool::canonical(&h._dir.join("ws").join("a.txt")).as_path()),
+        "where the turn wrote it"
+    );
 
     let second = h.engine.turn_review(&h.session.id, &prompts[1]).await.unwrap();
     assert_eq!(file(&second, "a.txt").lines, ["-one", "+three"]);

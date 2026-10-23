@@ -35,10 +35,15 @@ fn put_value(conn: &Connection, text: &str) -> rusqlite::Result<String> {
     Ok(hash)
 }
 
+/// A session's instruction updates in order, found through its messages rather than by scanning every part.
+const INSTRUCTION_UPDATES: &str = "SELECT part.json FROM message JOIN part ON part.message_id = message.id
+     WHERE message.session_id = ?1 AND json_extract(part.json, '$.type') = 'instruction_update'
+     ORDER BY message.id, part.id";
+
 impl Store {
     /// What the session knows of its sources, in baseline order; empty before its first request.
     pub fn instructions(&self, session_id: &str) -> rusqlite::Result<Vec<Instruction>> {
-        self.lock()
+        self.read()
             .prepare_cached(
                 "SELECT key, position, baseline, current, generation FROM instruction WHERE session_id = ?1 ORDER BY position",
             )?
@@ -137,11 +142,7 @@ impl Store {
             .execute([source_id, fork_id])?;
 
             let updates: Vec<String> = conn
-                .prepare_cached(
-                    "SELECT part.json FROM part JOIN message ON message.id = part.message_id
-                     WHERE part.session_id = ?1 AND json_extract(part.json, '$.type') = 'instruction_update'
-                     ORDER BY message.id, part.id",
-                )?
+                .prepare_cached(INSTRUCTION_UPDATES)?
                 .query_map([fork_id], |row| row.get(0))?
                 .collect::<rusqlite::Result<_>>()?;
             for json in updates {
@@ -176,4 +177,17 @@ fn replay(conn: &Connection, session_id: &str, json: &str) -> rusqlite::Result<(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::store::tests::store;
+    use crate::store::tree::tests::plan;
+
+    #[test]
+    fn a_fork_replays_its_instruction_updates_without_scanning_every_part() {
+        let plan = plan(&store(), super::INSTRUCTION_UPDATES, ["ses"]);
+
+        assert!(plan.iter().all(|step| !step.starts_with("SCAN")), "{plan:?}");
+    }
 }

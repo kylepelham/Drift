@@ -8,7 +8,7 @@ use crate::id;
 use crate::session::tasks::{Mode, TaskRecord, TaskState};
 use crate::session::types::{PartRow, Session};
 
-const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error";
+const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error, edits";
 
 // Unary + removes TEXT affinity so SQLite can use both keys of the JSON-expression index.
 const REPAIR_INTERRUPTED_CALLS: &str =
@@ -96,22 +96,36 @@ impl Store {
     }
 
     pub fn task(&self, task_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
-        query_one(&self.lock(), "id = ?1", &[task_id])
+        query_one(&self.read(), "id = ?1", &[task_id])
     }
 
     /// The worker whose transcript is `session_id`, if it is one; the latest, when a worker was resumed.
     pub fn task_for_session(&self, session_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
-        query_one(&self.lock(), "session_id = ?1 ORDER BY id DESC LIMIT 1", &[session_id])
+        query_one(&self.read(), "session_id = ?1 ORDER BY id DESC LIMIT 1", &[session_id])
     }
 
     /// Every worker a session launched, oldest first.
     pub fn tasks_of(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 ORDER BY id"
             ))?
             .query_map([parent], row)?
             .collect()
+    }
+
+    /// Keeps the files ended workers changed, read once from their transcripts, in one write.
+    pub fn save_task_edits(&self, tasks: &[TaskRecord]) -> rusqlite::Result<()> {
+        transaction(&self.lock(), |conn| {
+            let mut update = conn.prepare_cached("UPDATE task SET edits = ?2 WHERE id = ?1")?;
+            for task in tasks {
+                let edits = serde_json::to_string(&task.edits)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?;
+                update.execute(params![task.id, edits])?;
+            }
+
+            Ok(())
+        })
     }
 
     /// Moves a queued worker to running; nothing else moves backwards or sideways.
@@ -166,7 +180,7 @@ impl Store {
 
     /// Finished background results still owed to `parent` (or to anyone) that may wake it.
     pub fn owed_background(&self, parent: Option<&str>) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!(
                 "SELECT {COLUMNS} FROM task WHERE (?1 IS NULL OR parent_session_id = ?1) AND mode = 'background' AND delivered = 0 AND held = 0 AND state NOT IN ('queued', 'running') ORDER BY id"
             ))?
@@ -176,7 +190,7 @@ impl Store {
 
     /// Finished background results held back from `parent`, oldest first.
     pub fn held_tasks(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 AND held = 1 AND delivered = 0 AND mode = 'background' ORDER BY id"))?
             .query_map([parent], row)?
             .collect()
@@ -222,7 +236,7 @@ impl Store {
 
     /// Finished workers whose result has not reached the parent and is not held back from waking it.
     pub fn undelivered_tasks(&self) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock()
+        self.read()
             .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE delivered = 0 AND held = 0 AND state NOT IN ('queued', 'running') ORDER BY id"))?
             .query_map([], row)?
             .collect()
@@ -264,7 +278,7 @@ fn insert_task(conn: &Connection, new: &NewTask<'_>, session_id: &str) -> rusqli
         TaskState::Running
     };
     let sql = format!(
-        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"
+        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL, NULL)"
     );
     conn.prepare_cached(&sql)?.execute(params![
         task_id,
@@ -307,6 +321,9 @@ fn row(row: &Row) -> rusqlite::Result<TaskRecord> {
         generation: row.get(13)?,
         held: row.get::<_, i64>(14)? == 1,
         delivery_error: row.get(15)?,
+        edits: row
+            .get::<_, Option<String>>(16)?
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
 
@@ -374,6 +391,7 @@ pub(crate) mod tests {
                 archived: false,
                 before: None,
                 limit: 10,
+                ..Default::default()
             })
             .unwrap();
         assert_eq!(

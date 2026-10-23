@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tempFolder } from "../scripts/temp";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import path from "node:path";
-import os from "node:os";
 import {
     assertVersionIsNewer,
     compareStableTags,
@@ -244,7 +244,7 @@ test("policy rejects same-name releases from a moved tag or another event", () =
 });
 
 test("release notes are sealed with exact local asset hashes", () => {
-    const temporary = mkdtempSync(path.join(os.tmpdir(), "drift-release-assets-"));
+    const temporary = tempFolder("tests", "release-assets-");
     try {
         const notes = path.join(temporary, "notes.md");
         writeFileSync(notes, "Notes\n");
@@ -274,7 +274,7 @@ test("release notes are sealed with exact local asset hashes", () => {
 });
 
 test("release notes reject a signature for a different installer", () => {
-    const temporary = mkdtempSync(path.join(os.tmpdir(), "drift-release-assets-"));
+    const temporary = tempFolder("tests", "release-assets-");
     try {
         const notes = path.join(temporary, "notes.md");
         writeFileSync(notes, "Notes\n");
@@ -288,7 +288,7 @@ test("release notes reject a signature for a different installer", () => {
 });
 
 test("release stamping updates every package version and is idempotent", () => {
-    const temporary = mkdtempSync(path.join(os.tmpdir(), "drift-release-policy-"));
+    const temporary = tempFolder("tests", "release-policy-");
     try {
         mkdirSync(path.join(temporary, "src-tauri"));
         writeFileSync(path.join(temporary, "package.json"), '{"version":"1.0.0"}\n');

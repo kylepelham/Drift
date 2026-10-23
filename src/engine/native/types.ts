@@ -1029,7 +1029,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every worker the session launched, oldest first, finished ones included. */
+        /** Every worker the session launched, oldest first, finished ones included, each without its result. */
         get: operations["listTasks"];
         put?: never;
         post?: never;
@@ -1918,7 +1918,7 @@ export interface components {
             autoCompact?: boolean | null;
             /** @description Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is. */
             backgroundProcesses?: boolean | null;
-            /** @description How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is. */
+            /** @description How many background subagents run at once, 1 to 64; more wait for a slot. Left out of a PUT, it stays as it is. */
             backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
@@ -3047,6 +3047,8 @@ export interface components {
             deletions: number;
             /** @description Both versions merged line by line, each line prefixed with ` `, `+` or `-`; empty unless `preview` is `lines`. */
             lines: string[];
+            /** @description The file on this computer, to open it; none when where it lives is unknown. */
+            location?: string | null;
             /** @description Relative to the workspace with `/` separators, or absolute for a file outside it. */
             path: string;
             preview: components["schemas"]["Preview"];
@@ -3355,6 +3357,8 @@ export interface components {
             /** @description Why this owed result has not been handed over yet; it is retried when that may have changed. */
             deliveryError?: string | null;
             description: string;
+            /** @description Once it has ended, the files its transcript changed, so a turn lists them without loading that transcript. */
+            edits?: components["schemas"]["WorkerEdit"][] | null;
             /** Format: int64 */
             finishedAt?: number | null;
             /** @description Kept from waking a stopped parent; it goes along with the parent's next prompt instead. */
@@ -3364,6 +3368,7 @@ export interface components {
             parentSessionId: string;
             /** @description Why this mode: `requested`, `agent default`, `default` or `background turned off`. */
             reason: string;
+            /** @description Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it. */
             result?: string | null;
             /** @description The worker's own transcript. */
             sessionId: string;
@@ -3638,6 +3643,12 @@ export interface components {
             resetsAt?: number | null;
             /** Format: double */
             usedPercent: number;
+        };
+        /** @description One file a worker changed, with the lines its calls added and removed. */
+        WorkerEdit: {
+            additions: number;
+            deletions: number;
+            path: string;
         };
         Workspace: {
             icon: string;
@@ -5134,6 +5145,10 @@ export interface operations {
                 /** @description Page: sessions updated before this session id. */
                 before?: string | null;
                 limit?: number | null;
+                /** @description Only the sessions this one launched or spawned. */
+                parent?: string | null;
+                /** @description `active` leaves out subagents' transcripts, except those whose newest worker is queued or running. */
+                subagents?: ("all" | "active") | null;
                 /** @description Restrict to one workspace; omit for every workspace. */
                 workspace?: string | null;
             };

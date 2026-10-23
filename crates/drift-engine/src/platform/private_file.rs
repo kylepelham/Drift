@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn a_failed_replacement_preserves_the_destination_and_removes_the_temporary_file() {
-        let dir = std::env::temp_dir().join(format!("drift-private-file-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-private-file-{}", crate::random_hex(4)));
         let destination = dir.join("destination");
         std::fs::create_dir_all(&destination).unwrap();
         std::fs::write(destination.join("original"), "kept").unwrap();
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn credential_files_are_owner_only() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("drift-private-mode-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-private-mode-{}", crate::random_hex(4)));
         write(&dir.join("secret"), b"secret").unwrap();
         let before = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         write(&dir.join("secret"), b"again").unwrap();
@@ -209,7 +209,7 @@ mod tests {
             DACL_SECURITY_INFORMATION, GetFileSecurityW, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
             SE_DACL_PROTECTED,
         };
-        let dir = std::env::temp_dir().join(format!("drift-private-dacl-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-private-dacl-{}", crate::random_hex(4)));
         let path = dir.join("secret");
         write(&path, b"secret").unwrap();
         let name: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();

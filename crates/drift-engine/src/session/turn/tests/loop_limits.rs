@@ -321,7 +321,7 @@ async fn the_loop_check_sees_the_images_a_call_returned() {
 
 #[test]
 fn old_step_settings_load_without_complaint() {
-    let dir = std::env::temp_dir().join(format!("drift-limits-{}", crate::random_hex(4)));
+    let dir = crate::platform::temp::test_run().join(format!("drift-limits-{}", crate::random_hex(4)));
     std::fs::create_dir_all(dir.join(".drift/agents")).unwrap();
     std::fs::write(dir.join("drift.json"), r#"{ "limits": { "steps": 50, "repeats": 4 } }"#).unwrap();
     std::fs::write(

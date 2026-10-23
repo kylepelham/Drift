@@ -1,10 +1,18 @@
 // Browser dev loop: a headless engine (drift-engined) on a scratch data directory, and Vite pointed at it.
-import { mkdtempSync, rmSync } from "node:fs";
+import { driftTemp, tempFolder } from "./temp";
+import { readdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 
 const root = path.resolve(import.meta.dirname, "..");
-const runtime = mkdtempSync(path.join(os.tmpdir(), "drift-dev-"));
+// A run that was killed left its folder; one still running holds its engine open, so Windows keeps it.
+for (const entry of readdirSync(driftTemp("dev"))) {
+    try {
+        rmSync(path.join(driftTemp("dev"), entry), { recursive: true, force: true });
+    } catch {
+        continue;
+    }
+}
+const runtime = tempFolder("dev", "run-");
 
 Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdout: "inherit", stderr: "inherit" });
 

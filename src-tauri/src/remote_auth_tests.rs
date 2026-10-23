@@ -1,7 +1,7 @@
 use super::*;
 
 fn store() -> (Store, std::path::PathBuf) {
-    let directory = std::env::temp_dir().join(format!("drift-remote-auth-{}", random_hex(8)));
+    let directory = drift_engine::platform::temp::test_run().join(format!("drift-remote-auth-{}", random_hex(8)));
     (crate::store::open(&directory).unwrap(), directory)
 }
 

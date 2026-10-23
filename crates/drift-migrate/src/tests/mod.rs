@@ -73,7 +73,7 @@ impl<'a> Conversation<'a> {
 }
 
 fn dir() -> Dir {
-    let path = std::env::temp_dir().join(format!("drift-migrate-{}", drift_engine::id::new("t")));
+    let path = drift_engine::platform::temp::test_run().join(format!("drift-migrate-{}", drift_engine::id::new("t")));
     std::fs::create_dir_all(&path).unwrap();
 
     Dir(path)

@@ -16,7 +16,7 @@ const SECRET: &str = "launch-secret";
 /// The proxy on a free port, with no PC linked, and a client that does not follow redirects.
 async fn proxy() -> (Proxy, SocketAddr, reqwest::Client) {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let path = std::env::temp_dir().join(format!("drift-proxy-{}.json", pc::hex(&rand_bytes())));
+    let path = crate::test_dir().join(format!("drift-proxy-{}.json", pc::hex(&rand_bytes())));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy = Shared::new(

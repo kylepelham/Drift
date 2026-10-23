@@ -377,7 +377,7 @@ mod tests {
     async fn a_downloaded_archive_unpacks_its_folders_or_just_one_file() {
         use std::io::Write as _;
 
-        let root = std::env::temp_dir().join(format!("drift-unzip-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-unzip-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&root).unwrap();
         let archive = root.join("engine.zip");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());

@@ -1,8 +1,8 @@
+import { forgetSession, putSession } from "./store";
 import { errorMessage } from "./actions-context";
 import { sessionInWorkspace } from "./sessions";
 import { EngineError } from "./native/client";
 import { produce } from "solid-js/store";
-import { putSession } from "./store";
 import { t } from "../state/i18n";
 
 import type { ArchivePurge, PromptSendResult, SessionMoveResult } from "./actions";
@@ -300,11 +300,12 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
 }
 
 function purge(draft: EngineState, id: string) {
-    delete draft.sessions[id];
+    forgetSession(draft, id);
     delete draft.transcripts[id];
     delete draft.loaded[id];
     delete draft.permissions[id];
     delete draft.status[id];
+    delete draft.running[id];
     delete draft.errors[id];
     delete draft.cursors[id];
     delete draft.tasks[id];

@@ -74,9 +74,28 @@ function harness(overrides: Partial<Client> = {}) {
 test("loading sessions for a directory scopes the request to its workspace", async () => {
     const h = harness();
     await h.actions.loadSessions("C:/repo");
-    expect(h.calls[0]).toEqual({ method: "sessions", args: [{ workspace: "w1", limit: 200 }] });
+    expect(h.calls[0]).toEqual({ method: "sessions", args: [{ workspace: "w1", subagents: "active", limit: 200 }] });
     expect(Object.keys(h.state.sessions).sort()).toEqual(["ses_1", "ses_2"]);
     expect(h.state.sessions.ses_1!.directory).toBe("C:/repo");
+});
+
+test("a lean listing leaves ended subagents to their thread: idle when left out, listed when it opens", async () => {
+    const worker = { ...session("ses_w"), parentId: "ses_1", visibility: "hidden" as const, running: true };
+    const h = harness({
+        sessions: ((params: { parent?: string }) =>
+            Promise.resolve(params.parent ? [worker] : [session("ses_1")])) as unknown as Client["sessions"],
+        todos: (() => Promise.resolve([])) as never,
+        tasks: (() => Promise.resolve([])) as never,
+        processes: (() => Promise.resolve([])) as never,
+        browser: (() => Promise.resolve(null)) as never,
+    });
+
+    await h.actions.openSession("ses_1");
+    expect(h.state.sessions.ses_w?.parentId).toBe("ses_1");
+    expect(h.state.status.ses_w).toEqual({ type: "busy" });
+    await h.actions.loadSessions("C:/repo");
+    expect(h.state.sessions.ses_w).toBeDefined();
+    expect(h.state.status.ses_w).toEqual({ type: "idle" });
 });
 
 test("file mentions search the current workspace through the engine", async () => {
@@ -249,7 +268,7 @@ test("session listings page to the end and restore running status from every pag
     });
     await h.actions.loadSessions("C:/repo");
     expect(pages.length).toBe(2);
-    expect(pages[1]).toEqual([{ workspace: "w1", before: "ses_199", limit: 200 }]);
+    expect(pages[1]).toEqual([{ workspace: "w1", subagents: "active", before: "ses_199", limit: 200 }]);
     expect(Object.keys(h.state.sessions).length).toBe(201);
     expect(h.state.status.ses_tail).toEqual({ type: "busy" });
     expect(h.state.status.ses_7).toEqual({ type: "busy" });

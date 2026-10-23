@@ -160,10 +160,16 @@ export function Chat() {
     const collapsedSummary = (entry: MessageEntry) =>
         entry.info.role === "assistant" && !!entry.info.summary && collapseCompaction() && compactionCollapsed();
 
+    // A selected subagent may be one the lean listing left out: it is looked up once, then opened.
+    let sought: string | undefined;
     createEffect(() => {
         const id = selectedSession();
-        const known = !!id && !!engine.state.sessions[id];
-        if (known && engine.state.connection === "online") void engine.actions.openSession(id);
+        if (!id || engine.state.connection !== "online") return;
+        if (engine.state.sessions[id]) void engine.actions.openSession(id);
+        else if (sought !== id) {
+            sought = id;
+            void engine.actions.findSession(id).catch(() => undefined);
+        }
     });
 
     const revertBackfill = createRevertBackfill(engine, entries);
@@ -221,9 +227,10 @@ export function Chat() {
         return result;
     });
 
-    const range = createMemo(() => {
-        return virtualRange(offsets(), viewTop(), viewHeight());
-    });
+    // Stuck to the bottom, the last rows render before the snap lands, never the top ones first.
+    const range = createMemo(() =>
+        virtualRange(offsets(), stick() ? Number.POSITIVE_INFINITY : viewTop(), viewHeight()),
+    );
 
     const slice = createMemo(() => timeline().slice(range().start, range().end));
 

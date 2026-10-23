@@ -29,6 +29,18 @@ pub(super) struct ListQuery {
     /// Page: sessions updated before this session id.
     pub before: Option<String>,
     pub limit: Option<usize>,
+    /// Only the sessions this one launched or spawned.
+    pub parent: Option<String>,
+    /// `active` leaves out subagents' transcripts, except those whose newest worker is queued or running.
+    #[param(inline)]
+    pub subagents: Option<SubagentFilter>,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum SubagentFilter {
+    All,
+    Active,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -78,6 +90,8 @@ pub(super) async fn list(
         archived: query.archived,
         before: query.before.as_deref(),
         limit: query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT),
+        parent_id: query.parent.as_deref(),
+        active_subagents: query.subagents == Some(SubagentFilter::Active),
     })?;
 
     for session in &mut sessions {
@@ -279,15 +293,14 @@ pub(super) async fn todos(
     Ok(Json(engine.store.todos(&id)?))
 }
 
-/// Every worker the session launched, oldest first, finished ones included.
+/// Every worker the session launched, oldest first, finished ones included, each without its result.
 #[utoipa::path(get, path = "/sessions/{id}/tasks", operation_id = "listTasks", responses((status = 200, body = Vec<TaskRecord>), (status = 404)))]
 pub(super) async fn tasks(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<TaskRecord>>, ApiError> {
     known(&engine, &id)?;
-
-    Ok(Json(engine.store.tasks_of(&id)?))
+    Ok(Json(engine.listed_tasks(&id)?))
 }
 
 #[utoipa::path(get, path = "/tasks/{id}", operation_id = "getTask", responses((status = 200, body = TaskRecord), (status = 404)))]
@@ -295,9 +308,9 @@ pub(super) async fn task(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskRecord>, ApiError> {
-    Ok(Json(
-        engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?,
-    ))
+    let task = engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?;
+
+    Ok(Json(engine.with_edits(task)?))
 }
 
 /// Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would.

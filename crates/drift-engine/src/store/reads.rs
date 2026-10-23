@@ -14,7 +14,7 @@ impl Store {
     }
 
     pub fn read_files(&self, session_id: &str) -> rusqlite::Result<Vec<String>> {
-        let conn = self.lock();
+        let conn = self.read();
         let mut statement = conn.prepare_cached("SELECT path FROM read_file WHERE session_id = ?1")?;
 
         statement.query_map([session_id], |row| row.get(0))?.collect()

@@ -60,7 +60,7 @@ impl ShellTimeoutAuthority {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn shell_timeout_initialize(
     app: tauri::AppHandle,
     authority: tauri::State<'_, ShellTimeoutAuthority>,
@@ -75,14 +75,14 @@ pub(crate) fn shell_timeout_initialize(
     Ok(policy)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn shell_timeout_snapshot(
     authority: tauri::State<'_, ShellTimeoutAuthority>,
 ) -> Result<ShellTimeoutPolicy, String> {
     authority.snapshot().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn shell_timeout_update(
     app: tauri::AppHandle,
     authority: tauri::State<'_, ShellTimeoutAuthority>,

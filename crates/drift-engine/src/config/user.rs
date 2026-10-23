@@ -116,7 +116,7 @@ mod local_server_tests {
 
     #[test]
     fn a_local_servers_address_and_limit_are_saved_beside_the_rest_and_cleared_away() {
-        let dir = std::env::temp_dir().join(format!("drift-local-server-{}", crate::random_hex(6)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-local-server-{}", crate::random_hex(6)));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(FILE),

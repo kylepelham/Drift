@@ -21,11 +21,16 @@ pub struct NewSession<'a> {
     pub model: Option<&'a ModelRef>,
 }
 
+#[derive(Default)]
 pub struct SessionFilter<'a> {
     pub workspace_id: Option<&'a str>,
     pub archived: bool,
     pub before: Option<&'a str>,
     pub limit: usize,
+    /// Only the sessions this one launched or spawned.
+    pub parent_id: Option<&'a str>,
+    /// Leaves out subagents' transcripts, except those whose newest worker is queued or running.
+    pub active_subagents: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,21 +55,30 @@ impl Store {
     }
 
     pub fn session(&self, id: &str) -> rusqlite::Result<Option<Session>> {
-        session_in(&self.lock(), id)
+        session_in(&self.read(), id)
     }
 
     /// Listed newest first, subagents included; the UI nests them under their parent.
     pub fn sessions(&self, filter: SessionFilter) -> rusqlite::Result<Vec<Session>> {
-        let connection = self.lock();
+        let connection = self.read();
         let mut statement = connection.prepare_cached(&format!(
             "SELECT {SESSION_COLUMNS} FROM session
              WHERE (?1 IS NULL OR workspace_id = ?1)
                AND (archived_at IS NOT NULL) = ?2
                AND (?3 IS NULL OR (updated_at, id) < (SELECT updated_at, id FROM session WHERE id = ?3))
+               AND (?5 IS NULL OR parent_id = ?5)
+               AND (NOT ?6 OR visibility != 'hidden' OR id IN (SELECT session_id FROM task WHERE state IN ('queued', 'running')))
              ORDER BY updated_at DESC, id DESC LIMIT ?4"
         ))?;
         let rows = statement.query_map(
-            params![filter.workspace_id, filter.archived, filter.before, filter.limit as i64],
+            params![
+                filter.workspace_id,
+                filter.archived,
+                filter.before,
+                filter.limit as i64,
+                filter.parent_id,
+                filter.active_subagents
+            ],
             map_session,
         )?;
 
@@ -160,7 +174,7 @@ impl Store {
 
     /// The sessions of a workspace working in its worktree `name`, archived ones included.
     pub fn sessions_in_worktree(&self, workspace_id: &str, name: &str) -> rusqlite::Result<Vec<Session>> {
-        let connection = self.lock();
+        let connection = self.read();
         let mut statement = connection.prepare_cached(&format!(
             "SELECT {SESSION_COLUMNS} FROM session WHERE workspace_id = ?1 AND worktree = ?2 ORDER BY id"
         ))?;

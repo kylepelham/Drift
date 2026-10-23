@@ -16,7 +16,7 @@ impl Drop for Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("drift-search-{}", drift_engine::id::new("t")));
+        let dir = drift_engine::platform::temp::test_run().join(format!("drift-search-{}", drift_engine::id::new("t")));
         let store = drift_engine::store::open(&dir).unwrap();
 
         Self { dir, store }

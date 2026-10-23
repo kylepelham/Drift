@@ -49,7 +49,7 @@ impl Store {
     }
 
     fn stored_servers(&self) -> rusqlite::Result<Vec<Stored>> {
-        let conn = self.lock();
+        let conn = self.read();
         let mut stmt = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config ORDER BY name"))?;
         let rows = stmt.query_map([], stored)?.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -58,7 +58,7 @@ impl Store {
 
     /// The server, or `None` when there is none or its definition cannot be read.
     pub fn mcp_server(&self, name: &str) -> rusqlite::Result<Option<ServerRow>> {
-        server_in(&self.lock(), name)
+        server_in(&self.read(), name)
     }
 
     /// A new server starts trusted by read-only agents; saving over one keeps the trust it has.

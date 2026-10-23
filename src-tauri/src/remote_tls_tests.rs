@@ -8,7 +8,7 @@ fn directory() -> std::path::PathBuf {
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).unwrap();
 
-    std::env::temp_dir().join(format!("drift-remote-tls-{}", u64::from_ne_bytes(bytes)))
+    drift_engine::platform::temp::test_run().join(format!("drift-remote-tls-{}", u64::from_ne_bytes(bytes)))
 }
 
 fn roots(tls: &Tls) -> Arc<rustls::RootCertStore> {

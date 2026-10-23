@@ -25,7 +25,7 @@ impl Store {
     }
 
     pub fn blob(&self, hash: &str) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.lock()
+        self.read()
             .prepare_cached("SELECT data FROM blob WHERE hash = ?1")?
             .query_row([hash], |row| row.get(0))
             .optional()

@@ -223,6 +223,7 @@ fn children(h: &Harness) -> usize {
             archived: false,
             before: None,
             limit: 50,
+            ..Default::default()
         })
         .unwrap()
         .into_iter()

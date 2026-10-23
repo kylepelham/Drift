@@ -8,6 +8,14 @@ mod pc;
 mod proxy;
 mod tls;
 
+/// Where tests write: Drift's own folder in the system's temporary directory, never loose beside it.
+#[cfg(test)]
+fn test_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("Drift").join("tests").join("android");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 

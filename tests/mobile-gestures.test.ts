@@ -6,9 +6,9 @@ class Surface {
     scrollWidth = 100;
     clientWidth = 100;
     overflowX = "visible";
-    blocked = false;
-    closest() {
-        return this.blocked ? this : null;
+    tag = "";
+    closest(selector: string) {
+        return this.tag && selector.split(",").some((part) => part.trim() === this.tag) ? this : null;
     }
 }
 
@@ -88,7 +88,7 @@ test("a horizontal page swipe opens the drawer but the Android Back edge stays u
 
 test("controls and horizontally scrollable content keep their own gestures, even at scrollLeft zero", () => {
     const control = new Surface();
-    control.blocked = true;
+    control.tag = "input";
     const code = new Surface();
     code.scrollWidth = 1000;
     code.overflowX = "auto";
@@ -113,4 +113,18 @@ test("vertical scrolling and a second finger cancel the drawer without leaving i
     touch("touchend", 250, 100, target);
     expect(open).toBeFalse();
     expect(props.size).toBe(0);
+});
+
+test("a swipe that starts on a thread row closes the drawer and the row is not opened", () => {
+    const row = new Surface();
+    row.tag = "button";
+    open = true;
+    touch("touchstart", 250, 300, row);
+    expect(touch("touchmove", 150, 340, row).defaultPrevented).toBeTrue();
+    touch("touchend", 100, 350, row);
+    expect(open).toBeFalse();
+
+    const tap = new Event("click", { cancelable: true });
+    doc.dispatchEvent(tap);
+    expect(tap.defaultPrevented).toBeTrue();
 });

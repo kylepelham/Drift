@@ -73,7 +73,7 @@ pub struct Undone {
 
 /// A physical file's chronological change chain, with independent snapshot owners for its endpoints.
 pub(super) struct Net {
-    file: Option<PathBuf>,
+    pub(super) file: Option<PathBuf>,
     key: Option<PathBuf>,
     pub(super) path: String,
     pub(super) before: Endpoint,

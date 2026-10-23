@@ -23,9 +23,9 @@ impl FileGlob {
 }
 
 /// A directory the model may read and write in without asking, for scratch files kept out of the
-/// workspace: `Drift` in the system's temporary directory. It is made when the engine opens.
+/// workspace: `scratch` in Drift's temporary folder. It is made when the engine opens.
 pub fn scratch_dir() -> PathBuf {
-    canonical(&std::env::temp_dir().join("Drift"))
+    canonical(&crate::platform::temp::root().join("scratch"))
 }
 
 /// Walks `root` as git would list it (ignore rules apply, hidden files included) without descending

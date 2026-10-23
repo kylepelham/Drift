@@ -173,3 +173,48 @@ async fn concurrent_captures_in_one_workspace_do_not_collide() {
 
     std::fs::remove_dir_all(base).ok();
 }
+
+#[tokio::test]
+async fn blobs_stored_in_process_are_the_objects_git_itself_writes_and_reads() {
+    let (base, workspace) = dirs();
+    let snapshots = Snapshots::new(&base.join("data"));
+    let bytes = b"line one\r\nline two\n\0binary tail".repeat(50);
+    std::fs::write(workspace.join("a.bin"), &bytes).unwrap();
+    std::fs::write(workspace.join("empty.txt"), "").unwrap();
+    let git = |args: &[&str], dir: &Path| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        output.stdout
+    };
+
+    for name in ["a.bin", "empty.txt"] {
+        let recorded = snapshots.record(&workspace, name).await.unwrap().unwrap();
+        let expected = git(&["hash-object", "--no-filters", name], &workspace);
+        assert_eq!(recorded, String::from_utf8_lossy(&expected).trim());
+        assert_eq!(
+            snapshots.current(&workspace, name).await.unwrap(),
+            Some(recorded.clone())
+        );
+        assert_eq!(
+            snapshots.record(&workspace, name).await.unwrap(),
+            Some(recorded.clone())
+        );
+        let git_dir = snapshots.git_dir(&workspace).to_string_lossy().into_owned();
+        let read = git(&["--git-dir", &git_dir, "cat-file", "blob", &recorded], &workspace);
+        assert_eq!(read, std::fs::read(workspace.join(name)).unwrap());
+    }
+
+    let kept = snapshots
+        .store_bytes(&workspace, b"imported earlier version\n")
+        .await
+        .unwrap();
+    assert!(stored(&snapshots, &workspace, &kept));
+    assert_eq!(
+        snapshots.blob(&workspace, &kept).await.unwrap(),
+        b"imported earlier version\n"
+    );
+}

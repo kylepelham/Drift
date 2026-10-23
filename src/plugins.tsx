@@ -1,5 +1,6 @@
 import { registerThinkingIndicator, type ThinkingIndicator } from "./thinking-indicators";
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { createRunWatcher, type QuestionInfo } from "./engine/store";
 import { selectedSession, selectSession } from "./state/selection";
 import { activeWorkspace } from "./state/workspaces";
 import { toolDisplay } from "./ui/tool-presentation";
@@ -15,7 +16,6 @@ import {
 } from "./tool-actions";
 
 import type { Part, ToolPart } from "./engine/parts";
-import type { QuestionInfo } from "./engine/store";
 import type { Workspace } from "./state/store";
 import type { Engine } from "./engine";
 
@@ -389,14 +389,10 @@ export function PluginHost(props: { engine: Engine }) {
         }
     });
 
-    const busySessions = new Set<string>();
-    createEffect(() => {
-        for (const [sessionId, status] of Object.entries(props.engine.state.status)) {
-            const busy = status.type === "busy" || status.type === "retry";
-            if (busy) busySessions.add(sessionId);
-            else if (busySessions.delete(sessionId)) untrack(() => void emit("session.idle", { sessionId }));
-        }
-    });
+    createRunWatcher(
+        () => props.engine.state,
+        (sessionId) => void emit("session.idle", { sessionId }),
+    );
     onCleanup(() => {
         generation++;
         unloadPlugins();

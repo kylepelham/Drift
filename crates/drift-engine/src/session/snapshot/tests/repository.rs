@@ -174,3 +174,53 @@ async fn a_shadow_repo_made_before_the_rule_is_brought_up_to_it() {
     );
     std::fs::remove_dir_all(base).ok();
 }
+
+#[tokio::test]
+async fn a_repository_capture_with_nothing_pending_reuses_its_tree_and_never_misses_a_change() {
+    let (base, workspace) = dirs();
+    let workspace = crate::tool::canonical(&workspace);
+    repo_git(&workspace, &["init", "-q"]);
+    repo_git(&workspace, &["config", "user.email", "dev@example.com"]);
+    repo_git(&workspace, &["config", "user.name", "Dev"]);
+    std::fs::write(workspace.join(".gitignore"), "target/\n").unwrap();
+    std::fs::write(workspace.join("a.txt"), "one\n").unwrap();
+    repo_git(&workspace, &["add", "-A"]);
+    repo_git(&workspace, &["commit", "-qm", "start"]);
+    let snapshots = Arc::new(Snapshots::new(&base.join("data")));
+
+    let first = snapshots.take(&workspace).await.unwrap();
+    assert_eq!(snapshots.take(&workspace).await.unwrap(), first);
+
+    std::fs::create_dir_all(workspace.join("target")).unwrap();
+    std::fs::write(workspace.join("target/build.log"), "ignored\n").unwrap();
+    assert_eq!(
+        snapshots.take(&workspace).await.unwrap(),
+        first,
+        "an ignored write changes nothing"
+    );
+
+    std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
+    let edited = snapshots.take(&workspace).await.unwrap();
+    assert_ne!(edited.id, first.id, "a tracked edit is captured");
+
+    std::fs::write(workspace.join("new.txt"), "n\n").unwrap();
+    let added = snapshots.take(&workspace).await.unwrap();
+    assert_ne!(added.id, edited.id, "an untracked file is captured");
+    let changes = snapshots.changes_between(&workspace, &edited, &added).await.unwrap();
+    assert_eq!(changes.changes.len(), 1);
+    assert_eq!(changes.changes[0].path, "new.txt");
+
+    let together: Vec<_> = (0..8)
+        .map(|_| {
+            let (snapshots, workspace) = (snapshots.clone(), workspace.clone());
+            tokio::spawn(async move { snapshots.take(&workspace).await })
+        })
+        .collect();
+    for capture in together {
+        assert_eq!(
+            capture.await.unwrap().unwrap(),
+            added,
+            "captures asked together share one"
+        );
+    }
+}

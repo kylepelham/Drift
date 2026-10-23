@@ -261,3 +261,13 @@ fn parts_round_trip_through_json() {
     let loaded = store.transcript(&session.id).unwrap();
     assert_eq!(loaded[0].parts, vec![row]);
 }
+
+#[test]
+fn startup_closes_streaming_replies_without_reading_every_message() {
+    let plan = crate::store::tree::tests::plan(&store(), super::ABANDON_STREAMING, [0]);
+
+    assert!(
+        plan.iter().any(|step| step.contains("idx_message_streaming")),
+        "{plan:?}"
+    );
+}

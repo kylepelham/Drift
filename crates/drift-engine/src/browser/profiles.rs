@@ -168,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn trimming_keeps_sign_ins_and_drops_caches() {
-        let profile = std::env::temp_dir().join(format!("drift-trim-{}", crate::random_hex(4)));
+        let profile = crate::platform::temp::test_run().join(format!("drift-trim-{}", crate::random_hex(4)));
         for folder in ["Default/Cache/Cache_Data", "Default/Network", "GrShaderCache"] {
             std::fs::create_dir_all(profile.join(folder)).unwrap();
         }
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn the_sweep_keeps_what_is_still_in_use() {
-        let data = std::env::temp_dir().join(format!("drift-sweep-{}", crate::random_hex(4)));
+        let data = crate::platform::temp::test_run().join(format!("drift-sweep-{}", crate::random_hex(4)));
         let kept = workspace("wrk_aaaaaa", "Kept");
         for folder in [
             "browsers/sessions/ses_live/chrome",

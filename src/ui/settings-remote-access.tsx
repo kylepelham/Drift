@@ -70,7 +70,7 @@ function ThisDevice() {
                 }
                 description={t("drift.remote.manageOnDesktop")}
             >
-                <div class="flex gap-2">
+                <div class="remote-device-actions flex gap-2">
                     <Show when={isAppRuntime()}>
                         <a class={`${button} inline-flex items-center`} href="/app/computers">
                             {t("drift.remote.device.switch")}

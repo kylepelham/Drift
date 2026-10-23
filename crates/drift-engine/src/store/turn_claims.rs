@@ -30,7 +30,7 @@ impl Store {
     }
 
     pub fn claimed_turns(&self) -> rusqlite::Result<Vec<TurnClaim>> {
-        self.lock()
+        self.read()
             .prepare_cached("SELECT session_id, resumes FROM turn_claim ORDER BY session_id")?
             .query_map([], |row| {
                 Ok(TurnClaim {

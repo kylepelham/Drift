@@ -35,6 +35,13 @@ uses it.
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
   servers and config once, in the background, from opencode v1 and v2 alike ("Importing opencode
   conversations" in engine-rewrite.md).
+- Drift writes to the system's temporary directory only inside `Drift` (`platform::temp`):
+  `scratch` for the model's scratch files, `voice` for dictation audio, `engined` for a headless
+  engine without a home, `dev` for the browser dev loop, `bench` and `i18n` for those scripts,
+  and `tests/<run>` for each test process. Tests cannot delete files an engine still holds open, so
+  each run writes under its own folder and the next run removes folders untouched for an hour;
+  `scripts/dev.ts` removes the folders of dev runs that were killed. Scripts and bun tests take
+  their folders from `scripts/temp.ts`.
 
 Tool-call metadata uses `ToolMetadata` in `session/types.rs`, shared by tool results,
 running progress, history capture and replay. Its OpenAPI schema gives the generated

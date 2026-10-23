@@ -195,15 +195,14 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
         props.entry.parts.filter((part): part is InstructionUpdatePart => part.type === "instruction_update");
     const resumed = () => props.entry.parts.filter((part): part is ContinuationPart => part.type === "continuation");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
-    const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
-    const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
     // Shift keeps every file as it is: only the conversation goes back.
-    const revert = async (keepFiles: boolean) => {
+    const revert = (keepFiles: boolean) => {
         const restored = draftFromMessage(props.entry);
         if (clarification()) restored.text = text();
-        if (await engine.actions.revert(info().sessionId, info().id, keepFiles))
-            setComposerDraft(composerScope(info().sessionId), restored);
+        void engine.actions.revert(info().sessionId, info().id, keepFiles).then((reverted) => {
+            if (reverted) setComposerDraft(composerScope(info().sessionId), restored);
+        });
     };
 
     return (
@@ -249,26 +248,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                     </Show>
                                 </div>
                             </Show>
-                            <div class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
-                                <span>
-                                    {agentLabel(info().agent ?? "build")} · {model()} · {time()}
-                                </span>
-                                <button
-                                    title={`${t("drift.message.revertHere")}
-${t("drift.message.revertKeepFiles")}`}
-                                    class="rounded p-0.5 hover:bg-raised hover:text-ink"
-                                    onClick={(event) => void revert(event.shiftKey)}
-                                >
-                                    <IconUndo class="size-3.5" />
-                                </button>
-                                <button
-                                    title={t("drift.message.copy")}
-                                    class="rounded p-0.5 hover:bg-raised hover:text-ink"
-                                    onClick={() => void navigator.clipboard.writeText(text())}
-                                >
-                                    <IconCopy class="size-3.5" />
-                                </button>
-                            </div>
+                            <UserActions entry={props.entry} onRevert={revert} copy={text} />
                         </div>
                     </Show>
                     <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
@@ -276,7 +256,7 @@ ${t("drift.message.revertKeepFiles")}`}
             }
         >
             {(answer) => (
-                <div class="group flex min-w-0 items-start justify-end gap-1.5">
+                <div class="group flex min-w-0 flex-col items-end gap-1.5">
                     <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
                         <Show
                             when={answer().items.length}
@@ -301,26 +281,41 @@ ${t("drift.message.revertKeepFiles")}`}
                             </For>
                         </Show>
                     </NoteBox>
-                    <div class="touch-reveal flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                        <button
-                            title={`${t("drift.message.revertHere")}
-${t("drift.message.revertKeepFiles")}`}
-                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
-                            onClick={(event) => void revert(event.shiftKey)}
-                        >
-                            <IconUndo class="size-3.5" />
-                        </button>
-                        <button
-                            title={t("drift.message.copy")}
-                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
-                            onClick={() => void navigator.clipboard.writeText(text())}
-                        >
-                            <IconCopy class="size-3.5" />
-                        </button>
-                    </div>
+                    <UserActions entry={props.entry} onRevert={revert} copy={text} />
                 </div>
             )}
         </Show>
+    );
+}
+
+/** Under every user message: who sent it to what and when, Undo back to it, and Copy. */
+function UserActions(props: { entry: MessageEntry; onRevert: (keepFiles: boolean) => void; copy: () => string }) {
+    const engine = useEngine();
+    const info = () => props.entry.info;
+    const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
+    const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    return (
+        <div class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+            <span>
+                {agentLabel(info().agent ?? "build")} · {model()} · {time()}
+            </span>
+            <button
+                title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`}
+                class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                onClick={(event) => props.onRevert(event.shiftKey)}
+            >
+                <IconUndo class="size-3.5" />
+            </button>
+            <button
+                title={t("drift.message.copy")}
+                class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                onClick={() => void navigator.clipboard.writeText(props.copy())}
+            >
+                <IconCopy class="size-3.5" />
+            </button>
+        </div>
     );
 }
 

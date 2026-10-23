@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+mod blob;
 mod capture;
 mod files;
 mod git;
@@ -33,6 +34,10 @@ pub struct Snapshots {
     max_tree_files: usize,
     /// The git repository each workspace is the top of, if any, looked up once per run.
     sources: Mutex<HashMap<PathBuf, Option<Source>>>,
+    /// Each shadow index's last written tree, by the index file's stamp then: unchanged, the tree still holds.
+    trees: Mutex<HashMap<PathBuf, (Stamp, String)>>,
+    /// Each shadow repo's latest whole-tree capture and when it began, shared with callers that asked before then.
+    latest: Mutex<HashMap<PathBuf, (std::time::Instant, Tree)>>,
 }
 
 /// A repository a workspace is the top of; a capture there starts from its index, so one of any size is captured.
@@ -118,6 +123,8 @@ impl Snapshots {
             too_many: Mutex::default(),
             max_tree_files: MAX_TREE_FILES,
             sources: Mutex::default(),
+            trees: Mutex::default(),
+            latest: Mutex::default(),
         }
     }
 
@@ -181,14 +188,17 @@ impl Snapshots {
     /// Every path that differs between two trees, with its blob on each side.
     pub async fn changes_between(&self, workspace: &Path, before: &Tree, after: &Tree) -> Result<TreeChanges, Error> {
         let source = self.source(workspace).await;
-        let raw = self
-            .run_with(
+        let raw = if before.id == after.id {
+            Vec::new()
+        } else {
+            self.run_with(
                 workspace,
                 &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id],
                 None,
                 source.as_ref(),
             )
-            .await?;
+            .await?
+        };
 
         let oversized = |path: &str| {
             before

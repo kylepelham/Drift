@@ -103,57 +103,26 @@ mod imp {
         command.creation_flags(0x0800_0000 | 0x0000_0004);
     }
 
-    pub(super) fn resume(child: &tokio::process::Child) -> io::Result<()> {
-        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD};
-        let pid = child
-            .id()
-            .ok_or_else(|| io::Error::other("suspended child has no process ID"))?;
-
-        // SAFETY: this call takes only flags and a process id, and returns an owned snapshot handle.
-        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-        if snapshot == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error());
-        }
-
-        let result = resume_thread(snapshot, pid);
-        // SAFETY: the snapshot is valid and has not been closed by resume_thread.
-        unsafe {
-            CloseHandle(snapshot);
-        }
-
-        result
+    #[link(name = "ntdll", kind = "raw-dylib")]
+    unsafe extern "system" {
+        fn NtResumeProcess(process: HANDLE) -> i32;
     }
 
-    fn resume_thread(snapshot: HANDLE, pid: u32) -> io::Result<()> {
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{THREADENTRY32, Thread32First, Thread32Next};
-        use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
-        // SAFETY: the snapshot is live; entry is correctly sized and each opened thread handle is closed.
-        unsafe {
-            let mut entry: THREADENTRY32 = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of_val(&entry) as u32;
-            if Thread32First(snapshot, &mut entry) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            loop {
-                if entry.th32OwnerProcessID == pid {
-                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
-                    if thread.is_null() {
-                        return Err(io::Error::last_os_error());
-                    }
-                    let resumed = ResumeThread(thread);
-                    let error = io::Error::last_os_error();
-                    CloseHandle(thread);
-                    return if resumed == u32::MAX { Err(error) } else { Ok(()) };
-                }
-                if Thread32Next(snapshot, &mut entry) == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "suspended child thread not found",
-                    ));
-                }
-            }
+    /// Lets a child started suspended run. Its own handle names it, where finding its thread meant a snapshot of every
+    /// thread on the machine, about 100ms that grew with each command run at once.
+    pub(crate) fn resume(child: &tokio::process::Child) -> io::Result<()> {
+        let process = child
+            .raw_handle()
+            .ok_or_else(|| io::Error::other("suspended child has already been reaped"))?;
+        // SAFETY: the handle is the child's own, live while `child` is borrowed, with every process right.
+        let status = unsafe { NtResumeProcess(process) };
+        if status < 0 {
+            return Err(io::Error::other(format!(
+                "could not resume the child: NTSTATUS {status:#x}"
+            )));
         }
+
+        Ok(())
     }
 }
 
@@ -204,7 +173,7 @@ mod imp {
 
     pub(super) fn suspend(_command: &mut tokio::process::Command) {}
 
-    pub(super) fn resume(_child: &tokio::process::Child) -> io::Result<()> {
+    pub(crate) fn resume(_child: &tokio::process::Child) -> io::Result<()> {
         Ok(())
     }
 
@@ -240,6 +209,7 @@ mod imp {
     }
 }
 
+pub(crate) use imp::resume;
 pub use imp::{Tree, prepare};
 
 impl Tree {
@@ -303,6 +273,30 @@ async fn spawn_with(
 /// Where a program named without a path is found on PATH, as a shell would, `.cmd` and `.bat` shims included on Windows.
 pub fn which(program: &str) -> Option<std::path::PathBuf> {
     find_in(program, std::env::split_paths(&current_path()))
+}
+
+/// Git for plumbing calls, which run no hooks, filters or helpers. Git for Windows' `cmd\git.exe` only starts
+/// `<arch>\bin\git.exe`, which nearly doubles each call's start, so the binary behind it is used when it is there.
+pub fn plumbing_git() -> std::path::PathBuf {
+    static FOUND: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    if let Some(found) = FOUND.get() {
+        return found.clone();
+    }
+    match which("git") {
+        Some(found) => FOUND.get_or_init(|| behind_launcher(&found).unwrap_or(found)).clone(),
+        None => "git".into(),
+    }
+}
+
+fn behind_launcher(found: &std::path::Path) -> Option<std::path::PathBuf> {
+    let cmd = found.parent()?;
+    if !cmd.file_name()?.eq_ignore_ascii_case("cmd") {
+        return None;
+    }
+    ["mingw64", "clangarm64", "mingw32"]
+        .iter()
+        .map(|arch| cmd.parent().unwrap_or(cmd).join(arch).join("bin").join("git.exe"))
+        .find(|candidate| candidate.is_file())
 }
 
 /// The PATH a program started now should get: Drift's own, then directories added since Drift started, as an install does.
@@ -456,7 +450,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn failed_ownership_never_resumes_the_child() {
-        let root = std::env::temp_dir().join(format!("drift-owned-fail-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-owned-fail-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&root).unwrap();
         let marker = root.join("ran.txt");
         let mut command = tokio::process::Command::new("cmd.exe");
@@ -474,7 +468,7 @@ mod tests {
     #[tokio::test]
     async fn tree_cleanup_waits_for_a_descendant_after_its_parent_exits() {
         use std::process::Stdio;
-        let root = std::env::temp_dir().join(format!("drift-owned-tree-{}", crate::random_hex(4)));
+        let root = crate::platform::temp::test_run().join(format!("drift-owned-tree-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
         let mut command = tokio::process::Command::new("cmd.exe");
@@ -514,7 +508,7 @@ mod tests {
 
     #[test]
     fn a_program_is_found_where_a_shell_would_find_it() {
-        let dir = std::env::temp_dir().join(format!("drift-which-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-which-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let shim = if cfg!(windows) { "lint.cmd" } else { "lint" };
         std::fs::write(dir.join(shim), "").unwrap();
@@ -534,7 +528,7 @@ mod tests {
 
     #[test]
     fn a_bundles_programs_come_after_the_users_own_on_path() {
-        let bin = std::env::temp_dir().join("drift-bundle-bin");
+        let bin = crate::platform::temp::test_run().join("drift-bundle-bin");
         let path = super::path_with(std::slice::from_ref(&bin));
         let dirs: Vec<_> = std::env::split_paths(&path).collect();
         let current: Vec<_> = std::env::split_paths(&super::current_path()).collect();

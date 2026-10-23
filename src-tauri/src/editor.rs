@@ -52,7 +52,7 @@ pub(crate) async fn save_json_file(name: String, contents: String) -> Result<Opt
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn open_file(
     app: tauri::AppHandle,
     path: String,
@@ -71,7 +71,7 @@ pub(crate) fn open_file(
     Ok(OpenFileResult { positioned })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn open_file_in_editor(
     path: String,
     line: Option<u32>,

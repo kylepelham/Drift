@@ -1,9 +1,9 @@
 import { indexSource, inspectSource } from "../scripts/inspect-claude-source";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tempFolder } from "../scripts/temp";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
-import { tmpdir } from "node:os";
 import * as ts from "typescript";
 import path from "node:path";
 
@@ -48,7 +48,7 @@ test("parser reports syntax errors by byte offset without copying diagnostic sou
 });
 
 test("CLI requires a bounded explicit range and writes only to a fresh requested file", async () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "drift-source-index-"));
+    const directory = tempFolder("tests", "source-index-");
     try {
         const input = path.join(directory, "sample.bin");
         const output = path.join(directory, "index.json");

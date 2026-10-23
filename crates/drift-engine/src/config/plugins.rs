@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn install_and_remove_edit_the_plugins_list_and_keep_the_rest_of_the_file() {
-        let dir = std::env::temp_dir().join(format!("drift-plugin-install-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-plugin-install-{}", crate::random_hex(4)));
         std::fs::create_dir_all(dir.join(PLUGINS_DIR)).unwrap();
         std::fs::write(
             dir.join(super::super::FILE),

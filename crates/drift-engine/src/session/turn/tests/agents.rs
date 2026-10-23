@@ -263,6 +263,7 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
             archived: false,
             before: None,
             limit: 10,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(sessions.len(), 1, "no writing subagent was started");

@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn gclouds_own_config_folder_holds_the_application_default_credentials() {
-        let folder = std::env::temp_dir().join(format!("drift-gcloud-{}", crate::random_hex(4)));
+        let folder = crate::platform::temp::test_run().join(format!("drift-gcloud-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
         let adc = folder.join("application_default_credentials.json");
         std::fs::write(&adc, "{}").unwrap();
@@ -399,7 +399,7 @@ mod tests {
     }
 
     fn user_file(url: &str, refresh: &str) -> PathBuf {
-        let file = std::env::temp_dir().join(format!("drift-adc-{}.json", crate::random_hex(4)));
+        let file = crate::platform::temp::test_run().join(format!("drift-adc-{}.json", crate::random_hex(4)));
         write_user(&file, url, refresh);
         file
     }

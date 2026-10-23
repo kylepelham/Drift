@@ -7,9 +7,23 @@ shell's, which hold what the app adds on top.
 ## Performance posture
 
 - WAL journal, `synchronous=NORMAL`, 128MB mmap.
-- One connection behind a mutex: single writer, no contention games.
+- One writer and four read-only readers (`store/connections.rs`). `Store::lock` is the writer, held
+  for a whole unit of work; `Store::read` takes a free reader for work that only reads. WAL lets a
+  reader see every committed write while the writer works, so loading a long transcript never
+  holds up a turn's writes, and reads never queue behind each other. An in-memory store (unit
+  tests) has no readers and reads on the writer.
+- Waiting for a connection, and reading a transcript, runs as blocking work (`store::blocking`,
+  tokio's `block_in_place` on a multi-threaded runtime), so a busy store never stalls the async
+  workers serving HTTP, events and other turns.
+- The shell's Tauri commands that touch the store or the disk are `#[tauri::command(async)]`: none
+  runs on the main thread, whose stalls Windows reports as "Not Responding".
 - All statements go through `prepare_cached`.
-- STRICT tables, indexes only where reads demand them (`session_meta.workspace_id`).
+- STRICT tables, indexes only where reads demand them (`session_meta.workspace_id`). Lookups into
+  `part` by a field inside its JSON use partial expression indexes that name the same condition as
+  the query: `idx_part_call` (a call by id), `idx_part_image` (a prompt numbering its pasted images)
+  and `idx_part_changes` (snapshot pruning, read from the index alone). `idx_message_streaming`
+  holds only replies still streaming, for startup. Tests pin each plan, so no statement scans
+  `part` or `message`.
 
 ## Schema
 

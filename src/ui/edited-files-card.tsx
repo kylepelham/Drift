@@ -1,9 +1,7 @@
-import { editedFiles, turnOf, turnStartsEarlier, turnTasks, type EditedFile, type TurnWorker } from "./edited-files";
+import { editedFiles, turnOf, turnStartsEarlier, turnWorkers, type EditedFile } from "./edited-files";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
-import { delegatedChildId } from "./tool-delegation";
 import { openReview } from "../state/panels";
-import { toolInput } from "../engine/parts";
 import { FileIcon } from "./file-icon";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -51,18 +49,6 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
     const engine = useEngine();
     const sessionId = () => props.entry.info.sessionId;
     const turn = createMemo(() => turnOf(engine.state.transcripts[sessionId()] ?? [], props.entry.info.id));
-    // A continued subagent resolves to the session it first ran in, whose edits are counted once.
-    const children = createMemo(() => {
-        const seen = new Set<string>();
-        return turnTasks(turn().replies)
-            .filter((part) => part.status === "done" || part.status === "error")
-            .map((part) => ({ part, id: delegatedChildId(engine.state, part) }))
-            .filter((child): child is { part: (typeof child)["part"]; id: string } => {
-                if (!child.id || !engine.state.sessions[child.id] || seen.has(child.id)) return false;
-                seen.add(child.id);
-                return true;
-            });
-    });
 
     // A turn longer than one page started before what is loaded: page its prompt in, so Undo and the review have it.
     const [paging, setPaging] = createSignal(false);
@@ -83,22 +69,8 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
             .finally(() => setPaging(false));
     });
 
-    // A subagent's edits are in its own transcript, loaded only when a card that needs it is on screen.
-    createEffect(() => {
-        for (const child of children()) if (!engine.state.loaded[child.id]) void engine.actions.openSession(child.id);
-    });
-
-    const files = createMemo(() => {
-        const workers: TurnWorker[] = children().map(({ part, id }) => {
-            const description = toolInput(part).description;
-            return {
-                name: typeof description === "string" ? description : (engine.state.sessions[id]?.title ?? ""),
-                entries: engine.state.transcripts[id] ?? [],
-            };
-        });
-
-        return editedFiles(turn().replies, workers);
-    });
+    // A subagent's edits come with its task record, so no worker's transcript is loaded for them.
+    const files = createMemo(() => editedFiles(turn().replies, turnWorkers(engine.state, turn().replies)));
     const total = () =>
         files().reduce(
             (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),

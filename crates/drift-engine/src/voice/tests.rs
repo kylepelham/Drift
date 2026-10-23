@@ -299,7 +299,7 @@ async fn elevenlabs_speech_names_the_voice_in_the_path() {
 }
 
 fn engine() -> Arc<Engine> {
-    let directory = std::env::temp_dir().join(format!("drift-voice-{}", crate::random_hex(4)));
+    let directory = crate::platform::temp::test_run().join(format!("drift-voice-{}", crate::random_hex(4)));
     let options = crate::Options {
         file_credentials: true,
         ..Default::default()

@@ -1,14 +1,15 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
+import { createEffect, untrack } from "solid-js";
 import { hiddenParent } from "./sessions";
 import { messageModel } from "./messages";
 import { promptPartText } from "./parts";
 
 import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
+import type { Session, WorkspaceIndex } from "./sessions";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { ProcessRecord } from "./processes";
 import type { BrowserRecord } from "./browsers";
-import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
 import type {
@@ -144,7 +145,13 @@ export type EngineState = {
     sessionSnapshotEpoch: number;
     providerSnapshotEpoch: number;
     sessions: Record<string, Session>;
+    /** Hidden workers' ids by parent; storeSession and forgetSession keep both indexes, so no view scans every session. */
+    childIds: Record<string, string[]>;
+    /** Thread ids (sessions that are not hidden workers) by normalized directory. */
+    threadIds: Record<string, string[]>;
     status: Record<string, SessionStatus>;
+    /** Sessions busy or retrying now, kept by setStatus so watching runs end never scans every session. */
+    running: Record<string, "busy" | "retry">;
     transcripts: Record<string, MessageEntry[]>;
     loaded: Record<string, boolean>;
     permissions: Record<string, Permission[]>;
@@ -219,7 +226,10 @@ export function createEngineState() {
         sessionSnapshotEpoch: 0,
         providerSnapshotEpoch: 0,
         sessions: {},
+        childIds: {},
+        threadIds: {},
         status: {},
+        running: {},
         transcripts: {},
         loaded: {},
         permissions: {},
@@ -267,7 +277,7 @@ function linkSpawned(links: Record<string, string>, info: Session) {
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
     set(
         produce((draft) => {
-            draft.sessions[info.id] = { revert: undefined, ...info };
+            storeSession(draft, info);
             linkSpawned(draft.links, info);
 
             const model = info.model;
@@ -275,6 +285,45 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
             bumpRevision(draft, sessionRevisionKey(info.id));
         }),
     );
+}
+
+/** Every write to `sessions` goes through here or forgetSession, which keep `childIds` and `threadIds` in step. */
+export function storeSession(draft: EngineState, info: Session) {
+    reindex(draft, info.id, draft.sessions[info.id], info);
+    draft.sessions[info.id] = { revert: undefined, ...info };
+}
+
+export function forgetSession(draft: EngineState, id: string) {
+    reindex(draft, id, draft.sessions[id], undefined);
+    delete draft.sessions[id];
+}
+
+/** Points loaded sessions at their workspace's current directory, so a moved workspace keeps its threads. */
+export function rehomeSessions(draft: EngineState, workspaces: WorkspaceIndex) {
+    for (const session of Object.values(draft.sessions)) {
+        const directory = workspaces.path(session.workspaceId);
+        if (directory && directory !== session.directory) storeSession(draft, { ...session, directory });
+    }
+}
+
+function reindex(draft: EngineState, id: string, before: Session | undefined, after: Session | undefined) {
+    move(draft.childIds, id, hiddenParent(before), hiddenParent(after));
+    move(draft.threadIds, id, threadDirectory(before), threadDirectory(after));
+}
+
+function threadDirectory(session: Session | undefined) {
+    return session && !hiddenParent(session) ? normalizeDir(session.directory) : undefined;
+}
+
+function move(index: Record<string, string[]>, id: string, from: string | undefined, to: string | undefined) {
+    if (from === to) return;
+    if (from) {
+        const rest = (index[from] ?? []).filter((member) => member !== id);
+        if (rest.length) index[from] = rest;
+        else delete index[from];
+    }
+    // In place: copying the list per member made loading a thread's hundreds of subagents quadratic.
+    if (to) (index[to] ??= []).push(id);
 }
 
 // Live reductions bump revision counters; snapshots captured before a request never overwrite newer state.
@@ -326,7 +375,7 @@ export function mergeTranscriptSnapshot(
         const current = liveById.get(entry.info.id);
         if (!advanced(entry.info.id)) {
             // Reusing an unchanged live object keeps keyed rows mounted; a fresh copy flashed every hydration.
-            return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry];
+            return [current && sameJson(current, entry) ? current : entry];
         }
 
         return current ? [withSnapshotParts(current, entry)] : [];
@@ -335,6 +384,24 @@ export function mergeTranscriptSnapshot(
     merged.push(...raced);
 
     return merged.sort(compareMessages);
+}
+
+/** Equal as JSON would serialize them (an undefined field is no field), without serializing: it stops at the first difference. */
+export function sameJson(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (Array.isArray(a) || Array.isArray(b)) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+
+        return a.every((value, index) => sameJson(value, b[index]));
+    }
+
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+    const count = Object.keys(right).filter((key) => right[key] !== undefined).length;
+
+    return keys.length === count && keys.every((key) => sameJson(left[key], right[key]));
 }
 
 // Repair missing parts and shorter prefixes without replacing newer live metadata.
@@ -501,23 +568,45 @@ export function putTasks(
     set("tasks", parentId, mergeTasks(state.tasks[parentId], tasks));
 }
 
+// A list is replaced whole on every change, so its index is built once per list and read by every row.
+const taskIndexes = new WeakMap<readonly TaskRecord[], ReturnType<typeof indexTasks>>();
+
+function indexTasks(tasks: readonly TaskRecord[]) {
+    const byId = new Map<string, TaskRecord>();
+    const byCall = new Map<string, TaskRecord>();
+    const newestBySession = new Map<string, TaskRecord>();
+    for (const task of tasks) {
+        byId.set(task.id, task);
+        if (!byCall.has(task.callId)) byCall.set(task.callId, task);
+        newestBySession.set(task.sessionId, task);
+    }
+
+    return { byId, byCall, newestBySession };
+}
+
+function tasksIndexed(state: EngineState, parentId: string) {
+    const tasks = state.tasks[parentId];
+    if (!tasks) return undefined;
+
+    let index = taskIndexes.get(tasks);
+    if (!index) taskIndexes.set(tasks, (index = indexTasks(tasks)));
+
+    return index;
+}
+
 /** The task a `task` tool call launched, when the engine has reported it. */
 export function taskForCall(state: EngineState, sessionId: string, callId: string | undefined, taskId: unknown) {
-    const tasks = state.tasks[sessionId] ?? [];
-    return tasks.find(
-        (task) =>
-            (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId),
-    );
+    const index = tasksIndexed(state, sessionId);
+    const named = typeof taskId === "string" ? index?.byId.get(taskId) : undefined;
+
+    return named ?? (callId === undefined ? undefined : index?.byCall.get(callId));
 }
 
 /** The newest task that ran in a worker's session; tasks are kept oldest first. */
 export function taskForWorker(state: EngineState, sessionId: string) {
     const parentId = hiddenParent(state.sessions[sessionId]);
-    if (!parentId) return undefined;
 
-    const ran = (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId);
-
-    return ran.at(-1);
+    return parentId ? tasksIndexed(state, parentId)?.newestBySession.get(sessionId) : undefined;
 }
 
 /** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */
@@ -549,6 +638,35 @@ export function savedChoice(
     return { agent: session.agent, variant: session.variant ?? null, ...model };
 }
 
+export function setStatus(draft: EngineState, id: string, status: SessionStatus) {
+    draft.status[id] = status;
+    if (status.type === "idle") delete draft.running[id];
+    else draft.running[id] = status.type;
+}
+
+/** Calls `finished` once per run that ends idle. */
+export function createRunWatcher(
+    engineState: () => EngineState,
+    finished: (id: string, was: "busy" | "retry") => void,
+) {
+    const running = new Map<string, "busy" | "retry">();
+    createEffect(() => {
+        for (const [id, was] of endedRuns(engineState(), running)) untrack(() => finished(id, was));
+    });
+}
+
+/** Runs in `running` that have since ended, which it then drops; a run cut off by its session's removal is not one. */
+export function endedRuns(state: EngineState, running: Map<string, "busy" | "retry">) {
+    const ended: [string, "busy" | "retry"][] = [];
+    for (const [id, was] of running) {
+        if (state.running[id]) continue;
+        running.delete(id);
+        if (state.status[id]) ended.push([id, was]);
+    }
+    for (const [id, type] of Object.entries(state.running)) running.set(id, type);
+    return ended;
+}
+
 export function sessionBusy(state: EngineState, id: string) {
     const status = state.status[id]?.type;
     return status === "busy" || status === "retry";
@@ -559,15 +677,14 @@ export function normalizeDir(path: string) {
 }
 
 export function sessionsFor(state: EngineState, directory: string) {
-    const dir = normalizeDir(directory);
-    return Object.values(state.sessions)
-        .filter((session) => !hiddenParent(session) && normalizeDir(session.directory) === dir)
+    return (state.threadIds[normalizeDir(directory)] ?? [])
+        .flatMap((id) => state.sessions[id] ?? [])
         .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function childrenOf(state: EngineState, parentId: string) {
-    return Object.values(state.sessions)
-        .filter((session) => hiddenParent(session) === parentId)
+    return (state.childIds[parentId] ?? [])
+        .flatMap((id) => state.sessions[id] ?? [])
         .sort((a, b) => a.createdAt - b.createdAt);
 }
 

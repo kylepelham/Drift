@@ -20,7 +20,7 @@ use crate::Engine;
 use crate::browser::driver::{Driver, watch};
 use crate::browser::engines::EngineStatus;
 use crate::browser::project::Credential;
-use crate::browser::{BrowserProject, BrowserRecord, Kind, ViewInput};
+use crate::browser::{BrowserProject, BrowserRecord, Kind, ViewInput, apply_inputs};
 
 /// A workspace's browser setup as Settings shows it: its drift.json section and its stored sign-ins.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -195,14 +195,8 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
     let mut viewer = watch(driver.clone());
     let mut cursor = driver.common().cursor.subscribe();
 
-    // Input is applied in the order it was sent: a click's press must reach the page before its release.
-    let (inputs, mut queued) = mpsc::unbounded_channel::<ViewInput>();
-    let driving = driver.clone();
-    let applier = tokio::spawn(async move {
-        while let Some(input) = queued.recv().await {
-            let _ = driving.input(input).await;
-        }
-    });
+    let (inputs, queued) = mpsc::unbounded_channel::<ViewInput>();
+    let applier = tokio::spawn(apply_inputs(driver.clone(), queued));
 
     loop {
         tokio::select! {

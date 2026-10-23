@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn encrypted_files_authenticate_and_replace_atomically() {
-        let dir = std::env::temp_dir().join(format!("drift-protected-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-protected-{}", crate::random_hex(4)));
         let file = ProtectedFile {
             path: dir.join("credentials.enc"),
             protection: Protection::Aes(aes_key(&[42u8; 32]).unwrap()),
@@ -248,7 +248,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn legacy_plaintext_is_removed_only_after_a_verified_encrypted_save() {
-        let dir = std::env::temp_dir().join(format!("drift-migrate-secret-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-migrate-secret-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let map = Map::from_iter([("p".into(), Value::String("legacy-private-key".into()))]);
         std::fs::write(dir.join("credentials.json"), serde_json::to_vec(&map).unwrap()).unwrap();
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn legacy_keys_merge_into_an_existing_encrypted_store_which_wins_on_conflict() {
-        let dir = std::env::temp_dir().join(format!("drift-merge-secret-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-merge-secret-{}", crate::random_hex(4)));
         let file = ProtectedFile {
             path: dir.join("credentials.enc"),
             protection: Protection::Aes(aes_key(&[7u8; 32]).unwrap()),
@@ -288,7 +288,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn dpapi_protects_the_fallback_without_a_sidecar_key() {
-        let dir = std::env::temp_dir().join(format!("drift-dpapi-{}", crate::random_hex(4)));
+        let dir = crate::platform::temp::test_run().join(format!("drift-dpapi-{}", crate::random_hex(4)));
         let file = ProtectedFile {
             path: dir.join("credentials.enc"),
             protection: Protection::Dpapi,
