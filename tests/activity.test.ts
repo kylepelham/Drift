@@ -1225,6 +1225,18 @@ test("a run that read one file names it instead of counting it", async () => {
     expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
 });
 
+test("a lone read is its own row, never a group holding one row that opens a second time", async () => {
+    const source = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    const group = source.slice(
+        source.indexOf("export function ExploredGroup"),
+        source.indexOf("function ExploredCalls"),
+    );
+
+    expect(group).toContain("props.parts.length === 1 && props.parts[0]");
+    expect(group).toContain("{(part) => <ToolView part={part()} />}");
+    expect(group).toContain("fallback={<ExploredCalls parts={props.parts} />}");
+});
+
 test("an instruction update names its sources in the user's language, an MCP server or file by its own name", async () => {
     const { instructionSource } = await import("../src/ui/instruction-update");
     expect(instructionSource("base:claude")).toBe("Base prompt");

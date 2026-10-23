@@ -380,7 +380,8 @@ while any still runs: calls side by side count once, calls one after another add
 gaps between them do not count. Any
 tool row leaves out a duration under a second. A
 disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
-2 patterns · <latest target>`; delegation and questions never group. The row stays
+2 patterns · <latest target>`, and a lone read, search or listing is its own row, since a group
+of one only added a second disclosure to open; delegation and questions never group. The row stays
 collapsed while it runs, counts background commands still
 alive, and says Failed when any call failed. An opened group indents its calls with their
 own disclosure and no rule line. The edited files card ends a finished turn, never a step

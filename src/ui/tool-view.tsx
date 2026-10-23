@@ -374,7 +374,16 @@ export function ToolView(props: { part: ToolPart }) {
     );
 }
 
+/** One call needs no group around it: its own row already names it and opens to its output. */
 export function ExploredGroup(props: { parts: ToolPart[] }) {
+    return (
+        <Show when={props.parts.length === 1 && props.parts[0]} fallback={<ExploredCalls parts={props.parts} />}>
+            {(part) => <ToolView part={part()} />}
+        </Show>
+    );
+}
+
+function ExploredCalls(props: { parts: ToolPart[] }) {
     const engine = useEngine();
     const [open, setOpen] = createSignal(false);
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
