@@ -1434,6 +1434,7 @@ export const drift = {
     "drift.thread.empty": "Aucune discussion pour le moment",
     "drift.thread.loadMore": "Charger {{count}} discussions de plus",
     "drift.thread.showLess": "Afficher moins",
+    "drift.thread.fork": "Bifurquer",
     "drift.thread.move": "Déplacer",
     "drift.thread.moveToWorkspace": "Déplacer vers l'espace de travail",
     "drift.thread.new": "Nouvelle discussion",

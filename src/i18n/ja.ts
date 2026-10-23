@@ -1407,6 +1407,7 @@ export const drift = {
     "drift.thread.empty": "スレッドはまだありません",
     "drift.thread.loadMore": "さらに{{count}}件読み込む",
     "drift.thread.showLess": "表示を減らす",
+    "drift.thread.fork": "フォーク",
     "drift.thread.move": "移動",
     "drift.thread.moveToWorkspace": "ワークスペースに移動",
     "drift.thread.new": "新しいスレッド",

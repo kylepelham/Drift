@@ -29,6 +29,21 @@
         touch-action: pan-y;
     }
 
+    .sidebar-top {
+        padding-block: 0.375rem;
+    }
+
+    .sidebar-top button svg {
+        width: 1.125rem;
+        height: 1.125rem;
+    }
+
+    .app-sidebar .workspace-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        font-size: 0.6875rem;
+    }
+
     .sidebar-resizer {
         display: none;
     }
@@ -160,6 +175,25 @@
 
     .chat-header-title [role="button"] {
         line-height: 44px;
+    }
+
+    .app-shell .chat-header-tools {
+        gap: 0;
+        margin-inline-end: -0.5rem;
+    }
+
+    .chat-header-tools button {
+        min-width: 2.5rem;
+    }
+
+    .chat-header-tools button > svg {
+        width: 1.125rem;
+        height: 1.125rem;
+    }
+
+    .chat-header .mobile-menu-button svg {
+        width: 1.25rem;
+        height: 1.25rem;
     }
 
     .chat-header > .pointer-events-none {
@@ -299,19 +333,83 @@
         flex: 1 1 10rem;
     }
 
+    /* One rule for every row on a phone: a switch sits beside its text, any other control gets the line below. */
+    .settings-row:has(> .settings-row-control:not(:has([role="switch"]))) > .settings-row-copy {
+        flex-basis: 100%;
+    }
+
+    .settings-row-control:not(:has([role="switch"])) {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .settings-row-control > div:has(> button) {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .settings-row-control > div:has(> button) > span:first-child {
+        margin-inline-end: auto;
+    }
+
+    .settings-row-control > div:has(> input[type="range"]) > input[type="range"] {
+        width: auto;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .settings-row-copy > div + div {
+        overflow-wrap: anywhere;
+    }
+
+    /* A group's title keeps its line; a wide action such as a workspace picker goes below it. */
+    .settings-group-head:has(.picker-control) {
+        flex-wrap: wrap;
+    }
+
+    .settings-group-head .picker-control,
+    .settings-group-head .picker-trigger {
+        width: 100% !important;
+    }
+
+    .settings-group-head .picker-label {
+        max-width: none;
+        text-align: start;
+    }
+
     .settings-row .settings-row-control {
         min-width: 0;
         max-width: 100%;
     }
 
-    .settings-row-control:has(input:not([type="checkbox"]):not([type="color"]), textarea, .picker-control) {
+    .settings-row-control:has(
+        input:not([type="checkbox"]):not([type="color"]),
+        textarea,
+        .picker-control,
+        [role="radiogroup"]
+    ) {
         width: 100%;
     }
 
     .settings-row-control .picker-trigger,
-    .settings-row-control > input,
+    .settings-row-control input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
     .settings-row-control > textarea {
         width: 100% !important;
+    }
+
+    .settings-row-control > div:has(> input) {
+        width: 100%;
+    }
+
+    .settings-row-control [role="radiogroup"] {
+        display: flex;
+        width: 100%;
+    }
+
+    .settings-row-control [role="radiogroup"] > [role="radio"] {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-inline: 0.25rem;
     }
 
     .settings-row-control:has([role="switch"]) {
@@ -412,6 +510,13 @@
         width: auto;
         max-height: min(30rem, calc(100dvh - 1rem));
         overflow-y: auto;
+        border-radius: 1rem;
+        padding: 0.375rem;
+    }
+
+    .workspace-menu button {
+        padding-inline: 0.875rem;
+        font-size: 0.9375rem;
     }
 
     .app-computers {
@@ -465,8 +570,11 @@
     }
 
     .message-actions button {
+        display: inline-flex;
         min-width: 1.75rem;
         min-height: 1.75rem;
+        align-items: center;
+        justify-content: center;
     }
 
     .notice-host {
@@ -563,5 +671,16 @@
 
     .context-meter-popover {
         display: none;
+    }
+}
+
+/* A touch target can be taller than what it holds; its content sits in the middle unless a class aligns it, as utilities outrank base. */
+@layer base {
+    @media (pointer: coarse) {
+        button:not(.flex-col),
+        [role="button"]:not(.flex-col),
+        [role="menuitem"]:not(.flex-col) {
+            align-items: center;
+        }
     }
 }

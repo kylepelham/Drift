@@ -1411,6 +1411,7 @@ export const drift = {
     "drift.thread.empty": "Nie ma jeszcze wątków",
     "drift.thread.loadMore": "Wczytaj jeszcze {{count}}",
     "drift.thread.showLess": "Pokaż mniej",
+    "drift.thread.fork": "Rozgałęź",
     "drift.thread.move": "Przenieś",
     "drift.thread.moveToWorkspace": "Przenieś do obszaru roboczego",
     "drift.thread.new": "Nowy wątek",

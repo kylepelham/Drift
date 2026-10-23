@@ -111,16 +111,20 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   drawers and dialogs, and the composer while typing all sit in the space left; `env(safe-area-*)`
   is then 0 inside the page.
 - Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings use a full-screen labeled section list with Back navigation and
-  search. The desktop keeps its sidebar and dialog. Wider fields wrap under their labels, while
-  switches stay beside the text. Touch controls have 44-pixel targets and readable secondary text.
+  search. The desktop keeps its sidebar and dialog. Every row follows one rule: a switch stays beside
+  its text, any other control (field, picker, slider, segmented choice, buttons) takes the full line
+  below it. Touch controls have 44-pixel targets with their content centred, and hover-only buttons
+  are always shown.
 - The phone composer keeps its pickers and buttons on one row under the text, as on the desktop, with
   36-pixel buttons, and dock cards tuck under it. Pickers open as dismissible sheets without
   opening the keyboard. Touch Enter inserts a newline; Send or Ctrl+Enter submits. Textarea height
   follows the available viewport, and approval cards scroll above it instead of hiding Send.
 - A reply's footer stays on one line on a phone: the model name truncates before Copy or Fork can wrap.
-- The drawer follows horizontal drags, except from controls, dialogs, text selection surfaces, or
-  horizontally scrollable content. Its first 24 pixels are left to Android Back. Multiple fingers
-  cancel a drawer drag. Threads expose a visible menu rather than requiring hover or long-press.
+- The drawer follows horizontal drags from anywhere, thread and workspace rows included, except from
+  fields, sliders, dialogs, menus or horizontally scrollable content; a thumb's curved swipe still
+  counts, and the row a swipe ends on is not opened. Its first 24 pixels are left to Android Back.
+  Multiple fingers cancel a drawer drag. Threads expose a visible menu, shown as a bottom sheet, rather
+  than requiring hover or long-press.
 - Dialogs and picker sheets consume Android Back before the conversation route changes. File
   previews fill the phone screen, image controls wrap, transcript search fits the header, and
   notices stay above the composer. These layout changes do not apply to the desktop breakpoint.

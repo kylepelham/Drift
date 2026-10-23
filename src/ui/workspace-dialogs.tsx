@@ -128,7 +128,7 @@ export function SessionMenu(props: {
             />
             <div class="touch-only-menu hidden">
                 <MenuItem
-                    label={t("drift.slash.fork.active.description")}
+                    label={t("drift.thread.fork")}
                     onClick={() => {
                         props.onFork();
                         props.onClose();

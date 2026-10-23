@@ -1399,6 +1399,7 @@ export const drift = {
     "drift.thread.empty": "Još nema razgovora",
     "drift.thread.loadMore": "Učitaj još {{count}}",
     "drift.thread.showLess": "Prikaži manje",
+    "drift.thread.fork": "Odvoji",
     "drift.thread.move": "Premjesti",
     "drift.thread.moveToWorkspace": "Premjesti u radni prostor",
     "drift.thread.new": "Novi razgovor",

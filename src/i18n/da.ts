@@ -1403,6 +1403,7 @@ export const drift = {
     "drift.thread.empty": "Ingen tråde endnu",
     "drift.thread.loadMore": "Indlæs {{count}} mere",
     "drift.thread.showLess": "Vis færre",
+    "drift.thread.fork": "Forgren",
     "drift.thread.move": "Flyt",
     "drift.thread.moveToWorkspace": "Flyt til arbejdsområde",
     "drift.thread.new": "Ny tråd",

@@ -1427,6 +1427,7 @@ export const drift = {
     "drift.thread.empty": "Noch keine Threads",
     "drift.thread.loadMore": "{{count}} weitere laden",
     "drift.thread.showLess": "Weniger anzeigen",
+    "drift.thread.fork": "Abzweigen",
     "drift.thread.move": "Verschieben",
     "drift.thread.moveToWorkspace": "In Arbeitsbereich verschieben",
     "drift.thread.new": "Neuer Thread",

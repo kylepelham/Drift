@@ -1418,6 +1418,7 @@ export const drift = {
     "drift.thread.empty": "Aún no hay hilos",
     "drift.thread.loadMore": "Cargar {{count}} más",
     "drift.thread.showLess": "Mostrar menos",
+    "drift.thread.fork": "Bifurcar",
     "drift.thread.move": "Mover",
     "drift.thread.moveToWorkspace": "Mover al espacio de trabajo",
     "drift.thread.new": "Nuevo hilo",

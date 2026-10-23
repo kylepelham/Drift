@@ -1376,6 +1376,7 @@ export const drift = {
     "drift.thread.empty": "ยังไม่มีเธรด",
     "drift.thread.loadMore": "โหลดเพิ่มอีก {{count}}",
     "drift.thread.showLess": "แสดงน้อยลง",
+    "drift.thread.fork": "แยก",
     "drift.thread.move": "ย้าย",
     "drift.thread.moveToWorkspace": "ย้ายไปยังพื้นที่ทำงาน",
     "drift.thread.new": "เธรดใหม่",

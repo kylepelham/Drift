@@ -1410,6 +1410,7 @@ export const drift = {
     "drift.thread.empty": "Henüz konu yok",
     "drift.thread.loadMore": "{{count}} tane daha yükle",
     "drift.thread.showLess": "Daha az göster",
+    "drift.thread.fork": "Dallandır",
     "drift.thread.move": "Taşı",
     "drift.thread.moveToWorkspace": "Çalışma alanına taşı",
     "drift.thread.new": "Yeni konu",

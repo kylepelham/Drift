@@ -1344,6 +1344,7 @@ export const drift = {
     "drift.thread.empty": "暂无会话",
     "drift.thread.loadMore": "再加载 {{count}} 个",
     "drift.thread.showLess": "收起",
+    "drift.thread.fork": "分叉",
     "drift.thread.move": "移动",
     "drift.thread.moveToWorkspace": "移至工作区",
     "drift.thread.new": "新建会话",

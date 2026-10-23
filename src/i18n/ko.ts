@@ -1385,6 +1385,7 @@ export const drift = {
     "drift.thread.empty": "아직 스레드가 없습니다",
     "drift.thread.loadMore": "{{count}}개 더 불러오기",
     "drift.thread.showLess": "간단히 보기",
+    "drift.thread.fork": "분기",
     "drift.thread.move": "이동",
     "drift.thread.moveToWorkspace": "작업 공간으로 이동",
     "drift.thread.new": "새 스레드",

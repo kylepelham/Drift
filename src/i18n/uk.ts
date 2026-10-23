@@ -1404,6 +1404,7 @@ export const drift = {
     "drift.thread.empty": "Гілок ще немає",
     "drift.thread.loadMore": "Завантажити ще {{count}}",
     "drift.thread.showLess": "Показати менше",
+    "drift.thread.fork": "Відгалузити",
     "drift.thread.move": "Перемістити",
     "drift.thread.moveToWorkspace": "Перемістити до робочого простору",
     "drift.thread.new": "Нова гілка",

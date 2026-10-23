@@ -1375,6 +1375,7 @@ export const drift = {
     "drift.thread.empty": "لا توجد محادثات بعد",
     "drift.thread.loadMore": "تحميل {{count}} أخرى",
     "drift.thread.showLess": "عرض أقل",
+    "drift.thread.fork": "تفريع",
     "drift.thread.move": "نقل",
     "drift.thread.moveToWorkspace": "نقل إلى مساحة عمل",
     "drift.thread.new": "محادثة جديدة",

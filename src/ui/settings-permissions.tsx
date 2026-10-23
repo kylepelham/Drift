@@ -239,7 +239,7 @@ function GrantsGroup() {
                                                     type="button"
                                                     title={t("drift.permissions.revoke")}
                                                     aria-label={t("drift.permissions.revoke")}
-                                                    class="flex size-6 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover/grant:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 disabled:opacity-30"
+                                                    class="touch-reveal flex size-6 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover/grant:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 disabled:opacity-30"
                                                     disabled={busy()}
                                                     onClick={() =>
                                                         void run(() =>

@@ -1410,6 +1410,7 @@ export const drift = {
     "drift.thread.empty": "Веток пока нет",
     "drift.thread.loadMore": "Загрузить ещё {{count}}",
     "drift.thread.showLess": "Показать меньше",
+    "drift.thread.fork": "Ответвить",
     "drift.thread.move": "Переместить",
     "drift.thread.moveToWorkspace": "Переместить в рабочее пространство",
     "drift.thread.new": "Новая ветка",
