@@ -1,5 +1,5 @@
-import { backgroundRun, delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } from "./tool-delegation";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
+import { backgroundRun, delegatedChildId, delegatedTaskStatus } from "./tool-delegation";
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
@@ -227,14 +227,16 @@ export function ToolView(props: { part: ToolPart }) {
     const timeout = () => shellTimeoutStatus(props.part);
 
     const activate = () => {
-        if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
-            selectSession(spawnedId()!);
+        const childId = spawnedId();
+        if (childId) {
+            selectSession(childId);
             return;
         }
         activateToolHeader(toggleOpen);
     };
 
-    const inlineExpanded = () => expanded() && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand";
+    // A delegated row with a session always opens it; only one without a session shows its result inline.
+    const inlineExpanded = () => expanded() && !spawnedId();
 
     return (
         <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
@@ -351,12 +353,7 @@ export function ToolView(props: { part: ToolPart }) {
                         </span>
                     )}
                 </Show>
-                <Show
-                    when={
-                        toolChevronVisible(active(), delegated()) &&
-                        delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"
-                    }
-                >
+                <Show when={toolChevronVisible(active(), delegated()) && !spawnedId()}>
                     <span class="tool-row-chevron flex shrink-0">
                         <Chevron open={inlineExpanded()} />
                     </span>

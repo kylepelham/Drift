@@ -210,6 +210,8 @@ Automatic reads (embedded images and nested document links) keep the original wo
 Spawned-thread tool rows finish when the spawn call succeeds, independently of the
 sibling's later activity or errors. Only subagent task rows display live child tool
 counts; spawn rows retain their receipt and navigation link without ongoing progress.
+Clicking a subagent or spawn row opens its session, running or finished; only a row that
+never got a session (a call refused before it started) expands to show its output.
 
 General settings persist file preview mode as All, None, or Custom, with All the default.
 Custom keeps a toggle for each type; switching modes preserves those choices. Filename

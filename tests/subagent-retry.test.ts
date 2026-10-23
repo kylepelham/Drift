@@ -51,7 +51,7 @@ test("parent delegated status follows ordinary child errors, resumed work, and c
 });
 
 test("a live delegated part overrides an older completion marker", async () => {
-    const { delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/tool-delegation");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("transcripts", "parent", [
         {
@@ -71,7 +71,6 @@ test("a live delegated part overrides an older completion marker", async () => {
     const live = { sessionId: "parent", name: "task", status: "running", input: {}, startedAt: 1 } as never;
     const status = delegatedTaskStatus(state, live, "child");
     expect(status).toBe("running");
-    expect(delegatedTaskClickPolicy(status, "child")).toBe("navigate");
 });
 
 function taskPart(id: string, output: string): ToolPart {
@@ -93,7 +92,7 @@ function taskPart(id: string, output: string): ToolPart {
 }
 
 test("finished task cards do not follow a resumed child session's busy, retry, or error state", async () => {
-    const { delegatedTaskStatus, delegatedTaskClickPolicy } = await import("../src/ui/tool-delegation");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const { toolElapsedMs } = await import("../src/ui/tool-duration");
     const [state, set] = createEngineState();
     const original = taskPart(
@@ -113,8 +112,6 @@ test("finished task cards do not follow a resumed child session's busy, retry, o
         const current = delegatedTaskStatus(state, resumed, "child");
         expect(previous).toBe("completed");
         expect(current).toBe("running");
-        expect(delegatedTaskClickPolicy(previous, "child")).toBe("expand");
-        expect(delegatedTaskClickPolicy(current, "child")).toBe("navigate");
         expect(toolElapsedMs(toolDisplay(original), 100)).toBe(1);
         expect(toolElapsedMs(toolDisplay(resumed), 100)).toBe(97);
     }
@@ -279,8 +276,7 @@ test("background cards ignore another invocation's tool output while awaiting th
 });
 
 test("a running delegated row recovers its child when parallel task metadata is missing", async () => {
-    const { delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } =
-        await import("../src/ui/tool-delegation");
+    const { delegatedChildId, delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     putSession(set, {
         id: "child",
@@ -301,7 +297,6 @@ test("a running delegated row recovers its child when parallel task metadata is 
     const status = delegatedTaskStatus(state, part, childId!);
     expect(childId).toBe("child");
     expect(status).toBe("running");
-    expect(delegatedTaskClickPolicy(status, childId)).toBe("navigate");
 
     putSession(set, {
         id: "duplicate",
@@ -340,14 +335,10 @@ test("a continued task call without metadata resolves its task id to the session
     expect(delegatedChildId(state, continued("task_gone"))).toBeNull();
 });
 
-test("running delegated rows navigate while terminal rows expand without lifecycle badges", async () => {
-    const { delegatedTaskClickPolicy } = await import("../src/ui/tool-delegation");
-    expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate");
-    expect(delegatedTaskClickPolicy("completed", "child")).toBe("expand");
-    expect(delegatedTaskClickPolicy("error", "child")).toBe("expand");
-
+test("a delegated row with a session opens it whether running or finished", async () => {
     const source = await Bun.file("src/ui/tool-view.tsx").text();
-    expect(source).toContain("selectSession(spawnedId()!)");
+    expect(source).toContain("selectSession(childId)");
+    expect(source).toContain("const inlineExpanded = () => expanded() && !spawnedId();");
     expect(source).toContain("function spawnedId()");
     expect(source).not.toContain("const spawnedId =");
 });
