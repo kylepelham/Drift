@@ -206,85 +206,87 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     };
 
     return (
-        <Show
-            when={clarification()}
-            fallback={
-                <>
-                    <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
-                    <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
-                    <For each={updates()}>{(part) => <InstructionUpdateRow part={part} />}</For>
-                    <For each={resumed()}>{(part) => <ResumedRow part={part} />}</For>
-                    <Show when={text() || files().length > 0}>
-                        <div class="group flex flex-col items-end gap-1.5">
-                            <Show when={files().length > 0}>
-                                <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-                                    <For each={files()}>
-                                        {(file) => (
-                                            <FilePartView
-                                                part={file}
-                                                directory={engine.state.sessions[info().sessionId]?.directory}
-                                            />
-                                        )}
-                                    </For>
-                                </div>
-                            </Show>
-                            <Show when={text()}>
-                                <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-                                    <Show
-                                        when={!generated() && largeUserText(text())}
-                                        fallback={
-                                            <Markdown
-                                                text={text()}
-                                                directory={engine.state.sessions[info().sessionId]?.directory}
-                                                fileGroups={() =>
-                                                    citationFileGroups(engine.state, info().sessionId, info().id)
-                                                }
-                                                done
-                                                humanAuthored={!generated()}
-                                            />
-                                        }
-                                    >
-                                        <pre class="user-paste">{text()}</pre>
-                                    </Show>
-                                </div>
-                            </Show>
-                            <UserActions entry={props.entry} onRevert={revert} copy={text} />
-                        </div>
-                    </Show>
-                    <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
-                </>
-            }
-        >
-            {(answer) => (
-                <div class="group flex min-w-0 flex-col items-end gap-1.5">
-                    <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
-                        <Show
-                            when={answer().items.length}
-                            fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
-                        >
-                            <For each={answer().items}>
-                                {(item) => (
-                                    <div class="space-y-1">
-                                        <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
-                                            {item.question}
-                                        </div>
-                                        <div
-                                            data-find-ignore={item.answers.length ? undefined : ""}
-                                            class="whitespace-pre-wrap break-words text-ink"
-                                        >
-                                            {item.answers.length
-                                                ? item.answers.join(", ")
-                                                : t("drift.question.unanswered")}
-                                        </div>
+        <>
+            <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
+            <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
+            <For each={updates()}>{(part) => <InstructionUpdateRow part={part} />}</For>
+            <For each={resumed()}>{(part) => <ResumedRow part={part} />}</For>
+            <Show
+                when={clarification()}
+                fallback={
+                    <>
+                        <Show when={text() || files().length > 0}>
+                            <div class="group flex flex-col items-end gap-1.5">
+                                <Show when={files().length > 0}>
+                                    <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+                                        <For each={files()}>
+                                            {(file) => (
+                                                <FilePartView
+                                                    part={file}
+                                                    directory={engine.state.sessions[info().sessionId]?.directory}
+                                                />
+                                            )}
+                                        </For>
                                     </div>
-                                )}
-                            </For>
+                                </Show>
+                                <Show when={text()}>
+                                    <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
+                                        <Show
+                                            when={!generated() && largeUserText(text())}
+                                            fallback={
+                                                <Markdown
+                                                    text={text()}
+                                                    directory={engine.state.sessions[info().sessionId]?.directory}
+                                                    fileGroups={() =>
+                                                        citationFileGroups(engine.state, info().sessionId, info().id)
+                                                    }
+                                                    done
+                                                    humanAuthored={!generated()}
+                                                />
+                                            }
+                                        >
+                                            <pre class="user-paste">{text()}</pre>
+                                        </Show>
+                                    </div>
+                                </Show>
+                                <UserActions entry={props.entry} onRevert={revert} copy={text} />
+                            </div>
                         </Show>
-                    </NoteBox>
-                    <UserActions entry={props.entry} onRevert={revert} copy={text} />
-                </div>
-            )}
-        </Show>
+                        <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
+                    </>
+                }
+            >
+                {(answer) => (
+                    <div class="group flex min-w-0 flex-col items-end gap-1.5">
+                        <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
+                            <Show
+                                when={answer().items.length}
+                                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
+                            >
+                                <For each={answer().items}>
+                                    {(item) => (
+                                        <div class="space-y-1">
+                                            <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
+                                                {item.question}
+                                            </div>
+                                            <div
+                                                data-find-ignore={item.answers.length ? undefined : ""}
+                                                class="whitespace-pre-wrap break-words text-ink"
+                                            >
+                                                {item.answers.length
+                                                    ? item.answers.join(", ")
+                                                    : t("drift.question.unanswered")}
+                                            </div>
+                                        </div>
+                                    )}
+                                </For>
+                            </Show>
+                        </NoteBox>
+                        <UserActions entry={props.entry} onRevert={revert} copy={text} />
+                    </div>
+                )}
+            </Show>
+        </>
     );
 }
 
