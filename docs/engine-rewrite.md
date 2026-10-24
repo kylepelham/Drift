@@ -1391,7 +1391,9 @@ goal retires them.
     `timeout` and never start servers, and a `background: true` call is refused. Hand-off off, or
     background processes off: a command at its time limit is stopped and the call fails, as before.
     The time limit is the shell timeout; while hand-off is on its row reads "Move to the background
-    after".
+    after", and a model's `timeout` may only shorten it: a command never stays in front past the
+    setting (2.4.2; a merge verify passed `timeout` 60 minutes and held the turn 28 minutes past a
+    5-minute setting). With hand-off off a larger `timeout` still keeps a long build from being stopped.
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
     whole browser check: start the dev server, wait for its URL, look at the page, stop it. Only a
     local server's address counts (localhost, 127.0.0.1, 0.0.0.0 or [::1] with port 80 or 1024 and
