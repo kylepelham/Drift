@@ -23,7 +23,6 @@ import { ComposerAttention } from "./composer-attention";
 import { createWindowFileDrop } from "./composer-drop";
 import { appendDictation } from "../voice/transcript";
 import { activeWorkspace } from "../state/workspaces";
-import { ComposerAccount } from "./composer-account";
 import { stopReadAloud } from "../voice/read-aloud";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
@@ -526,7 +525,6 @@ export function Composer() {
                                 updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } });
                             }}
                         />
-                        <ComposerAccount session={selectedSession()} provider={model()?.providerID} />
                         <Show when={variants().length > 0}>
                             <Picker
                                 label={t("drift.composer.thinkingLevel")}

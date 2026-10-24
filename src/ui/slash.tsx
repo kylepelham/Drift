@@ -1,4 +1,5 @@
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { accountPresets, choosesAccount, setSessionAccount } from "./slash-account";
 import { previousUserMessage, resolveModel, savedChoice } from "../engine/store";
 import { activeWorkspace, archiveSession } from "../state/workspaces";
 import { selectedSession, selectSession } from "../state/selection";
@@ -63,6 +64,7 @@ const builtins: SlashItem[] = [
     { name: "undo", description: "command.session.undo.description", needsSession: true },
     { name: "redo", description: "command.session.redo.description", needsSession: true },
     { name: "compact", description: "command.session.compact.description", needsSession: true },
+    { name: "account", description: "drift.slash.account", needsSession: true, usage: "[auto|<account>]" },
     { name: "theme", description: "command.theme.cycle" },
     { name: "mcp", description: "drift.slash.mcp" },
 ];
@@ -92,9 +94,16 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
             literal: true,
         })),
     }));
+    const session = selectedSession();
     return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
-        .filter((item) => !item.needsSession || selectedSession())
-        .filter((item) => item.name.toLowerCase().startsWith(needle));
+        .filter((item) => !item.needsSession || session)
+        .filter((item) => item.name.toLowerCase().startsWith(needle))
+        .flatMap((item) => (item.name === "account" ? withAccounts(engine, item, session) : [item]));
+}
+
+/** `/account` lists the chat's provider's accounts as they stand now, and only when there is more than one. */
+function withAccounts(engine: Engine, item: SlashItem, session: string | null): SlashItem[] {
+    return choosesAccount(engine, session) ? [{ ...item, presets: accountPresets(engine, session) }] : [];
 }
 
 export function slashItem(engine: Engine, name: string) {
@@ -135,6 +144,8 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
             return spawnSession(engine, current, args);
         case "archive":
             return archiveCurrentSession(engine, current);
+        case "account":
+            return setSessionAccount(engine, current, args);
         case "compact":
             return engine.actions.summarize(
                 current,
