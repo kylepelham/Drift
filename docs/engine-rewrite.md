@@ -24,7 +24,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
 | Phone UI | Android and the companion share the frontend. Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings become a labeled full-screen list, pickers become sheets, and composer controls use separate rows. Touch targets and keyboard behavior adapt to coarse pointers; desktop layout remains unchanged. See `docs/android.md`. |
 | API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
-| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Model makers' own routes (`llm/makers.rs`): Meta on Responses over SSE, Moonshot (Kimi), DeepSeek and Alibaba (Qwen) on Chat Completions, MiniMax on Anthropic Messages, each with its regions and coding plans. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
@@ -2194,7 +2194,27 @@ code until he picks.
     Loaded tools go as plain functions, not namespaces, so a replayed call needs no `namespace`. Not
     yet verified against a live account.
   - Other wires get every tool as before. Gemini has no equivalent (googleapis/python-genai#2185).
-- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
+- Model makers' own APIs are catalog providers from models.dev (`llm::makers::ROUTES`, kept by
+  `catalog::listed`), each on the adapter for its wire, after opencode v2's routes:
+  - `meta`: Responses at `api.meta.ai/v1` (`OpenAi::sse`), never offered a WebSocket, which Meta
+    does not take. Its hosted web search and image tools are not used.
+  - `moonshotai`, `moonshotai-cn`, `kimi-code-plan-global` (`api.kimi.ai/coding/v1`) and
+    `kimi-code-plan-cn` (`api.kimi.com/coding/v1`): Chat Completions with `prompt_cache_key` from
+    the conversation, and tool schemas rewritten to what Moonshot's validator takes (an `enum`
+    gets its `type`, tuple `items` and `prefixItems` become one item schema, `$ref` stands alone),
+    as opencode's `moonshot` sanitizer does. Kimi's undocumented `reasoning_details` entries are
+    not read or replayed; `reasoning_content` is.
+  - `deepseek`: Chat Completions at `api.deepseek.com`.
+  - `minimax`, `minimax-cn` and their Token Plans: Anthropic Messages at `/anthropic` (models.dev
+    names it with `/v1`, which the route drops since the adapter adds `/v1/messages`).
+  - `alibaba`, `alibaba-cn` and their coding plans: Chat Completions on DashScope, with the cap as
+    `max_completion_tokens`, and Qwen models marked with `cache_control` on the system prompt and
+    the last turn (opencode's Qwen policy); other models DashScope hosts get no breakpoints.
+  - DeepSeek, Kimi and Qwen get `reasoning_content` on every assistant message, empty when the
+    reply kept none, as opencode sends it (`requireReasoning`).
+  - Regions opencode reaches by setting (Alibaba's Hong Kong and US hosts) are a `baseUrl` in
+    drift.json.
+- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Moonshot, DeepSeek, Alibaba) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
@@ -2497,6 +2517,13 @@ Settled after the first external review of M1; each has a regression test.
     thinking model (its thinking otherwise comes mixed into the answer, or not at all).
     Z.ai also always gets `thinking: {type: enabled, clear_thinking: false}`, so a turn's earlier
     reasoning is kept, as opencode sends it.
+  - A maker's model whose models.dev entry offers a `toggle` gets the levels `none` (thinking off)
+    before its others, and `thinking` (on) when it has no others, as opencode resolves them
+    (`catalog::with_switch`). Moonshot: `thinking: {type}` for a switch, `reasoning_effort` alone for
+    an effort (K3 always reasons). DeepSeek: `thinking: {type}` beside every level, with
+    `reasoning_effort`. Alibaba: `enable_thinking`, with `reasoning_effort` or `thinking_budget`
+    (budgets offered as on Anthropic's routes). MiniMax: `thinking: {type: adaptive}` or
+    `{type: disabled}`, and no effort levels, since opencode offers MiniMax only its switch.
 - With no level picked, the catalog decides what a request still asks for (`catalog::default_reasoning`,
   `verbosity`, `shows_thinking`, `sampling`), as opencode does: an OpenAI reasoning model that
   offers `medium` runs at it (its own default), so summaries come back; GPT reasoning models other

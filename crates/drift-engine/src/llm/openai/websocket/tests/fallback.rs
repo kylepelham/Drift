@@ -19,6 +19,16 @@ async fn an_endpoint_without_websockets_falls_back_to_sse_and_is_not_asked_again
 }
 
 #[tokio::test]
+async fn an_sse_only_host_is_never_offered_a_websocket() {
+    let mut h = fixture(Server::default(), None).await;
+    h.provider.sse_only = true;
+
+    collect(&h.provider, &request(), &key()).await;
+
+    assert_eq!((h.server.posts(), h.server.connections()), (1, 0), "Meta's Responses");
+}
+
+#[tokio::test]
 async fn refused_credentials_are_reported_not_retried_over_sse() {
     let h = fixture(Server::default(), Some(StatusCode::UNAUTHORIZED)).await;
 

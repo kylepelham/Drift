@@ -117,9 +117,10 @@ pub(super) fn request() -> Request {
 
 #[test]
 fn reasoning_goes_as_each_preset_takes_it() {
-    let reasoned = |reasoning, object| {
+    let reasoned = |reasoning, object: bool| {
         let mut body = json!({});
-        reason(&mut body, Some(&reasoning), object);
+        let thinking = if object { Thinking::Object } else { Thinking::Effort };
+        reason(&mut body, Some(&reasoning), thinking);
         body
     };
     let effort = || Reasoning::Effort { level: "high".into() };

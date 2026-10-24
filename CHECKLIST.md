@@ -409,6 +409,8 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Compaction as a policy (automatic, earlier, later) with each model's point shown, and a size per model in its details sheet
 - [x] Model settings beside visibility toggles: capability chips, token limits and a price table; short settings descriptions
 - [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > Execution
+- [x] Model makers' own APIs, after opencode v2's routes: Meta (Responses over SSE), Moonshot and Kimi Code, DeepSeek, MiniMax and its Token Plans (Messages), Alibaba and its coding plans (DashScope); thinking switches offered as `none` and `thinking` where models.dev gives a toggle; Kimi schemas sanitized, Qwen cached at breakpoints; MiniMax Token Plan usage and Kimi Code's China region in usage limits
+- [ ] Second tier: Xiaomi and StepFun catalogue routes, Mistral with its 9-character tool ids
 
 ## Parity with Claude Code, Codex and opencode
 

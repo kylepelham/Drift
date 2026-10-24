@@ -1215,6 +1215,7 @@ export const drift = {
     "drift.reasoning.thinking": "Düşünüyor",
     "drift.reasoning.thought": "Düşünce",
     "drift.reasoning.level.none": "Yok",
+    "drift.reasoning.level.thinking": "Düşünme",
     "drift.reasoning.level.minimal": "En az",
     "drift.reasoning.level.low": "Düşük",
     "drift.reasoning.level.medium": "Orta",

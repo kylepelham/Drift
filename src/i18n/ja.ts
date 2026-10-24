@@ -1215,6 +1215,7 @@ export const drift = {
     "drift.reasoning.thinking": "思考中",
     "drift.reasoning.thought": "思考",
     "drift.reasoning.level.none": "なし",
+    "drift.reasoning.level.thinking": "思考",
     "drift.reasoning.level.minimal": "最小限",
     "drift.reasoning.level.low": "低",
     "drift.reasoning.level.medium": "中",

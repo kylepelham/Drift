@@ -1232,6 +1232,7 @@ export const drift = {
     "drift.reasoning.thinking": "Denkt nach",
     "drift.reasoning.thought": "Gedanke",
     "drift.reasoning.level.none": "Keine",
+    "drift.reasoning.level.thinking": "Denken",
     "drift.reasoning.level.minimal": "Minimal",
     "drift.reasoning.level.low": "Niedrig",
     "drift.reasoning.level.medium": "Mittel",

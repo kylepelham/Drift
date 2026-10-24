@@ -162,11 +162,18 @@ limits, one block per account under the provider when it has several (its label,
 | `zai-coding-plan`, `zhipuai-coding-plan` | Coding Plan key | `/api/monitor/usage/quota/limit` | 5-hour and weekly token limits |
 | `opencode-go` | Go key | `opencode.ai/zen/go/v1/usage` | rolling, weekly, monthly |
 | `xai` | Grok OAuth | `cli-chat-proxy.grok.com/v1/billing?format=credits` | current credit period |
-| `kimi-code-plan-global` | Kimi Code key | `api.kimi.com/coding/v1/usages` | 5-hour, weekly, monthly |
+| `kimi-code-plan-global`, `kimi-code-plan-cn` | Kimi Code key | `api.kimi.ai/coding/v1/usages` (`api.kimi.com` for China) | 5-hour, weekly, monthly |
+| `minimax-coding-plan`, `minimax-cn-coding-plan` | Token Plan key | `api.minimax.io/v1/token_plan/remains` (`api.minimaxi.com` for China) | 5-hour and weekly, text lane only |
 | `github-copilot` | GitHub OAuth | `api.github.com/copilot_internal/user` | monthly premium requests and chat |
 
 These are private product endpoints, so response shapes can change without notice. The
 Anthropic, OpenAI, and z.ai parsers were checked against live responses on 2026-09-28. The
 other parsers follow CodexBar's source and fixtures. API keys for Anthropic and OpenAI
-have no plan windows, so no section is shown for them. MiniMax is left out because its
-wire units are unconfirmed, and Gemini because it has no suitable endpoint.
+have no plan windows, so no section is shown for them. MiniMax reports what is left of each model
+lane (`current_interval_usage_count` is the remaining count, as CodexBar reads it); only the text
+lane (`general`, or a MiniMax-M model on older plans) is shown, and a lane or week the plan leaves
+out or unlimited (status 3, all left) is no window. Its older coding-plan path
+(`/v1/api/openplatform/coding_plan/remains`), which CodexBar tries second, is not asked. Gemini is
+left out because it has no suitable endpoint; DeepSeek and Moonshot report a balance, not plan
+windows; Alibaba's coding plan quota is a console call that often needs a browser session, so it
+is left out too.

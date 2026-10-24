@@ -672,6 +672,23 @@ mod tests {
             assert_eq!(body["output_config"]["effort"], "xhigh");
             assert!(body["thinking"].get("budget_tokens").is_none() && body.get("temperature").is_none());
         }
+
+        #[test]
+        fn a_thinking_switch_turns_adaptive_thinking_on_or_off() {
+            let mut request = request();
+            request.temperature = Some(1.0);
+            request.reasoning = Some(Reasoning::Effort {
+                level: "thinking".into(),
+            });
+            let on = body(&request);
+            assert_eq!(on["thinking"], json!({ "type": "adaptive" }));
+            assert!(on.get("output_config").is_none() && on.get("temperature").is_none());
+
+            request.reasoning = Some(Reasoning::Effort { level: "none".into() });
+            let off = body(&request);
+            assert_eq!(off["thinking"], json!({ "type": "disabled" }));
+            assert_eq!(off["temperature"], 1.0);
+        }
     }
 
     mod streams {

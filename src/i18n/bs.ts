@@ -1209,6 +1209,7 @@ export const drift = {
     "drift.reasoning.thinking": "Razmišljanje",
     "drift.reasoning.thought": "Misao",
     "drift.reasoning.level.none": "Nema",
+    "drift.reasoning.level.thinking": "Razmišljanje",
     "drift.reasoning.level.minimal": "Minimalno",
     "drift.reasoning.level.low": "Nisko",
     "drift.reasoning.level.medium": "Srednje",

@@ -15,6 +15,7 @@ pub mod google;
 pub mod http;
 pub mod limits;
 pub mod local;
+pub mod makers;
 pub mod mask;
 pub(crate) mod multipart;
 mod oauth_error;
@@ -803,6 +804,13 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
     let override_url = std::env::var(env_name).ok().or_else(|| catalog_api.map(str::to_string));
     let base = |default: &str| override_url.clone().unwrap_or_else(|| default.to_string());
+    if let Some((maker, default)) = makers::route(id) {
+        return Some(
+            maker
+                .provider(&base(default))
+                .with_timeouts(http::Timeouts::for_route(id)),
+        );
+    }
 
     let provider = match id {
         "anthropic" => Provider::Anthropic(

@@ -1197,6 +1197,7 @@ export const drift = {
     "drift.reasoning.thinking": "생각 중",
     "drift.reasoning.thought": "생각",
     "drift.reasoning.level.none": "없음",
+    "drift.reasoning.level.thinking": "생각",
     "drift.reasoning.level.minimal": "최소",
     "drift.reasoning.level.low": "낮음",
     "drift.reasoning.level.medium": "보통",

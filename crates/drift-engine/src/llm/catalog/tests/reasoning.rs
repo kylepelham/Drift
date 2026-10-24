@@ -222,3 +222,48 @@ fn deferred_tools_go_to_claude_4_5_and_gpt_5_4_and_later_where_their_wire_carrie
     assert!(tool_search_for("openai", "gpt-5.4-mini") && tool_search_for("openai", "gpt-6.1-sol"));
     assert!(!tool_search_for("openai", "gpt-5.3-codex") && !tool_search_for("openai", "o4-mini"));
 }
+
+#[test]
+fn a_makers_toggle_offers_its_switch_beside_the_levels_it_has() {
+    let names = |provider: &str, model: &str, options: serde_json::Value| {
+        let options: Vec<serde_json::Value> = serde_json::from_value(options).unwrap();
+        variants_for(provider, model, 131_072, &options)
+            .into_iter()
+            .map(|variant| variant.name)
+            .collect::<Vec<_>>()
+    };
+    let toggle = serde_json::json!([{ "type": "toggle" }]);
+
+    assert_eq!(names("moonshotai", "kimi-k2.6", toggle.clone()), ["none", "thinking"]);
+    assert_eq!(
+        names(
+            "deepseek",
+            "deepseek-v4-pro",
+            serde_json::json!([{ "type": "toggle" }, { "type": "effort", "values": ["low", "high", "max"] }])
+        ),
+        ["none", "low", "high", "max"]
+    );
+    assert_eq!(
+        names(
+            "alibaba",
+            "qwen-plus",
+            serde_json::json!([{ "type": "toggle" }, { "type": "budget_tokens", "max": 81920 }])
+        ),
+        ["none", "high", "max"]
+    );
+    assert_eq!(names("minimax", "MiniMax-M3", toggle.clone()), ["none", "thinking"]);
+    assert!(
+        names(
+            "minimax",
+            "MiniMax-M3.1-Flash",
+            serde_json::json!([{ "type": "effort", "values": ["low", "high"] }])
+        )
+        .is_empty(),
+        "MiniMax takes only its switch"
+    );
+    assert!(
+        names("zai", "glm-4.6v", toggle).is_empty(),
+        "other routes keep ignoring toggles"
+    );
+    assert!(Catalog::bundled().model("meta", "muse-spark-1.3").is_some());
+}

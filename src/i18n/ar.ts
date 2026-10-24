@@ -1188,6 +1188,7 @@ export const drift = {
     "drift.reasoning.thinking": "جارٍ التفكير",
     "drift.reasoning.thought": "فكرة",
     "drift.reasoning.level.none": "بلا",
+    "drift.reasoning.level.thinking": "تفكير",
     "drift.reasoning.level.minimal": "أدنى",
     "drift.reasoning.level.low": "منخفض",
     "drift.reasoning.level.medium": "متوسط",

@@ -1192,6 +1192,7 @@ export const drift = {
     "drift.reasoning.thinking": "กำลังคิด",
     "drift.reasoning.thought": "ความคิด",
     "drift.reasoning.level.none": "ไม่มี",
+    "drift.reasoning.level.thinking": "การคิด",
     "drift.reasoning.level.minimal": "น้อยที่สุด",
     "drift.reasoning.level.low": "ต่ำ",
     "drift.reasoning.level.medium": "ปานกลาง",
