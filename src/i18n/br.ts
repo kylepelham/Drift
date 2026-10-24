@@ -777,6 +777,7 @@ export const drift = {
     "drift.plugins.category.workflow": "Fluxo de trabalho",
     "drift.plugins.category.context": "Contexto",
     "drift.plugins.category.notify": "Avisos",
+    "drift.plugins.category.languages": "Linguagens",
     "drift.plugins.install": "Instalar",
     "drift.plugins.installing": "Instalando...",
     "drift.plugins.installedLabel": "Instalado",

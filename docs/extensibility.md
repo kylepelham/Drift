@@ -39,7 +39,7 @@ Drift's data.
 Settings > Plugins > Registry lists the plugins at
 [Drift-Plugins](https://github.com/kylepelham/Drift-Plugins): guard, protect-files, auto-format,
 lint-check, test-gate, notify, git-autocommit, git-context and tool-log, the hooks most people run
-in Claude Code, built as components. Cards show the plugin's picture (an SVG tile from the
+in Claude Code, built as components, and slang, a language plugin (category Languages). Cards show the plugin's picture (an SVG tile from the
 repository, through jsDelivr, since raw GitHub serves SVG as text), category, hooks and a line of
 description; the install sheet shows its config fields (text, comma-separated list, switch, number
 or JSON) with the registry's defaults, its size and a link to its source. Install fetches the
@@ -236,7 +236,10 @@ Drift does not know. Both exports are asked once, when the plugin loads.
   has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
 
 `plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and starts
-`roc_language_server` unless `config.server` names another command (empty turns it off).
+`roc_language_server` unless `config.server` names another command (empty turns it off). The
+registry's `slang` does the same for the Slang shading language, with Khronos' grammar and `slangd`.
+The app copies each grammar out of the engine store into plain data, since the syntax worker that
+tokenizes off the main thread is posted it and a store proxy cannot be posted.
 
 ## Skills
 

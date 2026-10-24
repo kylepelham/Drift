@@ -54,7 +54,7 @@ export type ConfigField = {
 type Registry = { version: number; plugins: RegistryPlugin[] };
 
 const registryUrl = "https://raw.githubusercontent.com/kylepelham/Drift-Plugins/main/registry.json";
-export const registryCategories = ["safety", "quality", "workflow", "context", "notify"] as const;
+export const registryCategories = ["safety", "quality", "workflow", "context", "notify", "languages"] as const;
 
 const CACHE_MS = 10 * 60 * 1000;
 const cached = new Map<string, { at: number; registry: Registry }>();

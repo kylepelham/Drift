@@ -739,6 +739,7 @@ export const drift = {
     "drift.plugins.category.workflow": "工作流程",
     "drift.plugins.category.context": "脈絡",
     "drift.plugins.category.notify": "通知",
+    "drift.plugins.category.languages": "語言",
     "drift.plugins.install": "安裝",
     "drift.plugins.installing": "安裝中...",
     "drift.plugins.installedLabel": "已安裝",

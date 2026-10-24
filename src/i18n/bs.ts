@@ -766,6 +766,7 @@ export const drift = {
     "drift.plugins.category.workflow": "Tok rada",
     "drift.plugins.category.context": "Kontekst",
     "drift.plugins.category.notify": "Obavijesti",
+    "drift.plugins.category.languages": "Jezici",
     "drift.plugins.install": "Instaliraj",
     "drift.plugins.installing": "Instaliranje...",
     "drift.plugins.installedLabel": "Instaliran",

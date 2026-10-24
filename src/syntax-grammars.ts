@@ -25,7 +25,9 @@ export function setPluginGrammars(grammars: readonly Grammar[]) {
     for (const grammar of grammars) {
         const name = grammar.name.toLowerCase();
         const id = `plugin-${name}`;
-        const registration = { ...grammar.grammar, name: id, aliases: [] } as unknown as LanguageRegistration;
+        // A plain copy, since the store's proxies cannot be posted to the syntax worker.
+        const copied = JSON.parse(JSON.stringify(grammar.grammar)) as object;
+        const registration = { ...copied, name: id, aliases: [] } as unknown as LanguageRegistration;
         for (const alias of [name, ...grammar.aliases.map((value) => value.toLowerCase())])
             if (!byName.has(alias)) byName.set(alias, { id, registration });
         for (const ending of grammar.extensions) byFile.push({ ending: ending.toLowerCase(), name });

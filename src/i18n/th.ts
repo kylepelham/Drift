@@ -754,6 +754,7 @@ export const drift = {
     "drift.plugins.category.workflow": "เวิร์กโฟลว์",
     "drift.plugins.category.context": "บริบท",
     "drift.plugins.category.notify": "แจ้งเตือน",
+    "drift.plugins.category.languages": "ภาษา",
     "drift.plugins.install": "ติดตั้ง",
     "drift.plugins.installing": "กำลังติดตั้ง...",
     "drift.plugins.installedLabel": "ติดตั้งแล้ว",

@@ -45,3 +45,15 @@ test("code in a plugin's language is highlighted with its grammar, as tokens and
     expect(plain.tokens.length, "a bundled language still goes through the shorthand").toBe(1);
     setPluginGrammars([]);
 });
+
+test("a grammar held in the engine's store reaches the syntax worker as a copy it can be posted", () => {
+    const proxied = (value: unknown): unknown =>
+        value && typeof value === "object"
+            ? new Proxy(value, { get: (target, key) => proxied(Reflect.get(target, key)) })
+            : value;
+    // The app's store proxies every object in it, as Solid's browser build does, and a proxy cannot be posted.
+    setPluginGrammars([{ ...grammar("roc", [".roc"]), grammar: proxied(roc) as typeof roc }]);
+
+    expect(() => structuredClone(pluginLanguage("roc")!.registration)).not.toThrow();
+    setPluginGrammars([]);
+});

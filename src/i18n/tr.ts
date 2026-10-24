@@ -769,6 +769,7 @@ export const drift = {
     "drift.plugins.category.workflow": "İş akışı",
     "drift.plugins.category.context": "Bağlam",
     "drift.plugins.category.notify": "Bildirim",
+    "drift.plugins.category.languages": "Diller",
     "drift.plugins.install": "Yükle",
     "drift.plugins.installing": "Yükleniyor...",
     "drift.plugins.installedLabel": "Yüklü",

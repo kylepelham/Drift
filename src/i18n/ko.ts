@@ -758,6 +758,7 @@ export const drift = {
     "drift.plugins.category.workflow": "워크플로",
     "drift.plugins.category.context": "컨텍스트",
     "drift.plugins.category.notify": "알림",
+    "drift.plugins.category.languages": "언어",
     "drift.plugins.install": "설치",
     "drift.plugins.installing": "설치 중...",
     "drift.plugins.installedLabel": "설치됨",
