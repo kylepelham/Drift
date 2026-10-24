@@ -24,6 +24,17 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         putSession(set, sessionInWorkspace(updated, workspaces()));
     }
 
+    /** The model the composer shows becomes the session's, as a sent prompt would make it, for a command to run on. */
+    async function useModel(id: string, model: ModelRef | null) {
+        const current = context.state.sessions[id]?.model;
+        if (!model || (current?.provider === model.providerID && current.model === model.modelID)) return;
+
+        const updated = await requireClient().updateSession(id, {
+            model: { provider: model.providerID, model: model.modelID },
+        });
+        putSession(set, sessionInWorkspace(updated, workspaces()));
+    }
+
     /** Archiving stops whatever the session is running, in the engine, before anything else hides it. */
     async function setArchived(id: string, archived: boolean) {
         const updated = await requireClient().updateSession(id, { archived });
@@ -281,6 +292,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
 
     return {
         rename,
+        useModel,
         setArchived,
         purgeSession,
         purgeArchivedSession,

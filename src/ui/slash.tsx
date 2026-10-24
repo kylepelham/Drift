@@ -4,10 +4,10 @@ import { previousUserMessage, resolveModel, savedChoice } from "../engine/store"
 import { activeWorkspace, archiveSession } from "../state/workspaces";
 import { selectedSession, selectSession } from "../state/selection";
 import { setTheme, theme, themes } from "../state/theme";
+import { prefsFor, seedPrefs } from "../state/prefs";
 import { emitThreadArchived } from "../plugins";
 import { archiveFailed } from "./workspaces";
 import { restoreReverted } from "./revert";
-import { prefsFor } from "../state/prefs";
 import { openMcpServers } from "./mcp";
 import { t } from "../state/i18n";
 
@@ -122,9 +122,13 @@ export function slashPresets(item: SlashItem, query: string) {
 export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     const current = selectedSession();
     if (item.engine) {
+        const model = resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model);
         const id = current ?? (await engine.actions.newSession())?.id;
         if (!id) return;
+        if (!current) seedPrefs(id);
         selectSession(id);
+        // A command's turn runs on the session's model, which a chat that has sent nothing yet does not have.
+        await engine.actions.useModel(id, model);
         return engine.actions.runCommand(id, item.name, args);
     }
 
