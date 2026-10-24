@@ -20,7 +20,26 @@ pub struct ReportFindings;
 struct Input {
     #[serde(default)]
     level: Option<String>,
+    #[serde(default)]
+    scope: Option<Scope>,
     findings: Vec<Reported>,
+}
+
+/// What a review looked at: a change, or the codebase as `/audit` reviews it.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Scope {
+    Changes,
+    Codebase,
+}
+
+impl Scope {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Changes => "changes",
+            Self::Codebase => "codebase",
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -50,6 +69,7 @@ impl Tool for ReportFindings {
                 "type": "object",
                 "properties": {
                     "level": { "type": "string", "description": "The review level that ran: low, medium, high or max." },
+                    "scope": { "type": "string", "enum": ["changes", "codebase"], "description": "What was reviewed: `codebase` for an `/audit` review, else `changes`." },
                     "findings": {
                         "type": "array",
                         "maxItems": MAX_FINDINGS,
@@ -108,6 +128,7 @@ impl Tool for ReportFindings {
                     count: Some(findings.len()),
                     findings: Some(findings),
                     level,
+                    scope: input.scope.map(|scope| scope.name().into()),
                     ..Default::default()
                 },
             })
@@ -217,6 +238,7 @@ mod tests {
         let absolute = sandbox.file("src/lib.rs", "fn a() {}\r\nfn b() { a(); }\n");
         let input = json!({
             "level": "High",
+            "scope": "codebase",
             "findings": [
                 {
                     "file": absolute.to_string_lossy(),
@@ -236,6 +258,7 @@ mod tests {
 
         assert_eq!(out.output, "2 findings reported.");
         assert_eq!(out.metadata.level.as_deref(), Some("high"));
+        assert_eq!(out.metadata.scope.as_deref(), Some("codebase"));
         assert_eq!(findings[0].file, "src/lib.rs");
         assert_eq!(
             findings[0].code.as_deref(),
@@ -272,6 +295,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!((none.title.as_str(), none.metadata.count), ("No findings", Some(0)));
+        assert!(none.metadata.scope.is_none());
 
         let many: Vec<Value> = (0..=MAX_FINDINGS).map(|_| finding("fixed")).collect();
         assert!(

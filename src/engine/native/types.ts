@@ -1511,7 +1511,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The workspace's files against `HEAD`, where the current branch left another, or one commit's own changes. */
+        /** The workspace's files against `HEAD`, where the current branch left another, one commit's own changes, or named files as they are. */
         get: operations["reviewWorkspace"];
         put?: never;
         post?: never;
@@ -2164,7 +2164,7 @@ export interface components {
             before: string;
         };
         /** @enum {string} */
-        FileStatus: "added" | "deleted" | "modified";
+        FileStatus: "added" | "deleted" | "modified" | "unchanged";
         /**
          * @description What became of a finding once fixes were applied.
          * @enum {string}
@@ -3508,6 +3508,7 @@ export interface components {
             restricted?: number | null;
             resultFile?: string | null;
             running?: boolean | null;
+            scope?: string | null;
             server?: string | null;
             sessionId?: string | null;
             /** Format: int64 */
@@ -6761,8 +6762,8 @@ export interface operations {
     reviewWorkspace: {
         parameters: {
             query: {
-                source: "uncommitted" | "branch" | "commit";
-                /** @description The branch for `branch`, the commit for `commit`. */
+                source: "uncommitted" | "branch" | "commit" | "files";
+                /** @description The branch for `branch`, the commit for `commit`, workspace-relative paths a line for `files`. */
                 target?: string | null;
             };
             header?: never;

@@ -145,6 +145,7 @@ metadata_fields! {
     references: Vec<String> => "references",
     findings: Vec<ReviewFinding> => "findings",
     level: String => "level",
+    scope: String => "scope",
 }
 
 /// One code review finding as `report_findings` recorded it.

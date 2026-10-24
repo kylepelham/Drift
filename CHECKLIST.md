@@ -417,6 +417,7 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Code review (`docs/code-review.md`, evidence in `docs/research/claude-desktop-2.42304.md`):
   - [x] `report_findings` tool: typed findings (file, line, summary, failure scenario, category, verdict, outcome) in the call's metadata, with each finding's line text recorded for anchoring
   - [x] `/review [low|medium|high|max] [target] [--fix] [--comment]` as a built-in skill: branch work plus uncommitted changes by default, finders grouped by diff size, a batched verify pass, a sweep at max, `REVIEW.md` and `AGENTS.md` conventions, `--fix` re-reports outcomes, `--comment` posts inline through `gh`
+  - [x] `/audit [low|medium|high|max] [path] [--fix]` as a built-in skill: the whole codebase or one path as it is now, surveyed by the engine into areas balanced across finders, hot spots by churn and size, the same verify, sweep and findings card, walked through on a `files` review source
   - [x] Findings card in the transcript: grouped by file, outcomes, Walk through in diff, Apply fixes, Re-run review
   - [x] Findings layer in the review panel: annotations under their lines, a stepper, Dismiss, and findings whose line moved or changed marked as such
 - [ ] `/security-review`: the same flow with a security-focused prompt

@@ -1,6 +1,7 @@
 //! `/review`: the engine's own skill. It renders review instructions for the workspace's changes or a named
 //! target, at a level that sets how many finder subagents run, and the model reports through `report_findings`.
 
+pub mod audit;
 mod scope;
 #[cfg(test)]
 mod tests;
@@ -61,6 +62,16 @@ impl Level {
             Self::Medium => 8,
             Self::High => 10,
             Self::Max => 15,
+        }
+    }
+
+    /// Which verified candidates survive.
+    fn keep(self) -> &'static str {
+        if self == Self::Medium {
+            "Keep confirmed findings, and plausible ones only where the failure would lose data, corrupt state or open \
+             a security hole: at this level precision matters more than coverage."
+        } else {
+            "Keep confirmed and plausible findings: at this level coverage matters more than precision."
         }
     }
 }
@@ -125,14 +136,9 @@ pub async fn instructions(workspace: &Path, arguments: &str) -> String {
 /// `scope` is `None` when the request names a target.
 fn render(request: &Request, scope: Option<&Scope>) -> String {
     let level = request.level;
-    let edits = if request.fix {
-        "Edit nothing until the findings are reported; the Fix section below says what to do then."
-    } else {
-        "Do not edit, write or format any file, and do not commit: this is a review only."
-    };
     let mut sections = vec![fill(
         include_str!("prompts/intro.md"),
-        &[("level", level.name()), ("edits", edits)],
+        &[("level", level.name()), ("edits", edits(request.fix))],
     )];
 
     let lines = match scope {
@@ -163,9 +169,22 @@ fn render(request: &Request, scope: Option<&Scope>) -> String {
 
     sections.push(include_str!("prompts/conventions.md").into());
     sections.push(method(level, lines));
-    sections.extend(closing(request));
+    sections.push(report(level, "", level.cap(), "the change"));
+    if request.comment {
+        sections.push(include_str!("prompts/comment.md").into());
+    }
+    sections.push(after(request.fix, "change"));
 
     sections.join("\n").trim_end().to_string()
+}
+
+/// What the main agent may change while it reviews.
+fn edits(fix: bool) -> &'static str {
+    if fix {
+        "Edit nothing until the findings are reported; the Fix section below says what to do then."
+    } else {
+        "Do not edit, write or format any file, and do not commit: this is a review only."
+    }
 }
 
 fn finish(mut sections: Vec<String>, scope: &str) -> String {
@@ -192,50 +211,49 @@ fn method(level: Level, lines: Option<usize>) -> String {
     if level == Level::Max {
         angles = format!("{angles}\n{}", include_str!("prompts/angles_max.md").trim_end());
     }
-    let keep = if level == Level::Medium {
-        "Keep confirmed findings, and plausible ones only where the failure would lose data, corrupt state or open \
-         a security hole: at this level precision matters more than coverage."
-    } else {
-        "Keep confirmed and plausible findings: at this level coverage matters more than precision."
-    };
 
-    let text = fill(
+    let find = fill(
         include_str!("prompts/pipeline.md"),
-        &[("finders", &finders), ("angles", &angles), ("keep", keep)],
+        &[("finders", &finders), ("angles", &angles)],
     );
-    if level == Level::Max {
-        return format!("{text}\n{}", include_str!("prompts/sweep.md"));
-    }
-    text
+    format!("{find}\n{}", checks(level))
 }
 
-/// The report, then posting, then fixing or the reminder to report outcomes later.
-fn closing(request: &Request) -> Vec<String> {
-    let verdict = if request.level == Level::Low {
+/// The verify step, then at max the sweep.
+fn checks(level: Level) -> String {
+    let verify = fill(include_str!("prompts/verify.md"), &[("keep", level.keep())]);
+    if level == Level::Max {
+        return format!("{verify}\n{}", include_str!("prompts/sweep.md"));
+    }
+    verify
+}
+
+/// The report section; `scope` follows the level in its call and `subject` is what its last sentence is on.
+fn report(level: Level, scope: &str, cap: usize, subject: &str) -> String {
+    let verdict = if level == Level::Low {
         ""
     } else {
         ", with `verdict` from the verify step"
     };
-    let mut sections = vec![fill(
+    fill(
         include_str!("prompts/report.md"),
         &[
-            ("level", request.level.name()),
-            ("cap", &request.level.cap().to_string()),
+            ("level", level.name()),
+            ("scope", scope),
+            ("cap", &cap.to_string()),
             ("verdict", verdict),
+            ("subject", subject),
         ],
-    )];
+    )
+}
 
-    if request.comment {
-        sections.push(include_str!("prompts/comment.md").into());
-    }
-    let after = if request.fix {
-        include_str!("prompts/fix.md")
+/// Fixing the findings, or the reminder to report outcomes later; `subject` is what a fix must not undo.
+fn after(fix: bool, subject: &str) -> String {
+    if fix {
+        fill(include_str!("prompts/fix.md"), &[("subject", subject)])
     } else {
-        include_str!("prompts/afterwards.md")
-    };
-    sections.push(after.into());
-
-    sections
+        include_str!("prompts/afterwards.md").into()
+    }
 }
 
 /// `{key}` replaced by its value for each pair; braces naming anything else stay, as `gh api` reads them.

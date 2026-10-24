@@ -139,6 +139,7 @@ function ReviewSummary(props: { review: Review; onFold: (fold: Fold) => void }) 
         ),
     );
     const count = () => props.review.files.length + (props.review.omitted ?? 0);
+    const changed = () => props.review.files.some((file) => file.status !== "unchanged");
     const toggle = () => {
         const next = !open();
         setOpen(next);
@@ -150,9 +151,12 @@ function ReviewSummary(props: { review: Review; onFold: (fold: Fold) => void }) 
             <span class="text-ink-muted">
                 {t(count() === 1 ? "drift.review.files.one" : "drift.review.files.other", { count: count() })}
             </span>
-            <span class="font-mono">
-                <span class="text-ok">+{total().additions}</span> <span class="text-danger">-{total().deletions}</span>
-            </span>
+            <Show when={changed()}>
+                <span class="font-mono">
+                    <span class="text-ok">+{total().additions}</span>{" "}
+                    <span class="text-danger">-{total().deletions}</span>
+                </span>
+            </Show>
             <span class="flex-1" />
             <button
                 class="rounded px-1.5 py-0.5 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
@@ -301,16 +305,18 @@ function FileDiff(props: { file: ReviewFile; fold?: Fold; findings: FindingsLaye
                         <span class="text-ink-faint">{parts().folder}</span>
                         <span class="text-ink">{parts().name}</span>
                     </span>
-                    <Show when={props.file.status !== "modified"}>
+                    <Show when={props.file.status === "added" || props.file.status === "deleted"}>
                         <span class="shrink-0 text-xs text-ink-faint">
                             {t(props.file.status === "added" ? "drift.file.created" : "drift.file.deleted")}
                         </span>
                     </Show>
                     <span class="flex-1" />
-                    <span class="shrink-0 font-mono text-xs">
-                        <span class="text-ok">+{props.file.additions}</span>{" "}
-                        <span class="text-danger">-{props.file.deletions}</span>
-                    </span>
+                    <Show when={props.file.status !== "unchanged"}>
+                        <span class="shrink-0 font-mono text-xs">
+                            <span class="text-ok">+{props.file.additions}</span>{" "}
+                            <span class="text-danger">-{props.file.deletions}</span>
+                        </span>
+                    </Show>
                 </button>
                 <Show when={openable()}>
                     {(location) => (

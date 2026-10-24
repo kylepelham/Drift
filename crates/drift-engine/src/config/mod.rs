@@ -68,6 +68,8 @@ pub struct Skill {
 pub enum Builtin {
     /// `/review`, rendered by [`crate::code_review`].
     Review,
+    /// `/audit`, rendered by [`crate::code_review::audit`].
+    Audit,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -198,11 +200,12 @@ impl Config {
 
     /// The engine's skills, each unless a skill or command of the user's, the project's or a bundle's has its name.
     fn add_builtin_skills(&mut self) {
-        let review = crate::code_review::skill();
-        let taken = self.skills.iter().any(|skill| skill.name == review.name)
-            || self.commands.iter().any(|command| command.name == review.name);
-        if !taken {
-            self.skills.push(review);
+        for builtin in [crate::code_review::skill(), crate::code_review::audit::skill()] {
+            let taken = self.skills.iter().any(|skill| skill.name == builtin.name)
+                || self.commands.iter().any(|command| command.name == builtin.name);
+            if !taken {
+                self.skills.push(builtin);
+            }
         }
     }
 
