@@ -271,3 +271,9 @@ fn only_a_public_address_without_credentials_goes_to_a_provider() {
         assert!(!super::public(url), "{url}");
     }
 }
+
+#[tokio::test]
+async fn a_name_that_resolves_to_a_private_address_stays_on_this_machine() {
+    assert!(!super::resolves_public("http://localhost:3000/").await);
+    assert!(super::resolves_public("https://drift-unresolvable.invalid/").await);
+}

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable, TypedFunc};
-use wasmtime::{Cache, CacheConfig, Config, Engine, Store, UpdateDeadline};
+use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use super::settings::{Choice, Pair, Setting, SettingKind};
@@ -32,6 +32,7 @@ use bindings::drift::plugin::types as wit;
 /// A hook call gets this much of its own running time; host calls add theirs. The epoch ticks every 100 ms.
 const EPOCH_TICK: Duration = Duration::from_millis(100);
 const CALL_BUDGET: Duration = Duration::from_secs(5);
+const MEMORY_BYTES: usize = 512 * 1024 * 1024;
 const WASM_PACKAGE: &str = "drift:plugin/";
 
 struct State {
@@ -45,6 +46,7 @@ struct State {
     settings: Vec<Setting>,
     wasi: WasiCtx,
     table: ResourceTable,
+    limits: StoreLimits,
 }
 
 impl WasiView for State {
@@ -110,9 +112,11 @@ impl Runtime {
             settings: Vec::new(),
             wasi: WasiCtxBuilder::new().inherit_stderr().build(),
             table: ResourceTable::new(),
+            limits: StoreLimitsBuilder::new().memory_size(MEMORY_BYTES).build(),
         };
 
         let mut store = Store::new(&self.engine, state);
+        store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(1);
         store.epoch_deadline_callback(|store| {
             if Instant::now() < store.data().deadline {

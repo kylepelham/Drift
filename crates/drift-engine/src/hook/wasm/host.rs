@@ -46,7 +46,19 @@ impl State {
         }
 
         let filename = joined.file_name().ok_or(HostError::NoPath)?;
-        Ok(real_parent.join(filename))
+        let file = real_parent.join(filename);
+        if file.symlink_metadata().is_err() {
+            return Ok(file);
+        }
+        let real = std::fs::canonicalize(&file).map_err(|source| HostError::Path {
+            path: path.to_owned(),
+            source,
+        })?;
+        if !real.starts_with(&workspace) {
+            return Err(HostError::Outside(path.to_owned()));
+        }
+
+        Ok(real)
     }
 
     /// Time a host call took is the plugin's to keep, not charged against its own budget.

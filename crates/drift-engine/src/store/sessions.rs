@@ -325,11 +325,8 @@ pub(super) fn transaction<T>(
 ) -> rusqlite::Result<T> {
     connection.execute_batch("BEGIN")?;
 
-    match f(connection) {
-        Ok(value) => {
-            connection.execute_batch("COMMIT")?;
-            Ok(value)
-        }
+    match f(connection).and_then(|value| connection.execute_batch("COMMIT").map(|()| value)) {
+        Ok(value) => Ok(value),
         Err(error) => {
             let _ = connection.execute_batch("ROLLBACK");
             Err(error)

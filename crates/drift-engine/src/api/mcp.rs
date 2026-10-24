@@ -270,11 +270,14 @@ pub(super) async fn disconnect(
     Path(name): Path<String>,
     Query(query): Query<ConnectQuery>,
 ) -> Result<Json<ServerStatus>, ApiError> {
-    match query
-        .workspace
-        .as_deref()
-        .and_then(|id| Some((id, workspace_path(&engine, Some(id))?)))
-    {
+    let workspace = match query.workspace.as_deref() {
+        Some(id) => Some((
+            id,
+            workspace_path(&engine, Some(id)).ok_or_else(|| ApiError::not_found("workspace"))?,
+        )),
+        None => None,
+    };
+    match workspace {
         Some((id, path)) => {
             let off = |store: &crate::store::Store| store.set_mcp_choice(&name, id, false);
             if !engine

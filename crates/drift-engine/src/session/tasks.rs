@@ -544,7 +544,19 @@ impl Engine {
 
     /// Records how a worker ended, once; a later ending (a stop racing a reply) changes nothing.
     pub fn end_task(&self, task_id: &str, state: TaskState, text: &str) {
-        if self.store.finish_task(task_id, state, text).unwrap_or(false) {
+        let mut tries = 0;
+        let ended = loop {
+            tries += 1;
+            match self.store.finish_task(task_id, state, text) {
+                Ok(ended) => break ended,
+                Err(error) if tries == 3 => {
+                    eprintln!("drift: task {task_id} could not be recorded as ended: {error}");
+                    break false;
+                }
+                Err(_) => {}
+            }
+        };
+        if ended {
             self.publish_task(task_id);
         }
     }

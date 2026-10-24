@@ -138,7 +138,7 @@ fn visible_chars(html: &str) -> usize {
 /// must not leave this machine.
 async fn through_provider(ctx: &Context, url: &str) -> Option<Result<Output, String>> {
     // Tests serve the site and the provider both on loopback, which a real fallback never sends anywhere.
-    let allowed = public(url) || cfg!(test);
+    let allowed = cfg!(test) || (public(url) && resolves_public(url).await);
     if !allowed || !ctx.engine.web_scrape_available() {
         return None;
     }
@@ -183,6 +183,23 @@ fn public(url: &str) -> bool {
 
     let local = [".local", ".localhost", ".internal", ".lan", ".home.arpa"];
     host.contains('.') && !local.iter().any(|suffix| host.ends_with(suffix))
+}
+
+/// A public name that resolves to a private address here is a private host; one that does not resolve is
+/// judged by its name, as a provider may still reach a site this machine's DNS cannot.
+async fn resolves_public(url: &str) -> bool {
+    let Some((host, port)) = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|parsed| Some((parsed.host_str()?.to_owned(), parsed.port_or_known_default()?)))
+    else {
+        return false;
+    };
+    let lookup = tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host((host, port))).await;
+
+    match lookup {
+        Ok(Ok(mut addresses)) => addresses.all(|address| public_address(address.ip())),
+        _ => true,
+    }
 }
 
 fn public_address(address: std::net::IpAddr) -> bool {

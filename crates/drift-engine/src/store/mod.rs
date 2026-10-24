@@ -123,13 +123,18 @@ impl Store {
 
     /// Adds a directory, or restores and touches the row that already holds it.
     pub fn add_workspace(&self, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
+        // Paths differ only by case on the same folder where the file system ignores case, and nowhere else.
+        let same_path = if cfg!(any(windows, target_os = "macos")) {
+            "LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))"
+        } else {
+            "REPLACE(path, '\\', '/') = REPLACE(?1, '\\', '/')"
+        };
         let conn = self.lock();
         let existing: Option<String> = conn
-            .prepare_cached(
-                "SELECT id FROM workspace
-                 WHERE LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))
-                 ORDER BY (removed_at IS NULL) DESC, last_used DESC LIMIT 1",
-            )?
+            .prepare_cached(&format!(
+                "SELECT id FROM workspace WHERE {same_path}
+                 ORDER BY (removed_at IS NULL) DESC, last_used DESC LIMIT 1"
+            ))?
             .query_row([path], |row| row.get(0))
             .optional()?;
 
@@ -237,9 +242,15 @@ pub(crate) mod tests {
     fn same_directory_with_different_casing_or_slashes_is_one_workspace() {
         let store = store();
         let first = store.add_workspace("C:/Repo", "repo", "").unwrap();
-        let second = store.add_workspace("c:\\repo", "other", "").unwrap();
+        let second = store.add_workspace("C:\\Repo", "other", "").unwrap();
+        let cased = store.add_workspace("c:/repo", "cased", "").unwrap();
         assert_eq!(first.id, second.id);
-        assert_eq!(store.workspaces().unwrap().len(), 1);
+        let case_insensitive = cfg!(any(windows, target_os = "macos"));
+        assert_eq!(
+            first.id == cased.id,
+            case_insensitive,
+            "casing folds only where the file system does"
+        );
     }
 
     #[test]

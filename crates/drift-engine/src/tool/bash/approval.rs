@@ -108,7 +108,10 @@ fn path_reason(context: &Context, directory: &Path, word: &str) -> Option<Reason
     }
 
     // Check a glob's literal prefix so ../* is still judged as a path outside the workspace.
-    let word = word.split(['*', '?', '[']).next().unwrap_or_default();
+    let (word, pattern) = word.split_at(word.find(['*', '?', '[']).unwrap_or(word.len()));
+    if pattern.split(['/', '\\']).any(|segment| segment == "..") {
+        return Some(Reason::Outside);
+    }
     let value = word.split_once('=').map_or(word, |(_, value)| value);
     let parts = [word, value, value.rsplit_once(':').map_or(value, |(_, path)| path)];
 

@@ -1,6 +1,11 @@
 import { localePath, localeSource, loadCatalog, missingKeys } from "../scripts/i18n/catalog";
 import { checked, parseAnswer } from "../scripts/i18n/translate";
 import { expect, test } from "bun:test";
+import { t } from "../src/state/i18n";
+
+test("a value is put in as written, even one with replacement patterns in it", () => {
+    expect(t("drift.path.copied", { path: "C:/$$tmp/$&x" })).toBe("Copied C:/$$tmp/$&x");
+});
 
 test("a translation is kept only with the same placeholders, and an em dash becomes a hyphen", () => {
     expect(checked("{{count}} prompts waiting", "{{count}} Prompts warten")).toBe("{{count}} Prompts warten");

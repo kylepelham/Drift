@@ -51,12 +51,17 @@ pub(super) struct EventsQuery {
 
 /// Set by a host that serves the engine to others (the remote gateway): the socket closes once it is
 /// cancelled, as when the device that opened it is signed out, so nothing it holds outlives its access.
+/// The socket cancels it too when it ends, so the host can stop watching for that.
 #[derive(Clone, Default)]
 pub struct Lease(pub tokio_util::sync::CancellationToken);
 
 impl Lease {
     pub fn cancel(&self) {
         self.0.cancel();
+    }
+
+    pub async fn ended(&self) {
+        self.0.cancelled().await;
     }
 }
 
@@ -74,7 +79,10 @@ pub(super) async fn get(
     ws: WebSocketUpgrade,
 ) -> Response {
     let lease = lease.map(|axum::Extension(Lease(token))| token).unwrap_or_default();
-    ws.on_upgrade(move |socket| run(engine, socket, query.cursor, lease))
+    ws.on_upgrade(move |socket| async move {
+        let _ended = lease.clone().drop_guard();
+        run(engine, socket, query.cursor, lease).await;
+    })
 }
 
 struct Client {

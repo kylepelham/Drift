@@ -7,6 +7,7 @@ mod performance;
 
 use std::fmt::Write as _;
 
+use percent_encoding::{AsciiSet, CONTROLS, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Value, json};
 
 use super::image::Image;
@@ -17,6 +18,31 @@ use crate::llm::ToolSpec;
 const READS: &[&str] = &["snapshot", "screenshot", "zoom", "logs", "pages", "wait"];
 /// The most actions one batch runs.
 const MAX_BATCH: usize = 30;
+/// The URL standard's percent-encode sets, so a password an address spells encoded is still found.
+const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+const QUERY: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'#').add(b'<').add(b'>');
+const SPECIAL_QUERY: &AsciiSet = &QUERY.add(b'\'');
+const PATH: &AsciiSet = &QUERY.add(b'?').add(b'^').add(b'`').add(b'{').add(b'}');
+const USERINFO: &AsciiSet = &PATH
+    .add(b'/')
+    .add(b':')
+    .add(b';')
+    .add(b'=')
+    .add(b'@')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'|');
+const COMPONENT: &AsciiSet = &USERINFO.add(b'$').add(b'%').add(b'&').add(b'+').add(b',');
+const ENCODINGS: [&AsciiSet; 7] = [
+    FRAGMENT,
+    QUERY,
+    SPECIAL_QUERY,
+    PATH,
+    USERINFO,
+    COMPONENT,
+    NON_ALPHANUMERIC,
+];
 
 pub struct Browser;
 
@@ -150,10 +176,20 @@ fn hide_passwords(context: &Context, mut step: Step) -> Step {
     };
 
     for password in context.engine.browser_passwords(&workspace.id) {
-        step.text = step.text.replace(&password, "[password]");
+        step.text = mask(&step.text, &password);
     }
 
     step
+}
+
+/// `text` with `password` hidden as written and as any address would percent-encode it.
+fn mask(text: &str, password: &str) -> String {
+    ENCODINGS
+        .iter()
+        .map(|set| utf8_percent_encode(password, set).to_string())
+        .fold(text.replace(password, "[password]"), |text, encoded| {
+            text.replace(&encoded, "[password]")
+        })
 }
 
 fn output(action: &str, input: &Value, step: Step) -> Output {

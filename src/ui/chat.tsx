@@ -532,10 +532,11 @@ export function Chat() {
         const before = scroller.scrollHeight - scroller.scrollTop;
         void engine.actions.loadOlder(id).finally(() => {
             queueMicrotask(() => {
+                loadingOlder = false;
+                if (selectedSession() !== id) return;
                 scroller.scrollTop = scroller.scrollHeight - before;
                 publishViewport();
                 takeAnchor();
-                loadingOlder = false;
             });
         });
     }

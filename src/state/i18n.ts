@@ -58,7 +58,7 @@ export function t(key: string, variables?: Record<string, string | number>) {
     const value = dictionary()[key] ?? english[key] ?? key;
     if (!variables) return value;
     return Object.entries(variables).reduce(
-        (text, [name, replacement]) => text.replaceAll(`{{${name}}}`, String(replacement)),
+        (text, [name, replacement]) => text.replaceAll(`{{${name}}}`, () => String(replacement)),
         value,
     );
 }

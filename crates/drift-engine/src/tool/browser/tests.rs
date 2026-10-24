@@ -25,6 +25,14 @@ fn looking_is_a_read_and_acting_is_not() {
 }
 
 #[test]
+fn a_password_is_hidden_as_written_and_as_an_address_encodes_it() {
+    let text = "typed p@ss word, at https://u:p%40ss%20word@x/?q=p@ss%20word#p@ss%20word, or p%40ss%20word";
+    let masked = mask(text, "p@ss word");
+    let hidden = "typed [password], at https://u:[password]@x/?q=[password]#[password], or [password]";
+    assert_eq!(masked, hidden);
+}
+
+#[test]
 fn a_public_site_asks_and_a_dev_server_does_not() {
     let sandbox = Sandbox::new("browser-asks");
 

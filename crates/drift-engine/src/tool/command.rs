@@ -107,6 +107,18 @@ const LAUNCHERS: [&str; 22] = [
     "start-process",
     "invoke-command",
 ];
+/// Interpreters and the flags that make them run code written on the line itself rather than a file.
+const INLINE_CODE: [(&str, &[&str]); 9] = [
+    ("python", &["-c"]),
+    ("python3", &["-c"]),
+    ("py", &["-c"]),
+    ("node", &["-e", "--eval", "-p", "--print"]),
+    ("bun", &["-e", "--eval", "-p", "--print"]),
+    ("deno", &["eval"]),
+    ("perl", &["-e", "-E"]),
+    ("ruby", &["-e"]),
+    ("php", &["-r"]),
+];
 /// Redirection targets that discard or pass output on rather than write a file. Git Bash has no `nul`
 /// device: `> nul` there creates a file.
 const BASH_SINKS: [&str; 5] = ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"];
@@ -249,7 +261,9 @@ pub fn split(dialect: Dialect, line: &str) -> Option<Line> {
             .next()
             .unwrap_or(&first)
             .trim_end_matches(".exe");
-        LAUNCHERS.contains(&program) || first.starts_with('&')
+        LAUNCHERS.contains(&program)
+            || first.starts_with('&')
+            || runs_inline_code(program, words.get(1..).unwrap_or_default())
     });
     if segments.is_empty() || hides_program {
         return None;
@@ -287,6 +301,14 @@ pub fn split(dialect: Dialect, line: &str) -> Option<Line> {
         canonical,
         writes,
     })
+}
+
+/// Whether `program` is an interpreter given code on the line itself, which path checks cannot read.
+fn runs_inline_code(program: &str, arguments: &[String]) -> bool {
+    INLINE_CODE
+        .iter()
+        .find(|(name, _)| *name == program)
+        .is_some_and(|(_, flags)| arguments.iter().any(|argument| flags.contains(&argument.as_str())))
 }
 
 /// True only for a line that can be read, writes nothing by redirection, and runs nothing but

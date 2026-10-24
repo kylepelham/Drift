@@ -259,11 +259,16 @@ async fn native_engine(
     if request.headers().contains_key(header::UPGRADE) {
         let lease = drift_engine::api::Lease::default();
         request.extensions_mut().insert(lease.clone());
-        tokio::spawn(async move {
-            let _ = auth.changed().await;
-            lease.cancel();
-        });
-        return router.oneshot(request).await.into_response();
+        let response = router.oneshot(request).await.into_response();
+        if response.status() == StatusCode::SWITCHING_PROTOCOLS {
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = auth.changed() => lease.cancel(),
+                    () = lease.ended() => {}
+                }
+            });
+        }
+        return response;
     }
 
     let response = tokio::select! {

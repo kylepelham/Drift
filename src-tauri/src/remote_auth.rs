@@ -23,6 +23,7 @@ const PASSWORD_KEY: &str = "remote_password";
 const PASSWORD_ITERATIONS: u32 = 600_000;
 const FREE_FAILURES: u32 = 5;
 const MAX_LOCK: Duration = Duration::from_secs(900);
+const FORGET_FAILURES: Duration = Duration::from_secs(3600);
 const TOUCH_INTERVAL_MS: i64 = 60_000;
 
 #[derive(Debug, thiserror::Error)]
@@ -54,6 +55,7 @@ struct Ticket {
 struct Failure {
     count: u32,
     locked_until: Option<Instant>,
+    last: Instant,
 }
 
 /// Signed-in devices, the pairing ticket, the browser password, and sign-in throttling.
@@ -186,11 +188,16 @@ impl Auth {
     }
 
     fn fail(&mut self, address: IpAddr, now: Instant) {
+        // An address quiet for an hour is past any lock, so it is forgotten and the map stays small.
+        self.failures
+            .retain(|_, failure| now.duration_since(failure.last) < FORGET_FAILURES);
         let failure = self.failures.entry(address).or_insert(Failure {
             count: 0,
             locked_until: None,
+            last: now,
         });
         failure.count += 1;
+        failure.last = now;
         if failure.count >= FREE_FAILURES {
             let doublings = (failure.count - FREE_FAILURES).min(5);
             let delay = (Duration::from_secs(30) * 2u32.pow(doublings)).min(MAX_LOCK);
