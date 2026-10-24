@@ -319,8 +319,14 @@ the canvas before cancelling the frame loop, disposing resources, and losing the
 so WebView2 cannot composite a cleared canvas over the next settings section.
 
 Transcript scrolling unsticks on the first upward movement, including inside the
-bottom follow zone. Virtual row resize correction uses the measured row's real viewport
-position so a tall row cannot be mistaken for a short row above the viewport. Range
+bottom follow zone. Off the bottom, the transcript keeps what the reader is looking at in place:
+it takes the element on the reading line (just under the header) and its position before rows
+for a new scroll position mount, and after any row resizes it moves the view by however far that
+element drifted, carrying a running wheel animation along. That covers a row mounting above
+at its real height instead of its estimate, a tall row that straddles the top edge, and code
+or Markdown finishing its rendering above the reader. Without an anchor, a row is compensated
+when it sat wholly above the viewport at its old height (2.4.2: judging by its new height let a
+row that grew from a 96px estimate to 2000px past the top jerk the view by the difference). Range
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
 

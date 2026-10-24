@@ -18,6 +18,9 @@ import {
     estimatedRow,
     estimatedTimelineRow,
     resizeCompensation,
+    anchorDrift,
+    captureAnchor,
+    type ScrollAnchor,
     scrollGestureSticks,
     shouldShowScrollToBottom,
     snapVirtualViewport,
@@ -187,6 +190,8 @@ export function Chat() {
     >();
     const [measured, setMeasured] = createSignal(0);
     let loadingOlder = false;
+    let anchor: ScrollAnchor | undefined;
+    const takeAnchor = () => (anchor = untrack(stick) ? undefined : captureAnchor(scroller, headerOffset + 8));
 
     function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
         const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)];
@@ -263,10 +268,12 @@ export function Chat() {
             deltaAbove += resizeCompensation(previous, next, row.getBoundingClientRect().bottom, viewportTop);
         }
 
-        if (!changed) return;
+        if (changed) setMeasured((value) => value + 1);
+        if (untrack(stick)) return;
 
-        setMeasured((value) => value + 1);
-        if (deltaAbove !== 0 && !untrack(stick)) scroller.scrollTop += deltaAbove;
+        // Keep what the reader was looking at in place, wherever above it the size changed.
+        const drift = anchorDrift(anchor) ?? deltaAbove;
+        if (Math.abs(drift) >= 1) shiftScroll(drift);
     });
     onCleanup(() => observer.disconnect());
 
@@ -380,6 +387,7 @@ export function Chat() {
 
     createEffect(
         on(selectedSession, () => {
+            anchor = undefined;
             clearReveal();
             heights.clear();
             estimates.clear();
@@ -479,6 +487,16 @@ export function Chat() {
         const top = scroller.scrollTop;
         const previous = untrack(viewTop);
 
+        if (dragging || Date.now() - gestureAt < gestureWindowMs) {
+            const distance = scroller.scrollHeight - top - scroller.clientHeight;
+            const nextStick = scrollGestureSticks(previous, top, distance);
+            batch(() => {
+                setStick(nextStick);
+                setAwayFromBottom(!nextStick && shouldShowScrollToBottom(distance));
+            });
+        }
+        // Taken before the rows for the new position mount, so their real heights count as drift.
+        takeAnchor();
         setViewTop(top);
         setViewHeight(scroller.clientHeight);
         if (
@@ -490,15 +508,18 @@ export function Chat() {
             clearTimeout(scrollLatchReset);
             scrollLatchReset = setTimeout(() => scroller.classList.remove("transcript-scroll-active"), gestureWindowMs);
         }
-        if (dragging || Date.now() - gestureAt < gestureWindowMs) {
-            const distance = scroller.scrollHeight - top - scroller.clientHeight;
-            const nextStick = scrollGestureSticks(previous, top, distance);
-            batch(() => {
-                setStick(nextStick);
-                setAwayFromBottom(!nextStick && shouldShowScrollToBottom(distance));
-            });
-        }
         maybeLoadOlder(top);
+    }
+
+    /** Moves the view by `delta` without the reader seeing it, carrying a running wheel animation along. */
+    function shiftScroll(delta: number) {
+        scroller.scrollTop += delta;
+        if (wheel) {
+            wheel.position += delta;
+            wheel.target += delta;
+            wheel.written = scroller.scrollTop;
+        }
+        takeAnchor();
     }
 
     function maybeLoadOlder(top: number) {
@@ -512,6 +533,8 @@ export function Chat() {
         void engine.actions.loadOlder(id).finally(() => {
             queueMicrotask(() => {
                 scroller.scrollTop = scroller.scrollHeight - before;
+                publishViewport();
+                takeAnchor();
                 loadingOlder = false;
             });
         });

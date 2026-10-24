@@ -641,10 +641,11 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
     expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}");
 });
 
-test("tall row measurement only compensates rows actually above the viewport", async () => {
+test("a row that was above the viewport before it grew is compensated, one already in view is not", async () => {
     const { resizeCompensation } = await import("../src/ui/timeline-virtual");
-    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0);
+    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(1904);
     expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904);
+    expect(resizeCompensation(500, 800, 1500, 1000)).toBe(0);
 });
 
 test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
