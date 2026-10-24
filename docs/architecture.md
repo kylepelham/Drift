@@ -191,6 +191,16 @@ as `C:/`. Multiple matches produce an error listing the candidates. Absolute pat
 and explicit parent navigation keep their normal meaning; unknown paths retain the
 workspace-relative fallback. Resolution does not search the filesystem.
 
+Inline code paths copy whole (`src/ui/markdown-paths.ts`). A double click on inline code
+without spaces selects the whole span rather than the word under the pointer. Copying a
+selection that is exactly one inline code span that names a path puts its full path on the
+clipboard: resolved as a citation is, so a drive-root workspace finds the file the chat
+touched, then joined to the chat's folder, in that folder's separators, with any `:line`
+kept. A bare name (`drift.exe`) counts as a path only when the chat touched a file by that
+name, so identifiers such as `session.account` copy as written, and so does a path that
+matches more than one touched file. Prose takes no focus, so the copy is heard on the
+document and mapped back to its transcript through the `.md` root.
+
 Local chat images use the same owning directory and bounded preview reader. Sanitization
 removes their raw `src` and responsive `srcset` before insertion, leaving only internally
 generated image markers. External HTTP(S) and data images retain transcript behavior.

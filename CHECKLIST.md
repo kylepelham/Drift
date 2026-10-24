@@ -211,6 +211,8 @@ change the plan there when a decision changes.
 - [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
 - [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
 - [x] A chat can be set to one provider account with `/account`; it uses it while it has usage left, then the order, and returns once it frees; subagents and spawned threads inherit it
+- [x] Inline code paths: a double click selects the whole span, and copying it copies the full path, found from the files the chat touched in a drive-root workspace
+- [x] A workspace command typed in a chat that has sent nothing runs on the composer's model instead of failing with no model selected
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [x] LSP diagnostics after edits (`lsp` module; a project's drift.json may only turn a server off) (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table of about thirty (opencode's, without its downloads), used only when installed on PATH or in a project's `node_modules/.bin`; `drift.json` can add, replace or disable one, as with formatters

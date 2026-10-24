@@ -4,6 +4,7 @@ import { markdownNodeSignature, replaceMarkdownSuffix } from "./markdown-render"
 import { previewParentDirectory, readFilePreview } from "../file-preview";
 import { animateResponses, responseAnimationSpeed } from "../state/prefs";
 import { filePreviewMime, filePreviewType } from "../file-preview-types";
+import { copyInlinePaths, selectInlineCode } from "./markdown-paths";
 import { endsInsideFence, prepareMarkdown } from "./markdown-prose";
 import { shouldPreviewFile } from "../state/file-preview-prefs";
 import { pluginGrammarsRevision } from "../syntax-grammars";
@@ -435,10 +436,14 @@ export function Markdown(props: {
     return (
         <>
             <div
-                ref={root}
+                ref={(element) => {
+                    root = element;
+                    copyInlinePaths(element, () => ({ directory: props.directory, fileGroups: props.fileGroups }));
+                }}
                 class="md"
                 classList={{ "md-user": props.humanAuthored }}
                 onClick={handleClick}
+                onDblClick={selectInlineCode}
                 onAuxClick={(event) => {
                     if (event.button === 1) void handleClick(event);
                 }}
