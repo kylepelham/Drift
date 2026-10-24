@@ -283,3 +283,30 @@ In the inspected test, `let request = &h.provider.requests.lock().unwrap()[0]`
 retains the guard while a subsequent turn needs the same request log. This is a
 likely test deadlock, not a finding about T3 adoption. The test and other active
 M2 files were left unchanged. No complete engine-suite pass is claimed here.
+
+## Revisited 2026-10-24: transcript scrolling and Markdown
+
+Commit `d53873b6a4799e87afd63c8d288ef0089f5a3748`, read for the transcript list and its Markdown.
+
+- **Incremental Markdown (section 7) is not worth porting now.** T3 still caches the parsed prefix
+  up to a closed fence (`markdown-incremental.ts`), which pays off for remark, whose parse is slow.
+  Measured in Chrome (V8, as WebView2 runs) on Drift's own pipeline, a 120 KB reply costs 2 ms to
+  prepare, 4 ms to parse with marked and 14 ms to sanitize; parsing is the smallest share. Bun's
+  JavaScriptCore runs marked quadratically on many short blocks (40 KB of short paragraphs took
+  2 s), so benchmarks of marked must run in a browser, not `bun`. If streaming a very long reply
+  ever shows in a profile, sanitizing only the changed tail is the larger saving.
+- **Keeping the reader's place.** T3's list (`@legendapp/list`) uses
+  `maintainVisibleContentPosition`, keeping the visible content in place as rows above measure.
+  Drift now does the same with its own anchor (`docs/architecture.md`, transcript scrolling).
+- **Per-thread scroll memory, worth adopting.** T3 remembers each thread's position as a row id
+  plus the offset within it, with whether it was at the end and which groups were expanded
+  (`rememberTimelinePosition` in `MessagesTimeline.tsx`), and restores it on return. Drift always
+  reopens a thread at its bottom.
+- **Prompt pinned to the top while the reply streams, worth considering.** T3's
+  `anchoredEndSpace` scrolls a just-sent prompt to the top and reserves space below it, so a
+  reply grows down from there instead of pushing the prompt away.
+- **Timeline minimap, optional.** A strip at the scrollbar marks each user prompt and jumps to it
+  (`TimelineMinimap.tsx`). Drift's transcript find covers part of this.
+- Smaller: a composer stash of set-aside drafts (`ComposerStashMenu.tsx`), snoozing threads in the
+  sidebar (`Sidebar.snooze.ts`), Mermaid and KaTeX in Markdown. None is needed for the scrolling
+  work.
