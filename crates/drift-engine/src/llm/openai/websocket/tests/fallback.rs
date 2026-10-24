@@ -104,3 +104,50 @@ async fn a_silent_server_times_out_without_switching_transport() {
     assert!(chunks.iter().any(timed_out));
     assert_eq!((h.server.requests(), h.server.posts()), (1, 0));
 }
+
+#[tokio::test]
+async fn a_socket_dropped_before_the_response_begins_hands_the_request_to_sse_unseen() {
+    let h = fixture(
+        Server {
+            drop_unanswered: Some(1011),
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+
+    let chunks = collect(&h.provider, &request(), &key()).await;
+
+    assert!(chunks.iter().all(Result::is_ok), "{chunks:?}");
+    assert_eq!((h.server.requests(), h.server.posts()), (1, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_conversation_whose_new_sockets_keep_failing_rests_longer_each_time() {
+    let dropped = super::super::dropped::Dropped::default();
+    let lost = Error::Transport("closed".into());
+    let rest_after = |minutes: u64| async move {
+        tokio::time::advance(Duration::from_secs(minutes * 60)).await;
+    };
+
+    dropped.note(Some("talk"), &lost);
+    rest_after(1).await;
+    assert!(dropped.resting("talk"));
+    rest_after(1).await;
+    assert!(!dropped.resting("talk"), "the first rest is two minutes");
+
+    dropped.note(Some("talk"), &lost);
+    rest_after(3).await;
+    assert!(dropped.resting("talk"), "failing again soon doubles it");
+    rest_after(2).await;
+    assert!(!dropped.resting("talk"));
+
+    rest_after(30).await;
+    dropped.note(Some("talk"), &lost);
+    rest_after(3).await;
+    assert!(
+        !dropped.resting("talk"),
+        "a failure long after the last rest starts over"
+    );
+    assert!(!dropped.resting("other"));
+}

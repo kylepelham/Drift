@@ -1990,10 +1990,16 @@ code until he picks.
     60). While a turn runs its tools, the idle task answers the server's pings. At most 32
     conversations hold a connection; the least recently used idle one makes room.
   - A response that fails after it began is never re-sent over SSE: the failure goes to the turn,
-    whose retry policy decides. Stopping a turn drops its stream, which closes that socket, so a
-    half-read response never serves the next request.
+    whose retry policy decides. A socket that fails to open, or closes or resets before the response
+    sends its first event, has sent nothing back, so the same request goes over SSE at once and the
+    user sees no failure (2.4.2: one long conversation saw every new socket close within half a
+    second, which showed as a failed attempt and a retry every two minutes). A silent server is not
+    that case and stays a timeout. A close reports its code and reason. Stopping a turn drops its
+    stream, which closes that socket, so a half-read response never serves the next request.
   - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
-    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. So the
+    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. A failure
+    within ten minutes of a rest ending doubles the next rest, up to an hour, so a conversation whose
+    sockets keep failing settles on SSE. So the
     turn's retry does not wait on a socket opened straight after the one that dropped, which was
     seen to stay silent until the user stopped the turn. An API error is the request's own and
     changes nothing; other conversations keep their sockets.
