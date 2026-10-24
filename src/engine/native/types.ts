@@ -2771,6 +2771,11 @@ export interface components {
             name?: string;
         };
         PatchSession: {
+            /**
+             * @description The provider account this chat uses while it has usage left, by account id; null leaves it to the account
+             *     order. Left out, it stays as it is.
+             */
+            account?: string | null;
             agent?: string | null;
             archived?: boolean | null;
             /** @description Answer this session's asks, and its subagents', except secrets and anything outside the workspace. */
@@ -3242,6 +3247,11 @@ export interface components {
             workspaces: components["schemas"]["WorkspaceChoice"][];
         };
         Session: {
+            /**
+             * @description The provider account the user set this chat to use while it has usage left; its subagents and spawned threads
+             *     start with it. Absent, the provider's account order decides.
+             */
+            account?: string | null;
             agent: string;
             /** Format: int64 */
             archivedAt?: number | null;

@@ -675,6 +675,11 @@ export const drift = {
     "drift.composer.pendingInThread": "{{thread}} içinde",
     "drift.composer.selectWorkspace": "Başlamak için bir çalışma alanı seçin",
     "drift.composer.thinkingLevel": "Düşünme düzeyi",
+    "drift.composer.account": "Hesap",
+    "drift.composer.account.auto": "Otomatik",
+    "drift.composer.account.autoHint": "Hesaplarınızı Ayarlar > Sağlayıcılar'da belirlenen sırayla kullanır.",
+    "drift.composer.account.pinnedHint":
+        "Bu sohbet, kullanım hakkı kaldığı sürece bu hesabı, ardından sıradaki hesabı kullanır.",
     "drift.context.compacted": "Bağlam sıkıştırıldı",
     "drift.context.compacting": "Bağlam sıkıştırılıyor",
     "drift.context.pending": "Kullanım ilk yanıttan sonra görünür.",

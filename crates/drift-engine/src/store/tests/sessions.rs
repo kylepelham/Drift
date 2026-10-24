@@ -116,6 +116,32 @@ fn a_lean_listing_keeps_threads_and_working_subagents_and_a_parent_lists_its_own
 }
 
 #[test]
+fn subagents_and_threads_start_on_the_account_their_parent_is_set_to() {
+    let store = store();
+    let parent = store.create_session(new("w")).unwrap();
+    store.set_session_account(&parent.id, Some("anthropic~a1")).unwrap();
+    let child = |visibility| {
+        store
+            .create_session(NewSession {
+                parent_id: Some(&parent.id),
+                visibility,
+                ..new("w")
+            })
+            .unwrap()
+    };
+
+    assert_eq!(child(Visibility::Hidden).account.as_deref(), Some("anthropic~a1"));
+    let thread = child(Visibility::Sibling);
+    assert_eq!(
+        store.session(&thread.id).unwrap().unwrap().account.as_deref(),
+        Some("anthropic~a1")
+    );
+    assert_eq!(store.create_session(new("w")).unwrap().account, None);
+    let cleared = store.set_session_account(&parent.id, None).unwrap().unwrap();
+    assert_eq!(cleared.account, None);
+}
+
+#[test]
 fn subagents_are_listed_with_their_parent() {
     let store = store();
     let parent = store.create_session(new("w")).unwrap();

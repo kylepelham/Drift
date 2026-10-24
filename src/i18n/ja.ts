@@ -673,6 +673,11 @@ export const drift = {
     "drift.composer.pendingInThread": "{{thread}}内",
     "drift.composer.selectWorkspace": "ワークスペースを選択して開始",
     "drift.composer.thinkingLevel": "思考レベル",
+    "drift.composer.account": "アカウント",
+    "drift.composer.account.auto": "自動",
+    "drift.composer.account.autoHint": "設定 > プロバイダーで決めた順にアカウントを使います。",
+    "drift.composer.account.pinnedHint":
+        "このチャットは利用枠が残っている間このアカウントを使い、その後は順番どおり次のアカウントを使います。",
     "drift.context.compacted": "コンテキストを圧縮しました",
     "drift.context.compacting": "コンテキストを圧縮中",
     "drift.context.pending": "使用量は最初の応答後に表示されます。",

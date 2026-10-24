@@ -2066,6 +2066,18 @@ code until he picks.
     the next account at once, without a retry or backoff (`Step::Switch`); an ordinary rate limit
     still waits. Once the first account's window resets, the next step returns to it. Each move
     publishes `provider.switched` with its reason (`limit`, `reset`, `model`, `refusal`), shown as a notice.
+  - A chat can be set to one of the provider's accounts (`Session::account`, `PATCH /sessions/{id}`
+    with `account`, null for the order; the composer's account picker, shown when the model's
+    provider has more than one account). While that account suits the turn, every request goes to
+    it (`Engine::pinned_account`, read from the store each step so a change applies from the next
+    request): a new turn starts there, a step moves there whatever its cache, and no
+    `provider.switched` is published for the move, since the user chose it. When it stops suiting
+    (usage spent, the model refused, a cyber refusal, signed out, or an account of another
+    provider than the model's) the account order takes over as for any chat, and the chat returns
+    to its account once it suits again. Other chats keep the order, so they still roll onto it when
+    earlier accounts run out. Subagents and spawned threads start with their parent's account
+    (`insert_session`). It lasts until the user picks Auto. Made for keeping one security chat on a
+    Cyber Verified account while the rest use up another account's window.
   - Accounts on different plans see different models. A refusal saying the plan lacks the model
     (Anthropic's 429 "Usage credits are required for this model", Codex's "not supported when using
     Codex with a ChatGPT account"; `Error::plan_lacks_model`) is never retried with backoff: the

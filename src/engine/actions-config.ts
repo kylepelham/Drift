@@ -89,6 +89,12 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         putSession(set, sessionInWorkspace(updated, workspaces()));
     }
 
+    /** The provider account the chat uses while it has usage left; null leaves it to the account order. */
+    async function setSessionAccount(id: string, account: string | null) {
+        const updated = await requireClient().updateSession(id, { account });
+        putSession(set, sessionInWorkspace(updated, workspaces()));
+    }
+
     async function setAutoAcceptAll(autoAcceptAll: boolean) {
         const settings = await requireClient().putSettings({ autoAcceptAll });
         set("autoAcceptAll", !!settings.autoAcceptAll);
@@ -297,6 +303,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         setAutoCompact,
         setCompactAt,
         setAutoAccept,
+        setSessionAccount,
         setAutoAcceptAll,
         refreshEngineSettings,
         refreshAgents,

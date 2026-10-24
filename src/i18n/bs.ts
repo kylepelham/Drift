@@ -474,7 +474,7 @@ export const drift = {
     "drift.settings.imageGeneration.off": "Isključeno",
     "drift.settings.imageGeneration.needsKey": "Potreban je API ključ",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} još nije postavljen: dodajte API ključ ispod ili u Pružateljima. Prijava pretplatom plaća samo OpenAI slike.",
+        "{{provider}} još nije postavljen: dodajte API ključ ispod ili u Provajderima. Prijava pretplatom plaća samo OpenAI slike.",
     "drift.settings.imageGeneration.planOnly":
         "Slike dolaze iz kvote vašeg ChatGPT plana preko vaše prijave. Dodajte API ključ ispod koji uskače kada se plan potroši.",
     "drift.settings.imageGeneration.payFirst.title": "Prvo plati sa",
@@ -485,7 +485,7 @@ export const drift = {
     "drift.settings.imageGeneration.key.title": "API ključ",
     "drift.settings.imageGeneration.key.description": "Sačuvano samo za pravljenje slika.",
     "drift.settings.imageGeneration.key.catalogDescription":
-        "Neobavezno: ključ samo za slike, koristi se prije onog u Pružateljima. Korisno kada Pružatelji drže prijavu.",
+        "Neobavezno: ključ samo za slike, koristi se prije onog u Provajderima. Korisno kada Provajderi drže prijavu.",
     "drift.settings.imageGeneration.key.serverDescription": "Samo ako ga vaš server traži.",
     "drift.settings.imageGeneration.key.environment":
         "Koristi se ključ iz okruženja. Ključ sačuvan ovdje ima prednost.",
@@ -672,6 +672,11 @@ export const drift = {
     "drift.composer.pendingInThread": "u razgovoru {{thread}}",
     "drift.composer.selectWorkspace": "Odaberite radni prostor za početak",
     "drift.composer.thinkingLevel": "Nivo razmišljanja",
+    "drift.composer.account": "Račun",
+    "drift.composer.account.auto": "Automatski",
+    "drift.composer.account.autoHint": "Koristi vaše račune redoslijedom postavljenim u Postavke > Provajderi.",
+    "drift.composer.account.pinnedHint":
+        "Ovaj chat koristi ovaj račun dok mu preostaje korištenja, a zatim sljedeći po redu.",
     "drift.context.compacted": "Kontekst sažet",
     "drift.context.compacting": "Sažimanje konteksta",
     "drift.context.pending": "Korištenje se prikazuje nakon prvog odgovora.",
@@ -1486,7 +1491,7 @@ export const drift = {
     "drift.voice.key.save": "Sačuvaj ključ",
     "drift.voice.key.title": "Ključ za {{provider}}",
     "drift.voice.provider.description":
-        "Gdje se vaš govor pretvara u tekst. Pružatelji u oblaku trebaju vlastiti API ključ.",
+        "Gdje se vaš govor pretvara u tekst. Provajderi u oblaku trebaju vlastiti API ključ.",
     "drift.voice.provider.local": "Na ovom računaru (whisper)",
     "drift.voice.provider.title": "Transkripcija",
     "drift.voice.read": "Čitanje naglas",

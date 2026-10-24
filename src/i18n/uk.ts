@@ -675,6 +675,11 @@ export const drift = {
     "drift.composer.pendingInThread": "у {{thread}}",
     "drift.composer.selectWorkspace": "Виберіть робочий простір, щоб почати",
     "drift.composer.thinkingLevel": "Рівень міркування",
+    "drift.composer.account": "Обліковий запис",
+    "drift.composer.account.auto": "Авто",
+    "drift.composer.account.autoHint": "Використовує облікові записи в порядку з Налаштування > Провайдери.",
+    "drift.composer.account.pinnedHint":
+        "Цей чат використовує цей обліковий запис, поки в нього лишається ліміт, потім наступний за порядком.",
     "drift.context.compacted": "Контекст стиснено",
     "drift.context.compacting": "Стиснення контексту",
     "drift.context.pending": "Дані про використання з'являться після першої відповіді.",

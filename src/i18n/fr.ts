@@ -357,7 +357,7 @@ export const drift = {
     "drift.app.scan": "Scanner le code d'association",
     "drift.app.scanning": "Ouverture de l'appareil photo...",
     "drift.app.scanHint":
-        "Sur votre PC, ouvrez Réglages > Remote Access > Drift pour Android et affichez le code d'association.",
+        "Sur votre PC, ouvrez Paramètres > Remote Access > Drift pour Android et affichez le code d'association.",
     "drift.app.connecting": "Connexion...",
     "drift.app.forget": "Oublier",
     "drift.remote.device.switch": "Changer d'ordinateur",
@@ -582,7 +582,7 @@ export const drift = {
         "Nombre de sous-agents en arrière-plan qui s'exécutent en même temps. Les autres attendent dans une file et démarrent dès qu'une place se libère ; baisser cette valeur n'arrête jamais un sous-agent en cours.",
     "drift.task.queued": "En file d'attente",
     "drift.task.queued.description":
-        "En attente d'une place libre en arrière-plan. Réglages > Exécution fixe le nombre de sous-agents simultanés.",
+        "En attente d'une place libre en arrière-plan. Paramètres > Exécution fixe le nombre de sous-agents simultanés.",
     "drift.settings.shellTimeout.title": "Délai du shell",
     "drift.settings.shellTimeout.description":
         "Arrête les commandes shell et leurs processus enfants après cette durée. Les modifications s'appliquent aux nouveaux appels.",
@@ -688,6 +688,11 @@ export const drift = {
     "drift.composer.pendingInThread": "dans {{thread}}",
     "drift.composer.selectWorkspace": "Sélectionnez un espace de travail pour commencer",
     "drift.composer.thinkingLevel": "Niveau de réflexion",
+    "drift.composer.account": "Compte",
+    "drift.composer.account.auto": "Automatique",
+    "drift.composer.account.autoHint": "Utilise vos comptes dans l'ordre défini dans Paramètres > Fournisseurs.",
+    "drift.composer.account.pinnedHint":
+        "Cette discussion utilise ce compte tant qu'il lui reste de l'utilisation, puis le suivant dans l'ordre.",
     "drift.context.compacted": "Contexte compacté",
     "drift.context.compacting": "Compactage du contexte",
     "drift.context.pending": "L'utilisation apparaît après la première réponse.",
@@ -976,7 +981,7 @@ export const drift = {
     "drift.import.done.pending": "Prompts mis en file par opencode mais jamais lancés",
     "drift.import.done.leftOut.signIns": "Connexions non reprises",
     "drift.import.done.leftOut.plugins": "Plugins (Drift n’en exécute aucun)",
-    "drift.import.done.leftOut.settings": "Réglages sans équivalent dans Drift",
+    "drift.import.done.leftOut.settings": "Paramètres sans équivalent dans Drift",
     "drift.import.done.leftOut.servers": "Serveurs MCP non repris",
     "drift.import.done.leftOut.failed": "Import impossible",
     "drift.import.done.close": "Compris",

@@ -682,6 +682,11 @@ export const drift = {
     "drift.composer.pendingInThread": "en {{thread}}",
     "drift.composer.selectWorkspace": "Selecciona un espacio de trabajo para empezar",
     "drift.composer.thinkingLevel": "Nivel de razonamiento",
+    "drift.composer.account": "Cuenta",
+    "drift.composer.account.auto": "Automático",
+    "drift.composer.account.autoHint": "Usa tus cuentas en el orden establecido en Ajustes > Proveedores.",
+    "drift.composer.account.pinnedHint":
+        "Este chat usa esta cuenta mientras le quede uso y después la siguiente en el orden.",
     "drift.context.compacted": "Contexto compactado",
     "drift.context.compacting": "Compactando el contexto",
     "drift.context.pending": "El uso aparece después de la primera respuesta.",

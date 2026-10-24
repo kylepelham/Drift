@@ -674,6 +674,12 @@ export const drift = {
     "drift.composer.pendingInThread": "i {{thread}}",
     "drift.composer.selectWorkspace": "Vælg et arbejdsområde for at begynde",
     "drift.composer.thinkingLevel": "Tænkeniveau",
+    "drift.composer.account": "Konto",
+    "drift.composer.account.auto": "Automatisk",
+    "drift.composer.account.autoHint":
+        "Bruger dine konti i den rækkefølge, der er angivet under Indstillinger > Udbydere.",
+    "drift.composer.account.pinnedHint":
+        "Denne chat bruger denne konto, så længe den har forbrug tilbage, og derefter den næste i rækkefølgen.",
     "drift.context.compacted": "Kontekst komprimeret",
     "drift.context.compacting": "Komprimerer kontekst",
     "drift.context.pending": "Forbrug vises efter det første svar.",

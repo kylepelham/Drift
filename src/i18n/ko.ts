@@ -665,6 +665,11 @@ export const drift = {
     "drift.composer.pendingInThread": "{{thread}}에서",
     "drift.composer.selectWorkspace": "작업 공간을 선택하여 시작",
     "drift.composer.thinkingLevel": "사고 수준",
+    "drift.composer.account": "계정",
+    "drift.composer.account.auto": "자동",
+    "drift.composer.account.autoHint": "설정 > 공급자에서 정한 순서대로 계정을 사용합니다.",
+    "drift.composer.account.pinnedHint":
+        "이 채팅은 사용량이 남아 있는 동안 이 계정을 쓰고, 그다음에는 순서상 다음 계정을 씁니다.",
     "drift.context.compacted": "컨텍스트 압축됨",
     "drift.context.compacting": "컨텍스트 압축 중",
     "drift.context.pending": "사용량은 첫 응답 후 표시됩니다.",

@@ -678,6 +678,11 @@ export const drift = {
     "drift.composer.pendingInThread": "в ветке {{thread}}",
     "drift.composer.selectWorkspace": "Выберите рабочее пространство, чтобы начать",
     "drift.composer.thinkingLevel": "Уровень рассуждений",
+    "drift.composer.account": "Аккаунт",
+    "drift.composer.account.auto": "Авто",
+    "drift.composer.account.autoHint": "Использует аккаунты в порядке из Настройки > Провайдеры.",
+    "drift.composer.account.pinnedHint":
+        "Этот чат использует этот аккаунт, пока у него остаётся лимит, затем следующий по порядку.",
     "drift.context.compacted": "Контекст сжат",
     "drift.context.compacting": "Сжатие контекста",
     "drift.context.pending": "Данные об использовании появятся после первого ответа.",

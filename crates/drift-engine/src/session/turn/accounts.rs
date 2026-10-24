@@ -70,13 +70,29 @@ impl Engine {
         !self.unserved.refused_anywhere(session) || self.credentials.cyber_verified(account)
     }
 
-    /// The account this conversation's requests for `model` should go to now: the first in order that suits it.
+    /// The account this conversation's requests for `model` should go to now: the one the user set it to while that
+    /// suits it, else the first in order that does.
     fn preferred_account(&self, provider: &str, session: &str, model: &Model) -> Option<String> {
-        self.credentials
+        self.pinned_account(provider, session, model).or_else(|| {
+            self.credentials
+                .accounts(provider)
+                .into_iter()
+                .find(|account| self.account_suits(&account.key, session, model))
+                .map(|account| account.key)
+        })
+    }
+
+    /// The account the user set the conversation to use, while it is one of `provider`'s and suits the request now.
+    /// It is read each time, so a choice made during a turn applies from its next request.
+    pub(super) fn pinned_account(&self, provider: &str, session: &str, model: &Model) -> Option<String> {
+        let pinned = self.store.session(session).ok().flatten()?.account?;
+        let listed = self
+            .credentials
             .accounts(provider)
-            .into_iter()
-            .find(|account| self.account_suits(&account.key, session, model))
-            .map(|account| account.key)
+            .iter()
+            .any(|account| account.key == pinned);
+
+        (listed && self.account_suits(&pinned, session, model)).then_some(pinned)
     }
 
     /// Moves the turn onto the preferred account before a request is built, so its history is signed for it, and
@@ -87,9 +103,13 @@ impl Engine {
         self.codex_offers.fit(&mut plan.model, &plan.credential);
     }
 
-    /// A new turn goes back to the account the conversation's last reply used while that account suits it and the
-    /// cache there is still warm; the user's order decides once it has gone cold.
+    /// A new turn goes to the account the user set the conversation to use, else back to the account its last reply
+    /// used while that account suits it and the cache there is still warm; the user's order decides once it has gone cold.
     pub(super) async fn stay_where_warm(&self, plan: &mut Plan) {
+        if let Some(pinned) = self.pinned_account(&plan.model_ref.provider, &plan.session.id, &plan.model) {
+            self.move_to_pinned(plan, pinned).await;
+            return;
+        }
         let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
             return;
         };
@@ -122,13 +142,30 @@ impl Engine {
         self.codex_offers.fit(&mut plan.model, &plan.credential);
     }
 
+    async fn move_to_pinned(&self, plan: &mut Plan, pinned: String) {
+        if plan.account.as_ref() == Some(&pinned) {
+            return;
+        }
+        let Some(credential) = self.account_credential(&plan.model_ref.provider, &pinned).await else {
+            return;
+        };
+
+        plan.credential = credential;
+        plan.account = Some(pinned);
+        self.codex_offers.fit(&mut plan.model, &plan.credential);
+    }
+
     /// Moves to the first suitable account in the user's order. While the current one still suits and the conversation's
     /// cache on it is warm, the turn stays: moving would write the whole prompt into the other account's cache again.
+    /// The account the user set the conversation to use is moved to whatever its cache, and without a notice.
     async fn switch_to_preferred(&self, plan: &mut Plan) {
         let Some(current) = plan.account.clone() else {
             return;
         };
-        if self.account_suits(&current, &plan.session.id, &plan.model) && !self.cache_cold(plan) {
+        let to_pinned = self
+            .pinned_account(&plan.model_ref.provider, &plan.session.id, &plan.model)
+            .is_some_and(|pinned| pinned != current);
+        if !to_pinned && self.account_suits(&current, &plan.session.id, &plan.model) && !self.cache_cold(plan) {
             return;
         }
 
@@ -148,7 +185,9 @@ impl Engine {
 
         plan.credential = credential;
         plan.account = Some(preferred.clone());
-        self.announce_switch(plan, current, preferred);
+        if !to_pinned {
+            self.announce_switch(plan, current, preferred);
+        }
     }
 
     /// After a refusal another account may not have, records it against the account: spent usage, or a model its

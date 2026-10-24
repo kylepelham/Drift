@@ -479,7 +479,7 @@ export const drift = {
     "drift.settings.imageGeneration.key.title": "مفتاح API",
     "drift.settings.imageGeneration.key.description": "محفوظ لإنشاء الصور فقط.",
     "drift.settings.imageGeneration.key.catalogDescription":
-        "اختياري: مفتاح للصور فقط، يُستخدم قبل المفتاح الموجود في المزوّدين. مفيد عندما يحمل المزوّدون تسجيل دخول.",
+        "اختياري: مفتاح للصور فقط، يُستخدم قبل المفتاح الموجود في المزوّدين. مفيد عندما يحمل الموفرون تسجيل دخول.",
     "drift.settings.imageGeneration.key.serverDescription": "فقط إذا طلبه الخادم.",
     "drift.settings.imageGeneration.key.environment":
         "يُستخدم المفتاح من متغيرات البيئة. المفتاح المحفوظ هنا يأتي أولًا.",
@@ -663,6 +663,11 @@ export const drift = {
     "drift.composer.pendingInThread": "في {{thread}}",
     "drift.composer.selectWorkspace": "اختر مساحة عمل للبدء",
     "drift.composer.thinkingLevel": "مستوى التفكير",
+    "drift.composer.account": "الحساب",
+    "drift.composer.account.auto": "تلقائي",
+    "drift.composer.account.autoHint": "يستخدم حساباتك بالترتيب المحدد في الإعدادات > الموفرون.",
+    "drift.composer.account.pinnedHint":
+        "تستخدم هذه المحادثة هذا الحساب ما دام لديه استخدام متبقٍ، ثم الحساب التالي في الترتيب.",
     "drift.context.compacted": "تم ضغط السياق",
     "drift.context.compacting": "جارٍ ضغط السياق",
     "drift.context.pending": "يظهر الاستخدام بعد الاستجابة الأولى.",
@@ -1457,7 +1462,7 @@ export const drift = {
     "drift.voice.key.save": "حفظ المفتاح",
     "drift.voice.key.title": "مفتاح {{provider}}",
     "drift.voice.provider.description":
-        "المكان الذي يتحول فيه كلامك إلى نص. يحتاج المزوّدون السحابيون إلى مفتاح API خاص بهم.",
+        "المكان الذي يتحول فيه كلامك إلى نص. يحتاج الموفرون السحابيون إلى مفتاح API خاص بهم.",
     "drift.voice.provider.local": "على هذا الحاسوب (whisper)",
     "drift.voice.provider.title": "التفريغ",
     "drift.voice.read": "القراءة بصوت عالٍ",

@@ -120,6 +120,7 @@ fn a_conversation_a_stopped_run_left_half_written_is_finished_by_the_next_and_pr
         revert: None,
         auto_accept: false,
         worktree: None,
+        account: None,
         running: false,
     };
     assert!(

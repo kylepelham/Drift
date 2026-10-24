@@ -66,6 +66,11 @@ pub(super) struct PatchSession {
     /// Answer this session's asks, and its subagents', except secrets and anything outside the workspace.
     #[serde(default)]
     pub auto_accept: Option<bool>,
+    /// The provider account this chat uses while it has usage left, by account id; null leaves it to the account
+    /// order. Left out, it stays as it is.
+    #[serde(default, deserialize_with = "crate::session::turn::present")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub account: Option<Option<String>>,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -152,6 +157,11 @@ pub(super) async fn update(
     Path(id): Path<String>,
     Json(body): Json<PatchSession>,
 ) -> Result<Json<Session>, ApiError> {
+    if let Some(Some(account)) = &body.account
+        && engine.credentials.listed(account).is_none()
+    {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "no such account"));
+    }
     let mut session = engine
         .store
         .update_session(&id, body.title.as_deref(), body.model.as_ref(), body.agent.as_deref())?
@@ -172,6 +182,12 @@ pub(super) async fn update(
     if let Some(on) = body.auto_accept {
         session = engine
             .set_session_auto_accept(&id, on)?
+            .ok_or_else(|| ApiError::not_found("session"))?;
+    }
+    if let Some(account) = &body.account {
+        session = engine
+            .store
+            .set_session_account(&id, account.as_deref())?
             .ok_or_else(|| ApiError::not_found("session"))?;
     }
 
