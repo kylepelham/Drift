@@ -158,6 +158,8 @@ export function createClient(target: Target) {
         transcribeSpeech: (body: VoiceTranscription) =>
             request<Json<"transcribeSpeech", 200>>("POST", "/voice/transcribe", body),
         speakText: (body: VoiceSpeech) => request<Json<"speakText", 200>>("POST", "/voice/speak", body),
+        speechVoices: (provider: string) =>
+            request<Json<"speechVoices", 200>>("GET", `/voice/voices?${new URLSearchParams({ provider })}`),
         fetchRegistry: (source: string) =>
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),

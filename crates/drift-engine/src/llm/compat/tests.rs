@@ -316,6 +316,7 @@ fn errors_and_length_stops_classify() {
 fn an_error_message_is_read_from_whichever_layout_the_server_used() {
     for body in [
         r#"{"detail":"Model not found"}"#,
+        r#"{"detail":{"type":"not_found","message":"Model not found"}}"#,
         r#"{"error":"Model not found"}"#,
         r#"{"errors":[{"message":"Model not found"}]}"#,
     ] {

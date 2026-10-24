@@ -11,6 +11,9 @@ use crate::Engine;
 
 mod speech;
 mod transcribe;
+mod voices;
+
+pub use voices::{SpeechVoice, VoiceGroup};
 
 /// Whisper's rate, which the webview records at; cloud providers are sent the same samples as a WAV.
 pub const SAMPLE_RATE: u32 = 16_000;
@@ -289,6 +292,13 @@ impl Engine {
         }
 
         speech::run(provider, &key, text, request.voice.as_deref(), None).await
+    }
+
+    /// The voices the provider offers the account its key belongs to.
+    pub async fn speech_voices(&self, provider: &str) -> Result<Vec<SpeechVoice>, VoiceError> {
+        let (provider, key) = self.voice_route(provider, true)?;
+
+        voices::list(provider, &key, None).await
     }
 }
 

@@ -1326,6 +1326,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/voice/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The voices a speech provider offers the account behind its saved key: its own, saved and premade ones. */
+        get: operations["speechVoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/websearch": {
         parameters: {
             query?: never;
@@ -3370,6 +3387,13 @@ export interface components {
             /** @description The provider's voice; its default when left out. */
             voice?: string | null;
         };
+        SpeechVoice: {
+            /** @description What its labels say of it: gender, age, accent. */
+            detail?: string | null;
+            group: components["schemas"]["VoiceGroup"];
+            id: string;
+            name: string;
+        };
         SpokenAudio: {
             /** @description The audio file, base64. */
             audio: string;
@@ -3643,6 +3667,11 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        /**
+         * @description Where a voice comes from, as ElevenLabs sorts its voices.
+         * @enum {string}
+         */
+        VoiceGroup: "default" | "custom" | "community" | "workspace";
         VoiceKey: {
             key: string;
             provider: string;
@@ -6393,6 +6422,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Transcript"];
+                };
+            };
+        };
+    };
+    speechVoices: {
+        parameters: {
+            query: {
+                provider: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeechVoice"][];
                 };
             };
         };

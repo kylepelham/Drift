@@ -620,6 +620,7 @@ pub(crate) fn error_message(text: &str) -> String {
         &body["message"],
         &body["Message"],
         &body["detail"],
+        &body["detail"]["message"],
         &body["errors"][0]["message"],
     ];
 

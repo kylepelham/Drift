@@ -300,6 +300,8 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         /** One dictated phrase to the cloud provider named; its failure is reported, never retried elsewhere. */
         transcribeSpeech: async (body: VoiceTranscription) => (await requireClient().transcribeSpeech(body)).text,
         speakText: (body: VoiceSpeech) => requireClient().speakText(body),
+        /** The voices a speech provider offers the account behind its saved key. */
+        speechVoices: (provider: string) => requireClient().speechVoices(provider),
         setAutoCompact,
         setCompactAt,
         setAutoAccept,
