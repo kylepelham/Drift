@@ -100,6 +100,8 @@ async fn a_missing_or_silent_server_never_holds_up_the_call() {
         "not tried again at once"
     );
     assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    // Fresh, since the missing server's failure would keep the mute one from being tried at this root.
+    let servers = Servers::default();
     let started = std::time::Instant::now();
     assert!(
         servers
@@ -108,10 +110,26 @@ async fn a_missing_or_silent_server_never_holds_up_the_call() {
             .is_empty()
     );
     assert!(
-        started.elapsed() < WAIT + Duration::from_secs(2),
-        "a server that never initializes costs the wait and no more: {:?}",
+        started.elapsed() < START + Duration::from_secs(2),
+        "a server that never initializes costs its start allowance and no more: {:?}",
         started.elapsed()
     );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_the_write_starts_is_heard_even_when_it_starts_slower_than_the_wait() {
+    let dir = workspace("slow");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let servers = Servers::default();
+
+    let found = servers
+        .report(&dir, std::slice::from_ref(&file), &fake(&["slow"]))
+        .await;
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].errors[0].line, 1);
     std::fs::remove_dir_all(dir).ok();
 }
 
