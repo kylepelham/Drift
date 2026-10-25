@@ -43,7 +43,7 @@ export function readImage(part: ToolPart) {
 /** A read image in its expanded row: the path it came from, then the picture, opened large on click. */
 export function ReadImage(props: { hash: string; path: string }) {
     return (
-        <div class="space-y-1.5 border-l-2 border-edge pl-3">
+        <div class="tool-card space-y-1.5">
             <div class="font-mono text-xs break-all text-ink-faint">{props.path}</div>
             <ToolImage hash={props.hash} filename={toolFilename(props.path)} />
         </div>
