@@ -164,13 +164,16 @@ Drift does the swapping itself, at the two places everything passes, so no hook 
   is parsed (`Assembler::revealing`), before permission checks, `before-tool` plugins, early reads
   or the tool itself see it: shell commands, edits, writes, MCP servers and subagent prompts all get
   the real value. The stored call keeps the real value; the next request hides it again.
+- The model's replies, reasoning and one-shot answers (titles, summaries) have their placeholders
+  turned back the same way when each block ends, so what you read shows the real values. While a
+  block streams it shows the placeholder, until the block finishes.
 
 Matching is exact text, longest secret first, in one pass. A pair is skipped (and logged) when its
-secret or placeholder is empty, a secret or a placeholder is listed twice, or a placeholder contains
+secret or placeholder is empty, its placeholder is the secret itself, a secret or a placeholder is listed twice, or a placeholder contains
 any secret; the log names the pair by its place, never by its values.
 Choose placeholders that never occur on their own (`API_KEY_PLACEHOLDER`, not `key`): any
-occurrence the model writes in a tool call becomes the secret. What you see in Drift keeps the real
-values (your prompts, tool output, file contents); the model's own replies show the placeholder.
+occurrence the model writes becomes the secret. What you see in Drift keeps the real values (your
+prompts, tool output, file contents, and the model's replies once each block ends).
 Output cut at the engine's bound can end partway through a secret, and that fragment is not
 recognised.
 
