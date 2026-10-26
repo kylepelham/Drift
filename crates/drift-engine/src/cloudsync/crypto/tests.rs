@@ -111,7 +111,7 @@ fn keys_survive_the_keychain_and_blinded_names_agree_across_computers() {
     let key = GroupKey::generate().unwrap();
     let copy = GroupKey::from_bytes(*key.bytes());
     assert_eq!(copy.blind("sha256:abc"), key.blind("sha256:abc"));
-    assert_ne!(key.blind("sha256:abc"), key.blind("sha256:abd"));
+    assert_ne!(key.blind("sha256:abc"), key.blind("sha256:abe"));
     assert_ne!(
         GroupKey::generate().unwrap().blind("sha256:abc"),
         key.blind("sha256:abc")

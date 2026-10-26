@@ -38,6 +38,8 @@ pub enum CryptoError {
     Random,
     #[error("the data could not be compressed: {0}")]
     Compress(String),
+    #[error("the data is larger than a sealed object may hold")]
+    TooLarge,
 }
 
 /// Argon2id's cost, kept beside the vault so it can be raised later without locking out old vaults.
@@ -179,6 +181,9 @@ impl GroupKey {
 
     /// Compresses, pads and seals `plain`, then signs the result as `device`.
     pub fn seal(&self, device: &DeviceKey, context: &Context, plain: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        if plain.len() > MAX_PLAIN {
+            return Err(CryptoError::TooLarge);
+        }
         let id = random::<ID_LEN>()?;
         let mut body = padded(&zstd::encode_all(plain, 9).map_err(|error| CryptoError::Compress(error.to_string()))?);
         let header = [&[VERSION][..], &id].concat();

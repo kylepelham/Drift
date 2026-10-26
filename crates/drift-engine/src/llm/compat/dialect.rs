@@ -80,7 +80,12 @@ pub(super) fn reasoning_on_every_reply(body: &mut Value) {
 
 /// Moonshot refuses an `enum` with no `type` beside it and tuple `items`; both become forms it takes.
 pub(super) fn moonshot_schemas(body: &mut Value) {
-    for tool in body["tools"].as_array_mut().into_iter().flatten() {
+    for tool in body
+        .get_mut("tools")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
         let parameters = &mut tool["function"]["parameters"];
         *parameters = moonshot_node(parameters.take());
     }

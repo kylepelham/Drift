@@ -183,6 +183,27 @@ async fn named_files_come_back_as_they_are_with_or_without_a_repository() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test]
+async fn a_link_leading_out_of_the_workspace_is_never_read() {
+    let base = crate::platform::temp::test_run().join(format!("drift-review-link-{}", crate::random_hex(4)));
+    let root = base.join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(base.join("secret.txt"), "private").unwrap();
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(base.join("secret.txt"), root.join("link.txt"));
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_file(base.join("secret.txt"), root.join("link.txt"));
+    if linked.is_err() {
+        let _ = std::fs::remove_dir_all(base);
+        return;
+    }
+
+    let review = git_review(&root, GitSource::Files, Some("link.txt")).await.unwrap();
+    let link = file(&review, "link.txt");
+    assert_eq!((link.preview, link.lines.len()), (Preview::Unavailable, 0));
+    let _ = std::fs::remove_dir_all(base);
+}
+
 #[test]
 fn binary_and_oversized_sides_are_listed_without_lines() {
     let binary = review_file("a.bin".into(), &Side::Absent, &Side::Present(vec![0, 1, 2]));
