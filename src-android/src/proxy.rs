@@ -45,9 +45,9 @@ pub(crate) struct Shared {
     reaching: tokio::sync::Mutex<()>,
     secret: String,
     port: u16,
-    /// The page's saved values (`storage`), and the lock that keeps their writes one at a time.
+    /// The page's saved values (`storage`), and the last snapshot written, held while writing so writes go one at a time.
     storage: PathBuf,
-    storing: Mutex<()>,
+    storing: Mutex<Option<storage::Snapshot>>,
 }
 
 pub(crate) type Proxy = Arc<Shared>;
@@ -68,7 +68,7 @@ impl Shared {
             secret,
             port,
             storage,
-            storing: Mutex::new(()),
+            storing: Mutex::new(None),
         })
     }
 

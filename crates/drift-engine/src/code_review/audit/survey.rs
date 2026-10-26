@@ -239,10 +239,10 @@ fn measure(root: &Path, paths: Vec<String>) -> (Vec<Counted>, usize) {
     (counted, paths.len())
 }
 
-/// The file's lines; `None` when it is missing, past [`MAX_BYTES`], binary or empty.
+/// The file's lines; `None` when it is missing, a link, past [`MAX_BYTES`], binary or empty.
 fn count(root: &Path, path: String) -> Option<Counted> {
     let full = root.join(&path);
-    let small = std::fs::metadata(&full).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_BYTES);
+    let small = std::fs::symlink_metadata(&full).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_BYTES);
     let bytes = small.then(|| std::fs::read(&full).ok()).flatten()?;
     if bytes.contains(&0) {
         return None;

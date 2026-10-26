@@ -7,10 +7,11 @@ use std::path::Path;
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
+use serde::Deserialize;
 
 use super::Proxy;
 
@@ -46,17 +47,33 @@ async fn restore(State(proxy): State<Proxy>) -> Response {
         .into_response()
 }
 
-/// Replaces the saved values with the page's whole storage.
-async fn keep(State(proxy): State<Proxy>, body: Bytes) -> Response {
+/// Replaces the saved values with the page's whole storage, unless that page already sent a later snapshot.
+async fn keep(State(proxy): State<Proxy>, Query(snapshot): Query<Snapshot>, body: Bytes) -> Response {
     let Ok(values) = serde_json::from_slice::<BTreeMap<String, String>>(&body) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
 
-    let _one_writer = proxy.storing.lock().unwrap();
+    let mut newest = proxy.storing.lock().unwrap();
+    if newest
+        .as_ref()
+        .is_some_and(|kept| kept.page == snapshot.page && kept.sequence >= snapshot.sequence)
+    {
+        return StatusCode::NO_CONTENT.into_response();
+    }
     match write(&proxy.storage, &values) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            *newest = Some(snapshot);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+/// Which page sent a snapshot and how many it had sent by then.
+#[derive(Deserialize)]
+pub(super) struct Snapshot {
+    page: String,
+    sequence: u64,
 }
 
 fn read(path: &Path) -> BTreeMap<String, String> {
