@@ -2093,9 +2093,12 @@ code until he picks.
     (`Account::cyber_verified`, `PATCH /providers/anthropic/accounts/{account}`). A reply the filter
     ends (`StopReason::Refused`) whose policy area is cyber, or that names none, is deleted with
     whatever it streamed and the step goes to the first verified account that has usage left
-    (`Engine::leave_refusing_account`). From then on only verified accounts suit that conversation,
-    so a cold cache never moves it back to an account whose filter would refuse it again; other
-    conversations are unaffected. Before choosing, a verified account no response has reported on
+    (`Engine::leave_refusing_account`). The chat is then set to that account as `/account` would set
+    it (`Session::account`, published as `session.updated`), so only that chat moves, `/account`
+    shows where it went, it stays there across restarts, and its subagents and spawned threads start
+    there; every other chat keeps the user's order. In memory, only verified accounts suit that
+    conversation from then on, so neither a cold cache nor `/account auto` moves it back to an
+    account whose filter would refuse it again while the engine runs. Before choosing, a verified account no response has reported on
     since the engine started has its usage read from `/api/oauth/usage`, so a spent one is never
     tried. With no verified account free, the refusal stands on the account that made it and the
     conversation keeps its account and cache. When every verified account refuses, the last refusal

@@ -460,6 +460,39 @@ async fn a_cyber_refusal_sends_the_request_again_from_a_verified_account_and_the
 }
 
 #[tokio::test]
+async fn a_cyber_fallback_sets_only_that_chat_to_the_verified_account() {
+    let h = harness().await;
+    let (_, second) = two_accounts(&h);
+    verify(&h, &second);
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider
+        .push(refused(Some("cyber")))
+        .push(text("answered by bob"))
+        .push(text("ann for the other chat"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    let other = sibling_session(&h, "other");
+    h.engine.submit(&other.id, prompt("two")).await.await_ok();
+    until_session_idle(&h, &other.id).await;
+
+    // Kept as the chat's own account, so it outlives the engine's memory of the refusal and is shown by /account.
+    let chat = h.engine.store.session(&h.session.id).unwrap().unwrap();
+    assert_eq!(chat.account.as_deref(), Some(second.as_str()));
+    assert_eq!(h.engine.store.session(&other.id).unwrap().unwrap().account, None);
+    assert_eq!(
+        sent_with(&h),
+        ["first", "second", "first"],
+        "the other chat keeps the order"
+    );
+    assert_eq!(
+        switched(&mut events),
+        [SwitchReason::Refusal],
+        "one notice, for the chat that moved"
+    );
+}
+
+#[tokio::test]
 async fn a_refusal_that_names_no_policy_area_also_tries_a_verified_account() {
     let h = harness().await;
     let (_, second) = two_accounts(&h);

@@ -209,6 +209,7 @@ change the plan there when a decision changes.
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
 - [x] A mode and its base take each other's signed reasoning; switching model or account omits incompatible reasoning without promoting it to ordinary assistant text
 - [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
+- [x] A cyber fallback sets only that chat to the verified account (as `/account` does), so other chats keep the order and the chat stays there across restarts
 - [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
 - [x] A chat can be set to one provider account with `/account`; it uses it while it has usage left, then the order, and returns once it frees; subagents and spawned threads inherit it
 - [x] Inline code paths: a double click selects the whole span, and copying it copies the full path, found from the files the chat touched in a drive-root workspace

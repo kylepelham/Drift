@@ -186,7 +186,13 @@ impl Engine {
         plan.credential = credential;
         plan.account = Some(preferred.clone());
         if !to_pinned {
-            self.announce_switch(plan, current, preferred);
+            self.announce_switch(Switch {
+                session: &plan.session.id,
+                provider: &provider,
+                reason: self.switch_reason(plan, &current),
+                from: current,
+                to: preferred,
+            });
         }
     }
 
@@ -215,8 +221,9 @@ impl Engine {
     }
 
     /// After the safety filter refused the reply, passes the account over for this conversation when an account the
-    /// user marked cyber verified may judge it differently ([`accounts_differ`]); `true` when one can take the request.
-    /// With none, the refusal stands where it was made, and the conversation keeps its account and cache.
+    /// user marked cyber verified may judge it differently ([`accounts_differ`]), and sets the chat to the one that
+    /// takes the request ([`Engine::settle_after_refusal`]); `true` when one can. With none, the refusal stands where
+    /// it was made, and the conversation keeps its account and cache.
     pub(super) async fn leave_refusing_account(&self, plan: &Plan, refusal: Option<&Refusal>) -> bool {
         let Some(account) = &plan.account else {
             return false;
@@ -231,12 +238,20 @@ impl Engine {
 
         self.unserved.refuse_conversation(account, &plan.session.id);
 
-        self.another_account(plan, account)
+        let provider = &plan.model_ref.provider;
+        let Some(next) = self
+            .preferred_account(provider, &plan.session.id, &plan.model)
+            .filter(|next| next != account)
+        else {
+            return false;
+        };
+        self.settle_after_refusal(provider, &plan.session.id, account, &next);
+        true
     }
 
     /// After the safety filter refused a request made for `session` outside its turns (a compaction summary), passes
-    /// the account over for the conversation as [`Engine::leave_refusing_account`] does, and returns the next account
-    /// that suits it, ready to call. The conversation's next turn follows it there and says why.
+    /// the account over for the conversation and sets the chat to the next one as [`Engine::leave_refusing_account`]
+    /// does, returning that account ready to call.
     pub(crate) async fn leave_refusing_account_for(
         &self,
         session: &str,
@@ -262,6 +277,7 @@ impl Engine {
             .filter(|next| next != account)?;
         let stored = self.credentials.account(&next)?;
         let credential = self.fresh_credential(provider, Some(&next), stored).await.ok()?;
+        self.settle_after_refusal(provider, session, account, &next);
         let mut model = resolved.model.clone();
         self.codex_offers.fit(&mut model, &credential);
 
@@ -272,6 +288,23 @@ impl Engine {
             credential,
             account: Some(next),
         })
+    }
+
+    /// Sets the chat to the account that takes over from one whose filter refused it, as `/account` would: only this
+    /// chat moves, it stays there across restarts, and its subagents and spawned threads start there. The user's
+    /// order still decides for every other chat.
+    fn settle_after_refusal(&self, provider: &str, session: &str, from: &str, to: &str) {
+        if let Ok(Some(updated)) = self.store.set_session_account(session, Some(to)) {
+            self.hub.publish(Event::SessionUpdated { session: updated });
+        }
+
+        self.announce_switch(Switch {
+            session,
+            provider,
+            reason: SwitchReason::Refusal,
+            from: from.into(),
+            to: to.into(),
+        });
     }
 
     /// Whether an account other than `account` suits the turn now.
@@ -330,14 +363,21 @@ impl Engine {
         SwitchReason::Reset
     }
 
-    fn announce_switch(&self, plan: &Plan, from: String, to: String) {
-        let accounts = self.credentials.accounts(&plan.model_ref.provider);
+    fn announce_switch(&self, switch: Switch) {
+        let Switch {
+            session,
+            provider,
+            reason,
+            from,
+            to,
+        } = switch;
+        let accounts = self.credentials.accounts(provider);
         let position = accounts.iter().position(|account| account.key == to).unwrap_or(0);
 
         self.hub.publish(Event::ProviderSwitched {
-            session_id: plan.session.id.clone(),
-            provider: plan.model_ref.provider.clone(),
-            reason: self.switch_reason(plan, &from),
+            session_id: session.into(),
+            provider: provider.into(),
+            reason,
             from,
             to,
             label: accounts.get(position).and_then(|account| account.label.clone()),
@@ -352,6 +392,15 @@ impl Engine {
             limits,
         });
     }
+}
+
+/// A conversation moving from one account to another, and why.
+struct Switch<'a> {
+    session: &'a str,
+    provider: &'a str,
+    reason: SwitchReason,
+    from: String,
+    to: String,
 }
 
 /// Anthropic's Cyber Verification lets an account through what others refuse on cybersecurity, so a cyber refusal, or
