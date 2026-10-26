@@ -60,7 +60,8 @@ enum Source {
     Zai(&'static str),
     OpenCodeGo,
     Grok,
-    Kimi,
+    Kimi(&'static str),
+    MiniMax(&'static str),
     Copilot,
 }
 
@@ -99,7 +100,10 @@ fn source(provider: &str) -> Option<Source> {
         "zhipuai-coding-plan" => Source::Zai("https://open.bigmodel.cn/api/monitor/usage/quota/limit"),
         "opencode-go" => Source::OpenCodeGo,
         "xai" => Source::Grok,
-        "kimi-for-coding" | "kimi-code-plan-global" => Source::Kimi,
+        "kimi-code-plan-global" => Source::Kimi("https://api.kimi.ai/coding/v1/usages"),
+        "kimi-for-coding" | "kimi-code-plan-cn" => Source::Kimi("https://api.kimi.com/coding/v1/usages"),
+        "minimax-coding-plan" => Source::MiniMax("https://api.minimax.io/v1/token_plan/remains"),
+        "minimax-cn-coding-plan" => Source::MiniMax("https://api.minimaxi.com/v1/token_plan/remains"),
         "github-copilot" => Source::Copilot,
         _ => return None,
     })
@@ -170,16 +174,12 @@ fn request(source: Source, credential: &Credential) -> Option<Request> {
                 ("X-Github-Api-Version", "2025-04-01".into()),
             ],
         }),
-        (Source::Zai(url), Credential::Api { key }) => Some(Request {
+        (Source::Zai(url) | Source::Kimi(url) | Source::MiniMax(url), Credential::Api { key }) => Some(Request {
             url,
             headers: vec![json, bearer(key)],
         }),
         (Source::OpenCodeGo, Credential::Api { key }) => Some(Request {
             url: "https://opencode.ai/zen/go/v1/usage",
-            headers: vec![json, bearer(key)],
-        }),
-        (Source::Kimi, Credential::Api { key }) => Some(Request {
-            url: "https://api.kimi.com/coding/v1/usages",
             headers: vec![json, bearer(key)],
         }),
         _ => None,
@@ -197,7 +197,8 @@ fn parse(source: Source, body: &Value, now: i64) -> ProviderUsage {
         Source::Zai(_) => (text(&body["data"], "level"), zai(&body["data"])),
         Source::OpenCodeGo => (None, opencode_go(&body["usage"], now)),
         Source::Grok => (text(&body["config"], "subscriptionTier"), grok(&body["config"])),
-        Source::Kimi => (None, kimi(body)),
+        Source::Kimi(_) => (None, kimi(body)),
+        Source::MiniMax(_) => return minimax(body, now),
         Source::Copilot => (text(body, "copilot_plan"), copilot(body)),
     };
 
@@ -407,16 +408,120 @@ fn kimi(body: &Value) -> Vec<UsageWindow> {
 }
 
 fn counted(detail: &Value, kind: WindowKind) -> Option<UsageWindow> {
-    let number = |key: &str| {
-        detail
-            .get(key)
-            .and_then(|value| value.as_f64().or_else(|| value.as_str()?.parse().ok()))
-    };
-    let limit = number("limit").filter(|limit| *limit > 0.0)?;
-    let used = number("used").or_else(|| Some(limit - number("remaining")?))?;
+    let count = |key: &str| number(&detail[key]);
+    let limit = count("limit").filter(|limit| *limit > 0.0)?;
+    let used = count("used").or_else(|| Some(limit - count("remaining")?))?;
     let resets_at = first(detail, &["resetTime", "resetAt", "reset_time", "reset_at"]).and_then(timestamp);
 
     Some(window(kind, None, used / limit * 100.0, resets_at))
+}
+
+/// A number, or one sent as a string.
+fn number(value: &Value) -> Option<f64> {
+    value.as_f64().or_else(|| value.as_str()?.trim().parse().ok())
+}
+
+/// Epoch seconds or milliseconds; anything smaller is no time.
+fn epoch(value: &Value) -> Option<i64> {
+    match number(value)? {
+        ms if ms > 1e12 => Some(ms as i64),
+        seconds if seconds > 1e9 => Some((seconds * 1000.0) as i64),
+        _ => None,
+    }
+}
+
+/// The field names of one MiniMax window: the interval (five hours) or the week.
+struct MiniMaxWindow {
+    counts: &'static str,
+    start: &'static str,
+    end: &'static str,
+    remains: &'static str,
+    kind: Option<WindowKind>,
+}
+
+const MINIMAX_INTERVAL: MiniMaxWindow = MiniMaxWindow {
+    counts: "current_interval",
+    start: "start_time",
+    end: "end_time",
+    remains: "remains_time",
+    kind: None,
+};
+
+const MINIMAX_WEEK: MiniMaxWindow = MiniMaxWindow {
+    counts: "current_weekly",
+    start: "weekly_start_time",
+    end: "weekly_end_time",
+    remains: "weekly_remains_time",
+    kind: Some(WindowKind::Weekly),
+};
+
+/// MiniMax's Token Plan reports each model lane's windows by what is left; only the text lane (`general`, or a
+/// MiniMax-M model on older plans) limits a coding agent. Status 1004 is a refused key.
+fn minimax(body: &Value, now: i64) -> ProviderUsage {
+    let data = if body["data"].is_object() { &body["data"] } else { body };
+    let status = [&body["base_resp"], &data["base_resp"]]
+        .into_iter()
+        .find_map(|response| response["status_code"].as_i64());
+    if status == Some(1004) {
+        return signed_out(UsageStatus::Expired);
+    }
+
+    let plan = [
+        "current_subscribe_title",
+        "plan_name",
+        "combo_title",
+        "current_plan_title",
+    ]
+    .into_iter()
+    .find_map(|key| text(data, key))
+    .or_else(|| text(&data["current_combo_card"], "title"));
+    let windows = data["model_remains"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|lane| lane["model_name"].as_str().is_some_and(minimax_text_lane))
+        .flat_map(|lane| [&MINIMAX_INTERVAL, &MINIMAX_WEEK].map(|fields| minimax_window(lane, fields, now)))
+        .flatten()
+        .collect();
+
+    ProviderUsage {
+        status: UsageStatus::Ok,
+        plan,
+        windows,
+    }
+}
+
+fn minimax_text_lane(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name == "general" || name.contains("minimax-m") || name.starts_with("m2.")
+}
+
+/// A lane the plan leaves out, or a week it leaves unlimited, reads all left with status 3 and is no limit.
+fn minimax_window(lane: &Value, fields: &MiniMaxWindow, now: i64) -> Option<UsageWindow> {
+    let field = |suffix: &str| number(&lane[format!("{}_{suffix}", fields.counts)]);
+    let left = field("remaining_percent");
+    if field("status") == Some(3.0) && left.is_some_and(|left| left >= 100.0) {
+        return None;
+    }
+
+    let total = field("total_count").filter(|total| *total > 0.0);
+    let used = match (left, total) {
+        (Some(left), _) => 100.0 - left,
+        (None, Some(total)) => (total - field("usage_count")?) / total * 100.0,
+        (None, None) => return None,
+    };
+    let (start, end) = (epoch(&lane[fields.start]), epoch(&lane[fields.end]));
+    let kind = fields.kind.unwrap_or_else(|| match (start, end) {
+        (Some(start), Some(end)) if end > start => kind_for_minutes(((end - start) / 60_000) as u64),
+        _ => WindowKind::Session,
+    });
+    // `remains_time` is milliseconds when large, else seconds, as CodexBar reads it.
+    let remains = number(&lane[fields.remains])
+        .filter(|remains| *remains > 0.0)
+        .map(|remains| if remains > 1e6 { remains } else { remains * 1000.0 });
+    let resets_at = end.filter(|end| *end > now).or_else(|| Some(now + remains? as i64));
+
+    Some(window(kind, None, used, resets_at))
 }
 
 fn copilot(body: &Value) -> Vec<UsageWindow> {

@@ -5,8 +5,10 @@
 
 mod api;
 mod forward;
+mod storage;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -43,6 +45,9 @@ pub(crate) struct Shared {
     reaching: tokio::sync::Mutex<()>,
     secret: String,
     port: u16,
+    /// The page's saved values (`storage`), and the lock that keeps their writes one at a time.
+    storage: PathBuf,
+    storing: Mutex<()>,
 }
 
 pub(crate) type Proxy = Arc<Shared>;
@@ -54,7 +59,7 @@ pub(crate) enum Unrouted {
 }
 
 impl Shared {
-    pub(crate) fn new(computers: Computers, native: Arc<Native>, secret: String, port: u16) -> Proxy {
+    pub(crate) fn new(computers: Computers, native: Arc<Native>, secret: String, port: u16, storage: PathBuf) -> Proxy {
         Arc::new(Self {
             computers: Mutex::new(computers),
             route: Mutex::new(None),
@@ -62,6 +67,8 @@ impl Shared {
             reaching: tokio::sync::Mutex::new(()),
             secret,
             port,
+            storage,
+            storing: Mutex::new(()),
         })
     }
 
@@ -126,7 +133,7 @@ pub(crate) fn router(proxy: Proxy) -> Router {
         .route("/app/enter", get(enter))
         .route("/app", get(main_page))
         .route("/app/computers", get(computers_page))
-        .nest("/app/api", api::routes())
+        .nest("/app/api", api::routes().merge(storage::routes()))
         .route("/auth/me", any(forward::forward))
         .route("/auth/logout", any(forward::forward))
         .route("/engine/{*rest}", any(forward::forward))
@@ -213,7 +220,18 @@ async fn main_page(State(proxy): State<Proxy>) -> Response {
         return Redirect::to(&format!("/app/computers?{query}")).into_response();
     }
 
-    file("index.html")
+    let Some(page) = Dist::get("index.html") else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let page = storage::with_restore(&String::from_utf8_lossy(&page.data));
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        page,
+    )
+        .into_response()
 }
 
 async fn computers_page() -> Response {

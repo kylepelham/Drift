@@ -23,6 +23,8 @@ enum VoiceError {
     DownloadStatus(reqwest::StatusCode),
     #[error("cancelled")]
     Cancelled,
+    #[error("a speech model is already downloading")]
+    Busy,
     #[error("downloaded model failed its checksum")]
     Checksum,
     #[error("the speech model is not downloaded")]
@@ -72,8 +74,21 @@ const MODELS: &[ModelSpec] = &[
     },
 ];
 
+/// One download at a time, so two never share a `.part` file or the cancel flag.
 #[derive(Default)]
-pub(crate) struct VoiceDownload(AtomicBool);
+pub(crate) struct VoiceDownload {
+    cancel: AtomicBool,
+    running: AtomicBool,
+}
+
+/// Holds the one download slot; leaving it, however the download ends, frees it.
+struct Running<'a>(&'a AtomicBool);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,7 +196,7 @@ pub(crate) fn voice_model_remove(app: tauri::AppHandle, id: String) -> Result<()
 
 #[tauri::command]
 pub(crate) fn voice_model_cancel(download: State<VoiceDownload>) {
-    download.0.store(true, Ordering::Relaxed);
+    download.cancel.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -201,8 +216,12 @@ async fn download_model(app: &tauri::AppHandle, download: &VoiceDownload, id: &s
     if destination.is_file() {
         return Ok(());
     }
+    if download.running.swap(true, Ordering::Acquire) {
+        return Err(VoiceError::Busy);
+    }
+    let _running = Running(&download.running);
 
-    download.0.store(false, Ordering::Relaxed);
+    download.cancel.store(false, Ordering::Relaxed);
     let partial = destination.with_extension("part");
     let result = fetch_model(app, download, model, &partial).await;
     if result.is_err() {
@@ -232,7 +251,7 @@ async fn fetch_model(
     let mut response = response;
 
     while let Some(chunk) = response.chunk().await? {
-        if download.0.load(Ordering::Relaxed) {
+        if download.cancel.load(Ordering::Relaxed) {
             return Err(VoiceError::Cancelled);
         }
         hasher.update(&chunk);

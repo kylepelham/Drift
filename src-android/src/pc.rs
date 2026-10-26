@@ -134,12 +134,15 @@ impl Pc {
             .send()
             .await
             .map_err(|_| self.unreachable())?;
-        if response.status() == StatusCode::UNAUTHORIZED {
-            return Ok(None);
+        match response.status() {
+            StatusCode::UNAUTHORIZED => return Ok(None),
+            // A PC from before it reported this has no such route; the phone keeps what it knew.
+            StatusCode::NOT_FOUND => return Ok(Some(Reach::default())),
+            status if !status.is_success() => return Err(self.unreachable()),
+            _ => {}
         }
 
-        // A PC from before it reported this answers without it; the phone keeps what it knew.
-        let me: Me = response.json().await.unwrap_or(Me { reach: None });
+        let me: Me = response.json().await.map_err(|_| self.unreachable())?;
         Ok(Some(me.reach.unwrap_or_default()))
     }
 

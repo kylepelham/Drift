@@ -38,11 +38,15 @@ impl Tool for Skill {
                     "no skill named `{name}`; the available skills are listed in the system prompt"
                 ))
             })?;
-            if let Some(Builtin::Review) = skill.builtin {
+            if let Some(builtin) = skill.builtin {
                 let arguments = input["arguments"].as_str().unwrap_or_default();
+                let output = match builtin {
+                    Builtin::Review => crate::code_review::instructions(&ctx.workspace, arguments).await,
+                    Builtin::Audit => crate::code_review::audit::instructions(&ctx.workspace, arguments).await,
+                };
                 return Ok(Output {
                     title: skill.name.clone(),
-                    output: crate::code_review::instructions(&ctx.workspace, arguments).await,
+                    output,
                     metadata: ToolMetadata::default(),
                 });
             }
@@ -152,6 +156,12 @@ mod tests {
             .unwrap();
         assert!(out.output.starts_with("# Code review: low"), "{}", out.output);
         assert!(out.output.contains("not in a git repository") && out.metadata.path.is_none());
+        let audit = Skill
+            .run(&sandbox.ctx, json!({ "name": "audit", "arguments": "max src" }))
+            .await
+            .unwrap();
+        assert!(audit.output.starts_with("# Codebase review: max"), "{}", audit.output);
+        assert!(audit.output.contains("`glob` under `src`"), "{}", audit.output);
 
         sandbox.file(
             ".drift/skills/review/SKILL.md",

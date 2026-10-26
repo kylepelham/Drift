@@ -92,6 +92,7 @@ fn lines_inside_the_workspace_run_without_asking_and_anything_reaching_out_or_at
         "rm src/*.log",
         "ls *",
         "npm install",
+        "python scripts/check.py",
         "git commit -m wip",
     ];
 
@@ -111,6 +112,9 @@ fn lines_inside_the_workspace_run_without_asking_and_anything_reaching_out_or_at
         "cp .env* /tmp",
         "cat ~/.ssh/config",
         "rm ../*",
+        "rm src/*/../../../outside",
+        "python -c \"print(1)\"",
+        "node -e \"console.log(1)\"",
     ] {
         assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
     }
@@ -176,6 +180,8 @@ fn assert_shell_approval_reasons(sandbox: &Sandbox, bash: &Bash) {
         ("echo $(whoami)", Hidden),
         ("echo hi >> ~/.bashrc", Unresolved),
         ("ls > ../x", Outside),
+        ("rm src/*/../../x", Outside),
+        ("python -c \"print(1)\"", Hidden),
     ] {
         assert_eq!(reason(line), Some(expected), "the approval says why {line} asks");
     }

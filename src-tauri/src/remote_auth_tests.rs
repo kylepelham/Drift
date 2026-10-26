@@ -196,6 +196,8 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
         auth.locked_for(address(40), now + MAX_LOCK + Duration::from_secs(1))
             .is_none()
     );
+    auth.fail(address(41), now + FORGET_FAILURES);
+    assert_eq!(auth.failures.len(), 1, "an address quiet for an hour is forgotten");
 
     drop(store);
     let _ = std::fs::remove_dir_all(directory);

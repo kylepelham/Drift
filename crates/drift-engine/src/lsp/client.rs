@@ -104,7 +104,7 @@ impl Client {
         deadline: tokio::time::Instant,
     ) -> Vec<(PathBuf, Vec<Diagnostic>)> {
         *self.used.lock().unwrap() = Instant::now();
-        if !self.wait_ready(deadline).await {
+        if !self.ready_by(deadline).await {
             return Vec::new();
         }
 
@@ -177,7 +177,8 @@ impl Client {
         self.ready.send_replace(true);
     }
 
-    async fn wait_ready(&self, deadline: tokio::time::Instant) -> bool {
+    /// Whether the server has initialized by `deadline`, waiting for it until then.
+    pub(super) async fn ready_by(&self, deadline: tokio::time::Instant) -> bool {
         let mut ready = self.ready.subscribe();
         let became = tokio::time::timeout_at(deadline, ready.wait_for(|ready| *ready)).await;
 

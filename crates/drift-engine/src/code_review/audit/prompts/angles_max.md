@@ -1,0 +1,3 @@
+- Architecture: layers that reach past each other, modules tangled together, and fixes made at the wrong depth, such as a symptom patched in one caller when the cause is shared.
+- Language pitfalls: the traps of each language in the codebase, such as integer overflow, text encoding, async cancellation, shared mutable state and implicit conversions.
+- Tests: risky code that nothing tests, and tests that assert nothing or cannot fail.

@@ -63,6 +63,14 @@ async fn a_file_that_is_not_utf8_is_refused_untouched_not_rewritten() {
         .unwrap_err();
     assert!(refused.0.contains("not UTF-8"), "{}", refused.0);
     assert_eq!(std::fs::read(&path).unwrap(), bytes, "every byte as it was");
+
+    let added = "*** Begin Patch\n*** Add File: page.asp\n+fresh\n*** End Patch\n";
+    let refused = ApplyPatch
+        .run(&sandbox.ctx, json!({ "patch": added }))
+        .await
+        .unwrap_err();
+    assert!(refused.0.contains("not UTF-8"), "{}", refused.0);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "Add File leaves it too");
 }
 
 #[test]

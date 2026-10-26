@@ -21,6 +21,8 @@ use crate::config::LspConfig;
 
 /// How long a writing call waits for errors, after its formatters ran.
 const WAIT: Duration = Duration::from_secs(3);
+/// How long a server the writing call itself started may take to initialize; its [`WAIT`] counts from then.
+const START: Duration = Duration::from_secs(10);
 /// A server unused this long is stopped; the next write starts it again.
 const IDLE: Duration = Duration::from_secs(10 * 60);
 /// A command that could not start is not tried again for this long.
@@ -183,8 +185,15 @@ impl Servers {
                 }
             }
             for (root, handled) in by_root {
-                if let Some(client) = self.client(workspace, &root, spec).await {
-                    checks.push(async move { (spec.name.clone(), client.check(&handled, deadline).await) });
+                if let Some((client, started)) = self.client(workspace, &root, spec).await {
+                    checks.push(async move {
+                        let deadline = if started && client.ready_by(tokio::time::Instant::now() + START).await {
+                            tokio::time::Instant::now() + WAIT
+                        } else {
+                            deadline
+                        };
+                        (spec.name.clone(), client.check(&handled, deadline).await)
+                    });
                 }
             }
         }
@@ -215,8 +224,9 @@ impl Servers {
         }
     }
 
-    /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
-    async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
+    /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately;
+    /// `true` when this call started it.
+    async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<(Arc<Client>, bool)> {
         let slot: Slot = (root.to_path_buf(), spec.name.clone());
         let running = || {
             self.running
@@ -227,14 +237,14 @@ impl Servers {
                 .cloned()
         };
         if let Some(client) = running() {
-            return Some(client);
+            return Some((client, false));
         }
 
         let gate = self.starting.lock().unwrap().entry(slot.clone()).or_default().clone();
         let _starting = gate.lock().await;
         // Recheck after taking the start lock because another caller may have started the server.
         if let Some(client) = running() {
-            return Some(client);
+            return Some((client, false));
         }
         if self
             .failed
@@ -255,7 +265,7 @@ impl Servers {
             Ok(client) => {
                 self.running.lock().unwrap().insert(slot, client.clone());
                 self.reap_idle();
-                Some(client)
+                Some((client, true))
             }
             Err(_) => {
                 self.failed.lock().unwrap().insert(slot, Instant::now());

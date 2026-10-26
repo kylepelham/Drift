@@ -132,7 +132,10 @@ fn warm_servers(ctx: &Context, path: &std::path::Path) {
         path.to_path_buf(),
         ctx.config.clone(),
     );
-    tokio::spawn(async move { engine.lsp.warm(&workspace, &file, &config.lsp).await });
+    tokio::spawn(async move {
+        let servers = engine.hooks.lsp_config(&config.lsp);
+        engine.lsp.warm(&workspace, &file, &servers).await;
+    });
 }
 
 /// Reads a bounded page from a large text file, without scanning the rest for a line count.

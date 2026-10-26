@@ -1,0 +1,8 @@
+- Correctness: wrong conditions, off-by-one errors, unhandled or swallowed errors, empty or missing values, and state that goes stale.
+- Resources and concurrency: handles, tasks or processes that leak; races; locks held across an await; queues and caches that grow without a bound.
+- Contracts: what callers assume against what the callee does, and wrappers, proxies and adapters that drop arguments, errors, cancellation or options of what they wrap.
+- Security: untrusted input that reaches a shell, query, path, template or deserializer; secrets written to logs; checks that can be bypassed.
+- Dead and duplicated code: functions, branches, flags and files nothing reaches, and helpers the repository has twice.
+- Complexity: code that could be shorter or plainer with the same behaviour, and needless state, layers or abstraction.
+- Efficiency: work repeated in loops, needless allocation or I/O, and blocking calls on async or hot paths.
+- Conventions: breaks of `REVIEW.md`, `AGENTS.md` or `CLAUDE.md`.
