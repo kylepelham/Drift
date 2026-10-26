@@ -89,7 +89,7 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   `/engine` on the same origin, so the WebView needs nothing the browser companion does not. A
   signed-out device goes to `/app/computers` instead of the companion's sign-in page, and the
   device settings offer **Switch computer**.
-- The page's saved values (settings, folded workspaces, drafts) live in `ui-storage.json` in the app's
+- The page's saved values (settings, folded workspaces, prompt history) live in `ui-storage.json` in the app's
   private storage. The WebView keeps `localStorage` per origin, and the proxy's port, part of that
   origin, changes every launch, so on its own every launch started from defaults. `/app` is served
   with `/app/api/storage.js` first in `<head>`, which puts the saved values back before any script
