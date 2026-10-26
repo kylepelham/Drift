@@ -40,14 +40,14 @@ fn marked(body: &Value) -> Vec<String> {
 #[test]
 fn claude_through_a_caching_gateway_gets_the_anthropic_breakpoints_and_nothing_else_does() {
     let mut body = body(&conversation("anthropic/claude-sonnet-4.5"));
-    mark_breakpoints(&mut body, false);
+    mark_breakpoints(&mut body, false, 2);
     assert_eq!(marked(&body), ["system:sys", "user:two", "user:three"]);
     assert!(body["messages"][0]["content"][0]["cache_control"].get("ttl").is_none());
     assert!(takes_breakpoints("~anthropic/claude-sonnet-latest") && takes_breakpoints("qwen/qwen3-coder-plus"));
     assert!(!takes_breakpoints("openai/gpt-6"));
 
     let mut hour = super::request::body(&conversation("anthropic/claude-sonnet-4.5"));
-    mark_breakpoints(&mut hour, true);
+    mark_breakpoints(&mut hour, true, 2);
     assert_eq!(hour["messages"][0]["content"][0]["cache_control"]["ttl"], "1h");
 
     let usage = usage_from(&json!({
@@ -197,7 +197,7 @@ fn a_tool_loop_caches_past_the_prompt_that_started_it() {
         ..request()
     });
 
-    mark_breakpoints(&mut body, false);
+    mark_breakpoints(&mut body, false, 2);
     assert_eq!(
         marked(&body),
         ["system:sys", "tool:x second", "tool:y second"],

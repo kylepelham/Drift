@@ -48,6 +48,8 @@ pub enum FileStatus {
     Added,
     Deleted,
     Modified,
+    /// Shown as it is, for a review of files rather than a change.
+    Unchanged,
 }
 
 /// Whether the file's lines are listed, and why not.
@@ -71,6 +73,8 @@ pub enum GitSource {
     Branch,
     /// Only what commit `target` changed.
     Commit,
+    /// The files `target` names, one workspace-relative path a line, as they are on disk; no repository needed.
+    Files,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -105,6 +109,8 @@ pub enum ReviewError {
     NotARepo,
     #[error("{0} is not a branch or commit here")]
     UnknownTarget(String),
+    #[error("{0} is not a path inside the workspace")]
+    OutsidePath(String),
     #[error("git: {0}")]
     Git(String),
     #[error("{0}")]
@@ -241,11 +247,12 @@ fn parse_commit(record: &str) -> Option<ReviewCommit> {
 
 /// The workspace's changes against `source`; paths are relative to `root`, and changes outside it are left out.
 pub async fn git_review(root: &Path, source: GitSource, target: Option<&str>) -> Result<Review, ReviewError> {
-    if git_text(root, &["rev-parse", "--is-inside-work-tree"]).await.as_deref() != Some("true") {
-        return Err(ReviewError::NotARepo);
-    }
+    let repo = matches!(source, GitSource::Files)
+        || git_text(root, &["rev-parse", "--is-inside-work-tree"]).await.as_deref() == Some("true");
 
     match source {
+        _ if !repo => Err(ReviewError::NotARepo),
+        GitSource::Files => files(root, target.unwrap_or_default()).await,
         GitSource::Uncommitted => {
             let head = commit_id(root, "HEAD").await.unwrap_or_else(|| EMPTY_TREE.into());
             working_tree(root, &head).await
@@ -265,6 +272,59 @@ pub async fn git_review(root: &Path, source: GitSource, target: Option<&str>) ->
             commit(root, &parent, &target).await
         }
     }
+}
+
+/// Each named file as it is on disk, every line unchanged; a missing one is left out.
+async fn files(root: &Path, listed: &str) -> Result<Review, ReviewError> {
+    let paths: Vec<&str> = listed.lines().map(str::trim).filter(|path| !path.is_empty()).collect();
+    if let Some(outside) = paths.iter().find(|path| !inside(path)) {
+        return Err(ReviewError::OutsidePath((*outside).into()));
+    }
+
+    let mut review = Review::default();
+    for path in paths {
+        let side = on_disk(root, path).await;
+        if matches!(side, Side::Absent) {
+            continue;
+        }
+        if review.full() {
+            review.omitted += 1;
+            continue;
+        }
+        review.files.push(ReviewFile {
+            location: Some(location(&root.join(path))),
+            ..as_it_is(path.into(), &side)
+        });
+    }
+
+    Ok(review)
+}
+
+/// A relative path naming something, with no `..`, root or drive in it.
+fn inside(path: &str) -> bool {
+    use std::path::Component;
+
+    let components = || Path::new(path).components();
+    components().all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+        && components().any(|component| matches!(component, Component::Normal(_)))
+}
+
+fn as_it_is(path: String, side: &Side) -> ReviewFile {
+    let mut file = ReviewFile {
+        path,
+        location: None,
+        status: FileStatus::Unchanged,
+        additions: 0,
+        deletions: 0,
+        preview: Preview::Lines,
+        lines: Vec::new(),
+    };
+    match text(side) {
+        Some(content) => file.lines = content.lines().map(|line| format!(" {line}")).collect(),
+        None => file.preview = preview_without_lines(side, side),
+    }
+
+    file
 }
 
 async fn known_target(root: &Path, target: Option<&str>) -> Result<String, ReviewError> {
@@ -521,13 +581,16 @@ impl Review {
             return;
         }
 
-        // Rebuilt from its components so a `/` from git becomes the platform's separator.
-        let location = location.map(|file| file.components().collect::<PathBuf>().to_string_lossy().into_owned());
         self.files.push(ReviewFile {
-            location,
+            location: location.as_deref().map(self::location),
             ..review_file(path, &before, &after)
         });
     }
+}
+
+/// Rebuilt from its components so a `/` from git becomes the platform's separator.
+fn location(file: &Path) -> String {
+    file.components().collect::<PathBuf>().to_string_lossy().into_owned()
 }
 
 fn review_file(path: String, before: &Side, after: &Side) -> ReviewFile {

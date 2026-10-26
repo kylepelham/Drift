@@ -16,7 +16,7 @@ fn bundled_snapshot_has_anthropic_models_with_costs() {
 fn snapshot_only_keeps_our_providers() {
     let catalog = Catalog::bundled();
     for id in catalog.providers.keys() {
-        assert!(PROVIDERS.contains(&id.as_str()), "{id}");
+        assert!(listed(id), "{id}");
     }
 }
 

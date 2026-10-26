@@ -30,6 +30,18 @@ fn secrets_become_placeholders_longest_first_and_come_back_in_tool_input() {
 }
 
 #[test]
+fn text_the_model_wrote_shows_the_secrets_its_placeholders_stand_for() {
+    let masks = masks();
+
+    assert_eq!(
+        masks.reveal_text("LONG_KEY, API_KEY and PASSWORD"),
+        "sk-live-1234, sk-live-123 and hunter2"
+    );
+    assert!(matches!(masks.reveal_text("no placeholders"), Cow::Borrowed(_)));
+    assert_eq!(Masks::default().reveal_text("PASSWORD"), "PASSWORD");
+}
+
+#[test]
 fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
     let request = Request {
         model: "m".into(),

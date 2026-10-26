@@ -324,7 +324,10 @@ impl Engine {
                 .await
                 .map_err(|_| Failure::Late)?;
             let error = match attempt {
-                Ok(answer) => return Ok(answer),
+                Ok(answer) => {
+                    let text = masks.reveal_text(&answer.text).into_owned();
+                    return Ok(Answer { text, ..answer });
+                }
                 Err(Failure::Provider(error)) => error,
                 Err(other) => return Err(other),
             };

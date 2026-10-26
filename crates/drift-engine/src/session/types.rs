@@ -57,6 +57,10 @@ pub struct Session {
     /// The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
+    /// The provider account the user set this chat to use while it has usage left; its subagents and spawned threads
+    /// start with it. Absent, the provider's account order decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

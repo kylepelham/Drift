@@ -179,6 +179,7 @@ fn assert_layered_commands_and_skills(config: &Config) {
         .iter()
         .map(|skill| (skill.name.as_str(), skill.description.as_str()))
         .collect();
+    let audit = crate::code_review::audit::skill();
     assert_eq!(
         skills,
         [
@@ -186,7 +187,8 @@ fn assert_layered_commands_and_skills(config: &Config) {
             ("deploy", "Deploys"),
             ("release", "Releases"),
             ("notes", "Takes notes"),
-            ("lint", "Lints")
+            ("lint", "Lints"),
+            ("audit", audit.description.as_str())
         ],
         "project skills shadow home skills of the same name; home ones come from ~/.agents and ~/.claude at any depth, and listed paths are searched too"
     );

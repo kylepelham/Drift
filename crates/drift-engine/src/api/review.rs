@@ -17,6 +17,7 @@ impl From<ReviewError> for ApiError {
             ReviewError::NotAPrompt => Self::new(StatusCode::BAD_REQUEST, "not_a_prompt", message),
             ReviewError::NotARepo => Self::new(StatusCode::BAD_REQUEST, "not_a_repo", message),
             ReviewError::UnknownTarget(_) => Self::new(StatusCode::BAD_REQUEST, "target", message),
+            ReviewError::OutsidePath(_) => Self::new(StatusCode::BAD_REQUEST, "path", message),
             ReviewError::Git(_) => Self::new(StatusCode::INTERNAL_SERVER_ERROR, "git", message),
             ReviewError::Store(error) => error.into(),
         }
@@ -36,11 +37,11 @@ pub(super) async fn turn(
 pub(super) struct ReviewQuery {
     #[param(inline)]
     pub source: GitSource,
-    /// The branch for `branch`, the commit for `commit`.
+    /// The branch for `branch`, the commit for `commit`, workspace-relative paths a line for `files`.
     pub target: Option<String>,
 }
 
-/// The workspace's files against `HEAD`, where the current branch left another, or one commit's own changes.
+/// The workspace's files against `HEAD`, where the current branch left another, one commit's own changes, or named files as they are.
 #[utoipa::path(get, path = "/workspaces/{id}/review", operation_id = "reviewWorkspace", params(ReviewQuery), responses((status = 200, body = Review), (status = 400), (status = 404)))]
 pub(super) async fn workspace(
     State(engine): State<Arc<Engine>>,

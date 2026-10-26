@@ -18,6 +18,8 @@ type Frame = Option<Result<Message, tokio_tungstenite::tungstenite::Error>>;
 
 /// The largest event accepted; a completed response repeats its whole output.
 const MAX_EVENT: usize = 16 * 1024 * 1024;
+/// How a wait with no event at all reads; a silent server is no reason to try another transport.
+const SILENCE: &str = "Responses WebSocket received no event within";
 
 pub(super) async fn upgraded(stream: reqwest::Upgraded) -> Socket {
     let config = WebSocketConfig::default()
@@ -71,6 +73,13 @@ pub(super) async fn receive(
             Some(Ok(Message::Ping(_))) => heartbeat(socket, deadline).await?,
             Some(Ok(Message::Pong(_))) => {}
             Some(Err(error)) => return Err(Error::Transport(format!("Responses WebSocket: {error}"))),
+            Some(Ok(Message::Close(Some(frame)))) => {
+                return Err(Error::Transport(format!(
+                    "the Responses WebSocket closed before response.completed ({} {})",
+                    u16::from(frame.code),
+                    frame.reason
+                )));
+            }
             _ => {
                 return Err(Error::Transport(
                     "the Responses WebSocket closed before response.completed".into(),
@@ -92,8 +101,10 @@ fn parse(event: serde_json::Result<Value>) -> Result<Value, Error> {
 }
 
 fn silence(wait: Duration) -> Error {
-    Error::Transport(format!(
-        "Responses WebSocket received no event within {} s",
-        wait.as_secs()
-    ))
+    Error::Transport(format!("{SILENCE} {} s", wait.as_secs()))
+}
+
+/// Whether the connection itself failed (closed, reset, refused a write), rather than the request or a silent server.
+pub(super) fn dropped(error: &Error) -> bool {
+    matches!(error, Error::Transport(message) if !message.starts_with(SILENCE))
 }

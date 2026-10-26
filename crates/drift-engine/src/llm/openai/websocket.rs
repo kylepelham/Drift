@@ -4,13 +4,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::llm::http::Timeouts;
-use crate::llm::{ChunkStream, Error};
+use crate::llm::{Chunk, ChunkStream, Error};
 
 mod cache;
 mod connection;
@@ -116,7 +117,11 @@ impl Pool {
 
         let opened = self.sender(client, prepared, key.as_deref()).await;
         let opened = opened.inspect_err(|error| self.dropped.note(key.as_deref(), error));
-        let Some(jobs) = opened? else {
+        // A refused sign-in or a limit is the request's own answer; a connection that failed to open is not.
+        let Some(jobs) = (match opened {
+            Err(Error::Transport(_)) => return Ok(None),
+            opened => opened?,
+        }) else {
             self.disable(endpoint);
             return Ok(None);
         };
@@ -128,17 +133,20 @@ impl Pool {
             timeouts: prepared.timeouts,
             send,
         };
-        tokio::time::timeout(prepared.timeouts.headers, jobs.send(job))
+        let sent = tokio::time::timeout(prepared.timeouts.headers, jobs.send(job))
             .await
-            .map_err(|_| Error::Transport("waiting for the Responses WebSocket timed out".into()))?
-            .map_err(|_| Error::Transport("the Responses WebSocket closed before the request began".into()))
-            .inspect_err(|error| self.dropped.note(key.as_deref(), error))?;
+            .map_err(|_| Error::Transport("waiting for the Responses WebSocket timed out".into()))?;
+        if sent.is_err() {
+            let error = Error::Transport("the Responses WebSocket closed before the request began".into());
+            self.dropped.note(key.as_deref(), &error);
+            return Ok(None);
+        }
 
         let stream = futures_util::stream::unfold(receive, |mut receive| async move {
             receive.recv().await.map(|chunk| (chunk, receive))
         });
 
-        Ok(Some(self.dropped.watch(key, Box::pin(stream))))
+        Ok(begun(self.dropped.watch(key, Box::pin(stream))).await)
     }
 
     /// The conversation's live connection, opened if it has none; `None` when the endpoint refused it.
@@ -222,6 +230,24 @@ fn least_recent_free(entries: &HashMap<String, Entry>) -> Option<String> {
         .filter(|(_, entry)| Arc::strong_count(&entry.slot) == 1)
         .min_by_key(|(_, entry)| entry.touched)
         .map(|(key, _)| key.clone())
+}
+
+/// The stream once its response has begun, or `None` when the socket dropped first. A request lost that early
+/// sent nothing back, so SSE can take it again without the user seeing a failure.
+async fn begun(mut stream: ChunkStream) -> Option<ChunkStream> {
+    let mut leading = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Err(error) if socket::dropped(&error) => return None,
+            Ok(Chunk::Limits(limits)) => leading.push(Ok(Chunk::Limits(limits))),
+            first => {
+                leading.push(first);
+                break;
+            }
+        }
+    }
+
+    Some(Box::pin(futures_util::stream::iter(leading).chain(stream)))
 }
 
 /// A hash of the endpoint, conversation and every header, so credentials and modes never share a connection.

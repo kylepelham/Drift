@@ -30,6 +30,9 @@ keyring = "4"
 percent-encoding = "2"
 # Bedrock's SigV4 (HMAC, SHA-256) and Vertex service-account JWTs (RS256); already in the tree through rustls.
 ring = "0.17"
+# Conversation sync: the password that unlocks the sync key is stretched with Argon2id, and batches are compressed.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+zstd = "0.13"
 # Bedrock's event-stream frames carry CRC32 checksums; already in the tree through flate2.
 crc32fast = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }

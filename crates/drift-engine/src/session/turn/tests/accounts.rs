@@ -460,6 +460,39 @@ async fn a_cyber_refusal_sends_the_request_again_from_a_verified_account_and_the
 }
 
 #[tokio::test]
+async fn a_cyber_fallback_sets_only_that_chat_to_the_verified_account() {
+    let h = harness().await;
+    let (_, second) = two_accounts(&h);
+    verify(&h, &second);
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider
+        .push(refused(Some("cyber")))
+        .push(text("answered by bob"))
+        .push(text("ann for the other chat"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    let other = sibling_session(&h, "other");
+    h.engine.submit(&other.id, prompt("two")).await.await_ok();
+    until_session_idle(&h, &other.id).await;
+
+    // Kept as the chat's own account, so it outlives the engine's memory of the refusal and is shown by /account.
+    let chat = h.engine.store.session(&h.session.id).unwrap().unwrap();
+    assert_eq!(chat.account.as_deref(), Some(second.as_str()));
+    assert_eq!(h.engine.store.session(&other.id).unwrap().unwrap().account, None);
+    assert_eq!(
+        sent_with(&h),
+        ["first", "second", "first"],
+        "the other chat keeps the order"
+    );
+    assert_eq!(
+        switched(&mut events),
+        [SwitchReason::Refusal],
+        "one notice, for the chat that moved"
+    );
+}
+
+#[tokio::test]
 async fn a_refusal_that_names_no_policy_area_also_tries_a_verified_account() {
     let h = harness().await;
     let (_, second) = two_accounts(&h);
@@ -671,4 +704,83 @@ async fn a_compaction_summary_refused_in_another_policy_area_fails_on_the_accoun
         "{:?}",
         sent_with(&h)
     );
+}
+
+fn pin(h: &Harness, session: &str, account: Option<&str>) {
+    h.engine.store.set_session_account(session, account).unwrap().unwrap();
+}
+
+fn switched(events: &mut tokio::sync::broadcast::Receiver<crate::event::Envelope>) -> Vec<SwitchReason> {
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|envelope| match envelope.event {
+            Event::ProviderSwitched { reason, .. } => Some(reason),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_chat_set_to_an_account_uses_it_quietly_while_the_others_keep_the_order() {
+    let h = harness().await;
+    let (_, second) = two_accounts(&h);
+    pin(&h, &h.session.id, Some(&second));
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider.push(text("a")).push(text("b"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    let other = sibling_session(&h, "other");
+    h.engine.submit(&other.id, prompt("two")).await.await_ok();
+    until_session_idle(&h, &other.id).await;
+
+    assert_eq!(sent_with(&h), ["second", "first"]);
+    assert!(
+        switched(&mut events).is_empty(),
+        "the user's own choice needs no notice"
+    );
+}
+
+#[tokio::test]
+async fn a_set_account_with_no_usage_left_hands_over_to_the_order_and_is_returned_to_when_it_frees() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    h.provider
+        .push(text("a"))
+        .push_error(spent())
+        .push(text("b"))
+        .push(text("c"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    // Set during the conversation, it is moved to even though the cache on the first account is warm.
+    pin(&h, &h.session.id, Some(&second));
+    let mut events = h.engine.hub.attach(None).rx;
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "second", "first"]);
+    assert_eq!(switched(&mut events), [SwitchReason::Limit]);
+
+    h.engine.limits.refuse(&second, id::now_ms() - 1);
+    h.engine.submit(&h.session.id, prompt("three")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "second", "first", "second"]);
+    assert!(h.engine.limits.spent(&first, id::now_ms()).is_none());
+}
+
+#[tokio::test]
+async fn an_account_of_another_provider_or_one_signed_out_leaves_the_order_to_decide() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    pin(&h, &h.session.id, Some("openai~gone"));
+    h.provider.push(text("a")).push(text("b"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    pin(&h, &h.session.id, Some(&second));
+    assert!(h.engine.credentials.remove_account("anthropic", &second).unwrap());
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "first"]);
+    assert_eq!(transcript(&h)[3].info.account.as_deref(), Some(first.as_str()));
 }

@@ -18,8 +18,8 @@ use raw::RawProvider;
 const SNAPSHOT: &str = include_str!("../../data/models.json");
 const SOURCE_URL: &str = "https://models.dev/api.json";
 /// Renamed whenever the entries made from models.dev change, so a cache an older build wrote is not read.
-const CACHE_FILE: &str = "models-3.json";
-const OLDER_CACHES: [&str; 2] = ["models.json", "models-2.json"];
+const CACHE_FILE: &str = "models-4.json";
+const OLDER_CACHES: [&str; 3] = ["models.json", "models-2.json", "models-3.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
 pub const PROVIDERS: [&str; 12] = [
@@ -36,6 +36,15 @@ pub const PROVIDERS: [&str; 12] = [
     "ollama",
     "ollama-cloud",
 ];
+
+/// Whether the catalog keeps a models.dev provider: one of [`PROVIDERS`], or a model maker's own route.
+pub fn listed(provider: &str) -> bool {
+    PROVIDERS.contains(&provider) || super::makers::maker(provider).is_some()
+}
+
+/// The levels a model's thinking switch is offered as; any other level is an effort.
+pub const THINKING_OFF: &str = "none";
+pub const THINKING_ON: &str = "thinking";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -332,7 +341,7 @@ impl Catalog {
         let raw: BTreeMap<String, RawProvider> = serde_json::from_str(text)?;
         let mut providers: BTreeMap<String, ProviderInfo> = raw
             .into_iter()
-            .filter(|(id, _)| PROVIDERS.contains(&id.as_str()))
+            .filter(|(id, _)| listed(id))
             .map(|(id, provider)| (id.clone(), provider.into_info(&id)))
             .collect();
 
@@ -538,12 +547,42 @@ fn variants_for(provider: &str, model: &str, output: u64, options: &[serde_json:
     let budget = options.iter().find(|o| o["type"] == "budget_tokens");
     // Older Claude models accept their listed token budget but reject adaptive effort levels.
     let claude = speaks_claude(provider, model);
-    match (effort, budget) {
+    let levels = match (effort, budget) {
         (_, Some(budget)) if claude => budget_variants(budget, output),
         (Some(levels), _) => levels.iter().map(effort_variant).collect(),
         (None, Some(budget)) if takes_budget(provider) => budget_variants(budget, output),
         _ => Vec::new(),
+    };
+
+    match super::makers::maker(provider) {
+        Some(maker) if maker.switches_thinking() => with_switch(maker, options, levels),
+        _ => levels,
     }
+}
+
+/// A toggle offers `none` before the levels, and `thinking` when there are none, as opencode resolves them; MiniMax
+/// takes only the switch.
+fn with_switch(maker: super::makers::Maker, options: &[serde_json::Value], levels: Vec<Variant>) -> Vec<Variant> {
+    let levels = if maker == super::makers::Maker::MiniMax {
+        Vec::new()
+    } else {
+        levels
+    };
+    if !options.iter().any(|option| option["type"] == "toggle") {
+        return levels;
+    }
+
+    let switch = |name: &str| Variant {
+        name: name.into(),
+        reasoning: Reasoning::Effort { level: name.into() },
+    };
+    let mut variants = vec![switch(THINKING_OFF)];
+    if levels.is_empty() {
+        variants.push(switch(THINKING_ON));
+    }
+    variants.extend(levels.into_iter().filter(|level| level.name != THINKING_OFF));
+
+    variants
 }
 
 /// What a turn asks for when the user picked no level, as opencode does: OpenAI reasoning models
@@ -643,7 +682,7 @@ fn takes_budget(provider: &str) -> bool {
     matches!(
         provider,
         "anthropic" | "google-vertex-anthropic" | "amazon-bedrock" | "google" | "google-vertex" | "openrouter"
-    )
+    ) || super::makers::maker(provider) == Some(super::makers::Maker::Alibaba)
 }
 
 fn numbers(rest: &str) -> Vec<u32> {

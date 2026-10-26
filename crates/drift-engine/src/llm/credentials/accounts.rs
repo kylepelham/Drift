@@ -198,12 +198,18 @@ impl Credentials {
 
     /// Whether the user said the account with `key` is in its provider's cyber program.
     pub fn cyber_verified(&self, key: &str) -> bool {
+        self.listed(key).is_some_and(|account| account.cyber_verified)
+    }
+
+    /// The account with `key`, when it is one of several a provider lists.
+    pub fn listed(&self, key: &str) -> Option<Account> {
         self.accounts
             .lock()
             .unwrap()
             .values()
             .flatten()
-            .any(|account| account.key == key && account.cyber_verified)
+            .find(|account| account.key == key)
+            .cloned()
     }
 
     fn change_account(

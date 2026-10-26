@@ -36,6 +36,8 @@ struct Server {
     lose_previous: AtomicBool,
     /// Close the socket after the next reply.
     close_after_reply: AtomicBool,
+    /// Close the socket on every request before answering anything, with this close code.
+    drop_unanswered: Option<u16>,
 
     connections: AtomicUsize,
     /// Sockets that ended from the client's side.
@@ -161,6 +163,14 @@ async fn serve(mut socket: WebSocket, headers: HeaderMap, server: Arc<Server>) {
 
         if server.stall {
             continue;
+        }
+        if let Some(code) = server.drop_unanswered {
+            let frame = axum::extract::ws::CloseFrame {
+                code,
+                reason: "going away".into(),
+            };
+            let _ = socket.send(Message::Close(Some(frame))).await;
+            return;
         }
 
         if continues && server.lose_previous.swap(false, Ordering::SeqCst) {

@@ -276,6 +276,12 @@ pub(super) async fn plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate
     Json(engine.hooks.loaded())
 }
 
+/// The grammars plugins add, which the app highlights code with.
+#[utoipa::path(get, path = "/grammars", operation_id = "listGrammars", responses((status = 200, body = Vec<crate::hook::Grammar>)))]
+pub(super) async fn grammars(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook::Grammar>> {
+    Json(engine.hooks.grammars())
+}
+
 /// Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart.
 #[utoipa::path(post, path = "/plugins/reload", operation_id = "reloadPlugins", responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
 pub(super) async fn reload_plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook::PluginInfo>> {

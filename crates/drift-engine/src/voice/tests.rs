@@ -6,7 +6,10 @@ use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
 use serde_json::{Value, json};
 
-use super::{PROVIDERS, Phrase, Provider, Speech, SpokenAudio, Transcription, VoiceError, speech, transcribe, wav};
+use super::{
+    PROVIDERS, Phrase, Provider, Speech, SpeechVoice, SpokenAudio, Transcription, VoiceError, VoiceGroup, speech,
+    transcribe, voices, wav,
+};
 use crate::Engine;
 
 /// One request the stand-in providers saw.
@@ -71,8 +74,35 @@ fn recorded(method: &Method, path: &str, polls: usize) -> Response {
         ("GET", "/v2/transcript/t1") => json_answer(json!({ "id": "t1", "status": "completed", "text": "Ship it." })),
         ("POST", "/v1/audio/speech") => (StatusCode::OK, "ID3-openai").into_response(),
         ("POST", path) if path.starts_with("/v1/text-to-speech/") => (StatusCode::OK, "ID3-elevenlabs").into_response(),
+        ("GET", "/v2/voices") => json_answer(voice_page(polls)),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// ElevenLabs' voices in two pages: premade, a clone, a saved library voice, a workspace one.
+fn voice_page(page: usize) -> Value {
+    if page == 0 {
+        return json!({
+            "voices": [
+                { "voice_id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "category": "premade",
+                  "labels": { "gender": "male", "age": "middle_aged", "accent": "british" } },
+                { "voice_id": "mine1", "name": "Kyle", "category": "cloned", "is_owner": true, "labels": {} },
+            ],
+            "has_more": true,
+            "next_page_token": "p2",
+        });
+    }
+
+    json!({
+        "voices": [
+            { "voice_id": "lib1", "name": "Narrator", "category": "professional", "is_owner": false,
+              "sharing": { "status": "copied" }, "labels": { "accent": "american" } },
+            { "voice_id": "team1", "name": "Team", "category": "generated", "is_owner": false },
+            { "name": "no id" },
+        ],
+        "has_more": false,
+        "next_page_token": null,
+    })
 }
 
 fn json_answer(value: Value) -> Response {
@@ -271,6 +301,49 @@ async fn openai_speech_sends_gpt_4o_mini_tts_with_the_default_voice() {
         base64::engine::general_purpose::STANDARD.decode(audio.audio).unwrap(),
         b"ID3-openai"
     );
+}
+
+#[tokio::test]
+async fn elevenlabs_lists_every_page_of_the_accounts_voices_by_where_they_come_from() {
+    let (url, log) = serve().await;
+
+    let listed = voices::list(provider("elevenlabs"), "k", Some(&url)).await.unwrap();
+
+    let voice = |id: &str, name: &str, group, detail: Option<&str>| SpeechVoice {
+        id: id.into(),
+        name: name.into(),
+        group,
+        detail: detail.map(str::to_string),
+    };
+    assert_eq!(
+        listed,
+        [
+            voice(
+                "JBFqnCBsd6RMkjVDRZzb",
+                "George",
+                VoiceGroup::Default,
+                Some("male, middle aged, british")
+            ),
+            voice("mine1", "Kyle", VoiceGroup::Custom, None),
+            voice("lib1", "Narrator", VoiceGroup::Community, Some("american")),
+            voice("team1", "Team", VoiceGroup::Workspace, None),
+        ]
+    );
+    let seen = log.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].auth, "k");
+    assert!(seen[0].uri.contains("page_size=100") && !seen[0].uri.contains("next_page_token"));
+    assert!(seen[1].uri.contains("next_page_token=p2"));
+
+    let refused = voices::list(provider("elevenlabs"), "bad", Some(&url)).await;
+    assert!(
+        matches!(refused, Err(VoiceError::Refused("ElevenLabs", _))),
+        "{refused:?}"
+    );
+    assert!(matches!(
+        voices::list(provider("openai"), "k", Some(&url)).await,
+        Err(VoiceError::Unknown(_))
+    ));
 }
 
 #[tokio::test]

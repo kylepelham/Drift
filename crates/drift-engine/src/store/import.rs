@@ -243,6 +243,7 @@ mod tests {
             revert: None,
             auto_accept: false,
             worktree: None,
+            account: None,
             running: false,
         }
     }

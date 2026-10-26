@@ -1,4 +1,3 @@
-use crate::llm::catalog::Reasoning;
 use crate::llm::{Block, ChatMessage, Request, Role};
 use serde_json::{Value, json};
 
@@ -39,15 +38,6 @@ fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     json!({ "type": "function", "function": function })
 }
 
-pub(super) fn reason(body: &mut Value, reasoning: Option<&Reasoning>, object: bool) {
-    match (reasoning, object) {
-        (Some(Reasoning::Effort { level }), true) => body["reasoning"] = json!({ "effort": level }),
-        (Some(Reasoning::Budget { tokens }), true) => body["reasoning"] = json!({ "max_tokens": tokens }),
-        (Some(Reasoning::Effort { level }), false) => body["reasoning_effort"] = json!(level),
-        _ => {}
-    }
-}
-
 /// Models OpenRouter caches only at Anthropic-style breakpoints: Claude (`anthropic/...`, or `~anthropic/...` for its
 /// moving aliases) and Qwen, which Alibaba serves with explicit caching.
 pub(super) fn takes_breakpoints(model: &str) -> bool {
@@ -55,10 +45,10 @@ pub(super) fn takes_breakpoints(model: &str) -> bool {
     model.starts_with("anthropic/") || model.starts_with("qwen/")
 }
 
-/// Marks the system prompt and the last two user turns with Anthropic's cache breakpoints, kept for an hour when
+/// Marks the system prompt and the last `turns` user turns with Anthropic's cache breakpoints, kept for an hour when
 /// `hour` is set. A turn is the run of tool and user messages between assistant replies.
 /// This lets a tool loop keep caching beyond the prompt that started it.
-pub(super) fn mark_breakpoints(body: &mut Value, hour: bool) {
+pub(super) fn mark_breakpoints(body: &mut Value, hour: bool, turns: usize) {
     let Some(messages) = body["messages"].as_array_mut() else {
         return;
     };
@@ -83,7 +73,7 @@ pub(super) fn mark_breakpoints(body: &mut Value, hour: bool) {
             in_turn = false;
             continue;
         }
-        if in_turn || marked == 2 {
+        if in_turn || marked == turns {
             continue;
         }
 

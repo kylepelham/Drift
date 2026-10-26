@@ -117,9 +117,10 @@ pub(super) fn request() -> Request {
 
 #[test]
 fn reasoning_goes_as_each_preset_takes_it() {
-    let reasoned = |reasoning, object| {
+    let reasoned = |reasoning, object: bool| {
         let mut body = json!({});
-        reason(&mut body, Some(&reasoning), object);
+        let thinking = if object { Thinking::Object } else { Thinking::Effort };
+        reason(&mut body, Some(&reasoning), thinking);
         body
     };
     let effort = || Reasoning::Effort { level: "high".into() };
@@ -315,6 +316,7 @@ fn errors_and_length_stops_classify() {
 fn an_error_message_is_read_from_whichever_layout_the_server_used() {
     for body in [
         r#"{"detail":"Model not found"}"#,
+        r#"{"detail":{"type":"not_found","message":"Model not found"}}"#,
         r#"{"error":"Model not found"}"#,
         r#"{"errors":[{"message":"Model not found"}]}"#,
     ] {

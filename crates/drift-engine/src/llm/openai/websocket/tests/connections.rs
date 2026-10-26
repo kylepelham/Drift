@@ -185,15 +185,12 @@ async fn a_stopped_response_takes_its_socket_with_it() {
     )
     .await;
 
-    // Dropping the stream is how a turn stops; the half-read socket must not serve the next request.
-    let stopped = h.provider.stream(&request(), &key()).await.unwrap();
+    // A turn stops by dropping the request while it waits; the half-read socket must not serve the next request.
+    let (asked, credential) = (request(), key());
+    let stop_soon = || tokio::time::timeout(Duration::from_millis(20), h.provider.stream(&asked, &credential));
+    assert!(stop_soon().await.is_err(), "still waiting for the first event");
     tokio::time::sleep(Duration::from_millis(20)).await;
-    drop(stopped);
-    tokio::time::sleep(Duration::from_millis(20)).await;
-
-    let next = h.provider.stream(&request(), &key()).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    drop(next);
+    assert!(stop_soon().await.is_err());
 
     assert_eq!(h.server.connections(), 2);
     assert!((0..h.server.requests()).all(|index| h.server.body(index).get("previous_response_id").is_none()));
