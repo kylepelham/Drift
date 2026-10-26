@@ -10,9 +10,11 @@ export type ClarificationAnswer = {
     nudge?: boolean;
 };
 
+const riders = ["task_result", "unknown", "instruction_update", "context", "process_exit", "continuation"];
+
 export function clarificationAnswer(entry: MessageEntry): ClarificationAnswer | undefined {
-    // Held worker results can ride along with an answer; they are not the user's words.
-    const visible = entry.parts.filter((part) => part.type !== "task_result" && part.type !== "unknown");
+    // Worker results and engine notes (an instructions change, a process exit) ride along; they are not the user's words.
+    const visible = entry.parts.filter((part) => !riders.includes(part.type));
     if (entry.info.role !== "user" || visible.length !== 1) return;
 
     const part = visible[0];

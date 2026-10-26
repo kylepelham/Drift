@@ -1,6 +1,6 @@
 {
     "name": "drift",
-    "version": "2.4.1",
+    "version": "2.4.2",
     "private": true,
     "type": "module",
     "scripts": {
@@ -13,6 +13,7 @@
         "gen:engine": "bun scripts/gen-engine-client.ts",
         "i18n": "bun scripts/i18n.ts",
         "bench:engine": "bun scripts/bench-engine.ts",
+        "phone": "bun scripts/phone.ts",
         "build:native": "bun scripts/release-policy.ts stamp-dev && tauri build --no-bundle",
         "package": "bun scripts/release-policy.ts stamp-dev && tauri build",
         "gates": "bun scripts/gates.ts",
@@ -48,6 +49,7 @@
         "tailwindcss": "^4.1.3",
         "typescript": "^5.8.2",
         "typescript-eslint": "^8.71.1",
+        "uqr": "^0.1.3",
         "vite": "^6.2.5",
         "vite-plugin-solid": "^2.11.6"
     }

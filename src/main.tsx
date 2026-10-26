@@ -1,10 +1,12 @@
 import { bootstrapMirror, registerMirrorApplier, startMirrorEvents } from "./state/mirror";
+import { appRuntimeFrom, runtimeNameFrom } from "./runtime";
 import { loadDictionary, t } from "./state/i18n";
+import { keepAppStorage } from "./app-storage";
 import { language } from "./state/language";
-import { runtimeNameFrom } from "./runtime";
 import { render } from "solid-js/web";
 import "./styles/app.css";
 
+if (appRuntimeFrom(window.location)) keepAppStorage();
 const root = document.getElementById("root")!;
 document.documentElement.dataset.runtime = runtimeNameFrom(window.location);
 const dictionary = loadDictionary(language());

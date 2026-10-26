@@ -89,6 +89,12 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         putSession(set, sessionInWorkspace(updated, workspaces()));
     }
 
+    /** The provider account the chat uses while it has usage left; null leaves it to the account order. */
+    async function setSessionAccount(id: string, account: string | null) {
+        const updated = await requireClient().updateSession(id, { account });
+        putSession(set, sessionInWorkspace(updated, workspaces()));
+    }
+
     async function setAutoAcceptAll(autoAcceptAll: boolean) {
         const settings = await requireClient().putSettings({ autoAcceptAll });
         set("autoAcceptAll", !!settings.autoAcceptAll);
@@ -186,6 +192,14 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             });
         set("agents", agents);
         set("commands", commands);
+    }
+
+    /** Plugins' grammars; highlighting goes on with the bundled languages when they cannot be read. */
+    async function refreshGrammars() {
+        const grammars = await requireClient()
+            .grammars()
+            .catch(() => undefined);
+        if (grammars) set("grammars", grammars);
     }
 
     async function refreshMcp() {
@@ -286,9 +300,12 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         /** One dictated phrase to the cloud provider named; its failure is reported, never retried elsewhere. */
         transcribeSpeech: async (body: VoiceTranscription) => (await requireClient().transcribeSpeech(body)).text,
         speakText: (body: VoiceSpeech) => requireClient().speakText(body),
+        /** The voices a speech provider offers the account behind its saved key. */
+        speechVoices: (provider: string) => requireClient().speechVoices(provider),
         setAutoCompact,
         setCompactAt,
         setAutoAccept,
+        setSessionAccount,
         setAutoAcceptAll,
         refreshEngineSettings,
         refreshAgents,
@@ -330,6 +347,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         workspaceGrants,
         revokeGrant,
         refreshMcp,
+        refreshGrammars,
         mcpSave,
         mcpRename,
         mcpRemove,

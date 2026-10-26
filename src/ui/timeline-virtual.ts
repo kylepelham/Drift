@@ -51,8 +51,32 @@ export function estimateTextLines(text: string, width: number) {
     }, 0);
 }
 
+/** A row that sat wholly above the viewport before it resized moves everything in view; judged by its old bottom. */
 export function resizeCompensation(previous: number, next: number, rowBottom: number, viewportTop: number) {
-    return rowBottom < viewportTop ? next - previous : 0;
+    return rowBottom - next + previous <= viewportTop ? next - previous : 0;
+}
+
+/** What the reader is looking at and where it was, so a size change anywhere else can be undone. */
+export type ScrollAnchor = { node: Element; top: number };
+
+/** The element on the reading line (just under the header), else the first row crossing it. */
+export function captureAnchor(scroller: HTMLElement, line: number): ScrollAnchor | undefined {
+    const box = scroller.getBoundingClientRect();
+    const y = box.top + line;
+    const hit = document.elementFromPoint(box.left + box.width / 2, y);
+    const node = hit && scroller.contains(hit) && hit.closest("[data-mid]") ? hit : firstRowAt(scroller, y);
+
+    return node ? { node, top: node.getBoundingClientRect().top } : undefined;
+}
+
+function firstRowAt(scroller: HTMLElement, y: number) {
+    for (const row of scroller.querySelectorAll("[data-mid]")) if (row.getBoundingClientRect().bottom > y) return row;
+}
+
+/** How far the anchor moved since it was taken; `undefined` once it left the page. */
+export function anchorDrift(anchor: ScrollAnchor | undefined) {
+    if (!anchor?.node.isConnected) return undefined;
+    return anchor.node.getBoundingClientRect().top - anchor.top;
 }
 
 export function virtualRange(offsets: number[], viewTop: number, viewHeight: number) {

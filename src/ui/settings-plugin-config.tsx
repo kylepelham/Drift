@@ -144,7 +144,7 @@ export function EditSheet(props: {
                 onClick={() => props.onBack()}
             >
                 <IconArrowUp class="size-3.5 -rotate-90" />
-                {t("drift.mcp.registry.back")}
+                {t("common.back")}
             </button>
             <div class="flex items-start gap-3">
                 <LogoTile image={props.registry?.image} title={props.plugin.name} large />

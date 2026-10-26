@@ -13,13 +13,14 @@ import type { BrowserRecord } from "./browsers";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
 import type {
+    Grammar,
     McpServerConfig,
     McpServerConfigView,
     McpServerStatus,
     PermissionRule,
     TaskRecord,
 } from "./native/client";
-export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord };
+export type { Grammar, McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord };
 export type { QuestionInfo, QuestionRequest } from "./questions";
 export type Permission = components["schemas"]["PermissionRequest"] & { directory?: string };
 type Todo = components["schemas"]["Todo"];
@@ -168,6 +169,8 @@ export type EngineState = {
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
+    /** Grammars plugins add, which highlighting loads beside the bundled languages. */
+    grammars: Grammar[];
     connected: string[];
     /** Each provider's stored accounts, first used first. */
     providerAccounts: Record<string, ProviderAccount[]>;
@@ -241,6 +244,7 @@ export function createEngineState() {
         browsers: {},
         providers: [],
         mcpServers: {},
+        grammars: [],
         connected: [],
         providerAccounts: {},
         defaultModels: {},

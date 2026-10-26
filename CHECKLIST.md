@@ -209,7 +209,11 @@ change the plan there when a decision changes.
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
 - [x] A mode and its base take each other's signed reasoning; switching model or account omits incompatible reasoning without promoting it to ordinary assistant text
 - [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
+- [x] A cyber fallback sets only that chat to the verified account (as `/account` does), so other chats keep the order and the chat stays there across restarts
 - [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
+- [x] A chat can be set to one provider account with `/account`; it uses it while it has usage left, then the order, and returns once it frees; subagents and spawned threads inherit it
+- [x] Inline code paths: a double click selects the whole span, and copying it copies the full path, found from the files the chat touched in a drive-root workspace
+- [x] A workspace command typed in a chat that has sent nothing runs on the composer's model instead of failing with no model selected
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [x] LSP diagnostics after edits (`lsp` module; a project's drift.json may only turn a server off) (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table of about thirty (opencode's, without its downloads), used only when installed on PATH or in a project's `node_modules/.bin`; `drift.json` can add, replace or disable one, as with formatters
@@ -279,6 +283,7 @@ change the plan there when a decision changes.
 - [x] Secret masking: the `masking` world's `replacements()` export (optional; older plugins load as before), applied by the engine to every request (`llm::mask`) and reversed in every tool call the model makes; `plugins/secrets` names the pairs from its config
 - [x] Declared plugin settings: the `configurable` world's `settings()` (text, number, toggle, choice, items, pairs), defaults filled into `host.config()`, values checked on save, a form in Settings with `+ Add` rows for lists and pairs; `secrets` and `searxng` declare theirs
 - [x] Plugin registry: nine plugins at github.com/kylepelham/Drift-Plugins (guard, protect-files, auto-format, lint-check, test-gate, notify, git-autocommit, git-context, tool-log), Settings > Plugins > Registry with cards and an install sheet in the MCP registry's style, install with a hash check, remove, config; custom registry sources for plugins and MCP servers (`registrySources` setting) so a team publishes its own at one URL; a source is a URL, a GitHub or Azure DevOps repository (private with a token in the credential store) or a folder on a share, may allow http or trust an internal CA, and is read by the engine so the webview never holds a token
+- [x] Slang language plugin in the registry (Khronos' grammar, `slangd`) and a Languages category; plugin grammars reach the syntax worker as plain copies, so they highlight in the app and not only in tests
 - [x] Settings > Skills: every skill the engine offers (workspace, user, packs) with a switch each (the engine's `disabledSkills` list; the files are never renamed); a registry of single skills and packs (Superpowers, Matt Pocock, Addy Osmani, Karpathy, Erik Darling) with the skills to take chosen before install, unpacked from a pinned archive under `~/.config/drift/skills`
 - [x] Bundles in Settings > Plugins: a Claude Code plugin folder (skills, commands, agents, `.mcp.json` servers, `bin/` programs) installed from an archive pinned to a commit under `~/.config/drift/bundles/<id>`, one switch for the bundle and one per part (`bundles` setting), its MCP servers saved as rows the bundle owns and hidden from the MCP list, `bin/` on the shell's PATH after the user's own, `${CLAUDE_PLUGIN_ROOT}` filled in, hooks listed and never run; Universal Modder is the first in the registry
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
@@ -339,6 +344,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - Voice and media:
   - [x] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
   - [x] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
+   - [x] ElevenLabs voices listed from the account (own, saved from the library, workspace, premade) instead of a pasted ID
   - [x] `generate_image` tool (OpenAI, Google, xAI), off until enabled, asking by default
 - Design first, proposal for Kyle, no code:
   - [x] Voice mode: realtime model or transcription, turn and read-aloud pipeline
@@ -380,6 +386,14 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
 - [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
 
+## Conversation sync (`docs/sync.md`)
+
+- [x] Cryptography: password stretched with Argon2id into a login key and a wrapping key, group key wrapped for the server, per-object keys, signed objects bound to computer and sequence, vouched device list, blinded attachment names
+- [ ] Server: Worker, R2 and a Durable Object on the user's own Cloudflare account, with a setup wizard and an in-process fake for tests
+- [ ] Upload each computer's chats and catalog; open another computer's chats in a temporary view
+- [ ] Continue another computer's chat as a fork in a mapped workspace
+- [ ] Computers button in the sidebar, Settings > Sync (password, authenticator, remember, per-workspace opt-out, storage), phone picker
+
 ## Drift for Android (`docs/android.md`)
 
 - [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, all reachable addresses, the LAN MAC, and the tunnel with its key
@@ -387,6 +401,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [x] Reach from anywhere: OpenTunnel on the PC (loopback PROXY v2 listener, exact host check), tunnel key pinned by the app, network and tunnel raced, addresses refreshed from `/auth/me`; typed codes, discovery and the browser QR removed, browser access behind its own switch
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
+- [x] Settings and folded workspaces survive relaunch (the app keeps the page's storage across the proxy's changing port), microphone permission for dictation, word-boundary wrapping in settings, gutter comments in the review panel
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt
 
@@ -409,6 +424,8 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Compaction as a policy (automatic, earlier, later) with each model's point shown, and a size per model in its details sheet
 - [x] Model settings beside visibility toggles: capability chips, token limits and a price table; short settings descriptions
 - [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > Execution
+- [x] Model makers' own APIs, after opencode v2's routes: Meta (Responses over SSE), Moonshot and Kimi Code, DeepSeek, MiniMax and its Token Plans (Messages), Alibaba and its coding plans (DashScope); thinking switches offered as `none` and `thinking` where models.dev gives a toggle; Kimi schemas sanitized, Qwen cached at breakpoints; MiniMax Token Plan usage and Kimi Code's China region in usage limits
+- [ ] Second tier: Xiaomi and StepFun catalogue routes, Mistral with its 9-character tool ids
 
 ## Parity with Claude Code, Codex and opencode
 
@@ -417,6 +434,7 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Code review (`docs/code-review.md`, evidence in `docs/research/claude-desktop-2.42304.md`):
   - [x] `report_findings` tool: typed findings (file, line, summary, failure scenario, category, verdict, outcome) in the call's metadata, with each finding's line text recorded for anchoring
   - [x] `/review [low|medium|high|max] [target] [--fix] [--comment]` as a built-in skill: branch work plus uncommitted changes by default, finders grouped by diff size, a batched verify pass, a sweep at max, `REVIEW.md` and `AGENTS.md` conventions, `--fix` re-reports outcomes, `--comment` posts inline through `gh`
+  - [x] `/audit [low|medium|high|max] [path] [--fix]` as a built-in skill: the whole codebase or one path as it is now, surveyed by the engine into areas balanced across finders, hot spots by churn and size, the same verify, sweep and findings card, walked through on a `files` review source
   - [x] Findings card in the transcript: grouped by file, outcomes, Walk through in diff, Apply fixes, Re-run review
   - [x] Findings layer in the review panel: annotations under their lines, a stepper, Dismiss, and findings whose line moved or changed marked as such
 - [ ] `/security-review`: the same flow with a security-focused prompt

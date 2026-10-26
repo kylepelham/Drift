@@ -1,11 +1,12 @@
 import { createSignal } from "solid-js";
 
-/** What the review panel compares: one turn's changes, or the workspace against git. */
+/** What the review panel compares: one turn's changes, the workspace against git, or named files as they are. */
 export type ReviewSource =
     | { kind: "turn"; sessionId: string; messageId: string }
     | { kind: "uncommitted" }
     | { kind: "branch"; target: string }
-    | { kind: "commit"; target: string };
+    | { kind: "commit"; target: string }
+    | { kind: "files"; target: string };
 
 export type ReviewPanel = {
     source: ReviewSource;

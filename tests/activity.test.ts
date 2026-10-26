@@ -641,10 +641,11 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
     expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}");
 });
 
-test("tall row measurement only compensates rows actually above the viewport", async () => {
+test("a row that was above the viewport before it grew is compensated, one already in view is not", async () => {
     const { resizeCompensation } = await import("../src/ui/timeline-virtual");
-    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0);
+    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(1904);
     expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904);
+    expect(resizeCompensation(500, 800, 1500, 1000)).toBe(0);
 });
 
 test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
@@ -1223,6 +1224,18 @@ test("a run that read one file names it instead of counting it", async () => {
     const namesakes = [read("p1", "a/x.ts"), read("p2", "b/x.ts")];
     expect(exploredSingle(namesakes, false)).toBeUndefined();
     expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
+});
+
+test("a lone read is its own row, never a group holding one row that opens a second time", async () => {
+    const source = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    const group = source.slice(
+        source.indexOf("export function ExploredGroup"),
+        source.indexOf("function ExploredCalls"),
+    );
+
+    expect(group).toContain("props.parts.length === 1 && props.parts[0]");
+    expect(group).toContain("{(part) => <ToolView part={part()} />}");
+    expect(group).toContain("fallback={<ExploredCalls parts={props.parts} />}");
 });
 
 test("an instruction update names its sources in the user's language, an MCP server or file by its own name", async () => {

@@ -1,4 +1,5 @@
 import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { ElevenLabsVoiceRow } from "./settings-speech-voices";
 import { createSignal, Match, Show, Switch } from "solid-js";
 import { systemVoices } from "../voice/read-aloud";
 import { Toggle } from "./controls";
@@ -107,15 +108,6 @@ function VoiceRow() {
                         onPick={(value) => setSpeechVoice("openai", value)}
                     />
                 </Match>
-                <Match when={speechProvider() === "elevenlabs"}>
-                    <input
-                        aria-label={t("drift.voice.read.voice.title")}
-                        placeholder={t("drift.voice.read.voice.idPlaceholder")}
-                        class={`w-full sm:w-56 ${input}`}
-                        value={speechVoices().elevenlabs ?? ""}
-                        onChange={(event) => setSpeechVoice("elevenlabs", event.currentTarget.value)}
-                    />
-                </Match>
             </Switch>
         </SettingsRow>
     );
@@ -160,7 +152,9 @@ export function ReadAloudGroup(props: { keys: VoiceKeys }) {
                         />
                     </SettingsRow>
                     <Show when={chosen()}>{(provider) => <VoiceKeyRow provider={provider()} keys={props.keys} />}</Show>
-                    <VoiceRow />
+                    <Show when={speechProvider() === "elevenlabs" && cloud("elevenlabs")} fallback={<VoiceRow />}>
+                        {(provider) => <ElevenLabsVoiceRow keyed={provider().key} />}
+                    </Show>
                     <SettingsRow
                         title={t("drift.voice.read.auto.title")}
                         description={t("drift.voice.read.auto.description")}

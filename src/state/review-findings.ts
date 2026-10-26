@@ -100,6 +100,13 @@ export function fixPrompt(intro: string, findings: ReviewFinding[]) {
     return [intro, ...listed].join("\n\n");
 }
 
+/** The workspace-relative files findings name, once each, which a codebase review walks through as they are. */
+export function reviewedFiles(findings: ReviewFinding[]) {
+    const relative = (file: string) => !/^([a-z]:)?[\\/]/i.test(file) && !file.split(/[\\/]/).includes("..");
+
+    return [...new Set(findings.map((finding) => finding.file))].filter(relative);
+}
+
 /** Findings the user dismissed in the review panel, by id, for as long as the app runs. */
 const [dismissed, setDismissed] = createSignal<ReadonlySet<string>>(new Set());
 

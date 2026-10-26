@@ -141,7 +141,7 @@ Shapes were taken from each provider's current documentation on 2026-10-19.
 sidecar. Cloud requests need a key, and keys already live in the engine's credential store
 (`Credentials::secret`, under `voice:<provider>`), as web search's do. Putting the requests in the
 engine (`crates/drift-engine/src/voice/`, routes `GET /voice`, `PUT/DELETE /voice/keys`,
-`POST /voice/transcribe`, `POST /voice/speak`) keeps the key on the engine's side of the API, lets
+`POST /voice/transcribe`, `POST /voice/speak`, `GET /voice/voices`) keeps the key on the engine's side of the API, lets
 the phone and the browser use cloud dictation through the engine connection they already have, and
 lets the wire shapes be tested against a stand-in server in the engine's own tests. The multipart
 bodies are built by hand (`Form` in `voice/transcribe.rs`) rather than turning on reqwest's
@@ -180,9 +180,19 @@ plays.
 
 **Cloud voices.** OpenAI uses `gpt-4o-mini-tts` with a voice picked from its built-in list
 (`marin` by default) and returns MP3. ElevenLabs uses `eleven_flash_v2_5` with
-`mp3_44100_128` and a voice ID you can paste, defaulting to "George" (`JBFqnCBsd6RMkjVDRZzb`), the
-premade voice every account has. The engine checks a voice ID is letters, digits, `-` and `_`
-before putting it in ElevenLabs' URL.
+`mp3_44100_128`, defaulting to "George" (`JBFqnCBsd6RMkjVDRZzb`), the premade voice every account
+has. The engine checks a voice ID is letters, digits, `-` and `_` before putting it in ElevenLabs'
+URL.
+
+**Listing voices.** With an ElevenLabs key saved, the Voice picker lists the account's voices from
+`GET /v2/voices` (`crates/drift-engine/src/voice/voices.rs`, up to ten pages of 100), grouped as
+"My voices" (cloned, designed, trained), "Saved from the library" (shared voices the account added,
+`sharing.status` starting with `copied`), "Workspace" (voices shared to it, not owned) and the
+premade defaults, with gender, age and accent from their labels. The public Voice Library itself
+is not browsed: save a voice to My Voices on ElevenLabs and it appears. A saved voice the listing no
+longer returns stays selectable, and the list is fetched again when the key changes. OpenAI has no
+API that lists voices, so its picker is the fixed built-in list; its custom `voice_...` voices are
+not supported.
 
 **Why the local voice is the system's own.** The local voice is the Web Speech API's
 `speechSynthesis` in the webview, which on Windows speaks with the installed system voices.

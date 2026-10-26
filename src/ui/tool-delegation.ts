@@ -4,10 +4,6 @@ import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 import type { EngineState, TaskRecord } from "../engine/store";
 import type { ToolPart } from "../engine/parts";
 
-export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, childId: string | null) {
-    return childId && status === "running" ? "navigate" : "expand";
-}
-
 export function delegatedChildId(state: EngineState, part: ToolPart) {
     if (part.name !== "task" && part.name !== "spawn_thread") return null;
     const sessionId = (toolMeta(part) as { sessionId?: unknown } | undefined)?.sessionId;

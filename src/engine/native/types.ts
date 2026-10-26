@@ -136,6 +136,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/grammars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The grammars plugins add, which the app highlights code with. */
+        get: operations["listGrammars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1309,6 +1326,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/voice/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The voices a speech provider offers the account behind its saved key: its own, saved and premade ones. */
+        get: operations["speechVoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/websearch": {
         parameters: {
             query?: never;
@@ -1494,7 +1528,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The workspace's files against `HEAD`, where the current branch left another, or one commit's own changes. */
+        /** The workspace's files against `HEAD`, where the current branch left another, one commit's own changes, or named files as they are. */
         get: operations["reviewWorkspace"];
         put?: never;
         post?: never;
@@ -2077,6 +2111,9 @@ export interface components {
             /** @enum {string} */
             type: "catalog.updated";
         } | {
+            /** @enum {string} */
+            type: "grammars.updated";
+        } | {
             account: string;
             limits: components["schemas"]["Limits"];
             provider: string;
@@ -2144,7 +2181,7 @@ export interface components {
             before: string;
         };
         /** @enum {string} */
-        FileStatus: "added" | "deleted" | "modified";
+        FileStatus: "added" | "deleted" | "modified" | "unchanged";
         /**
          * @description What became of a finding once fixes were applied.
          * @enum {string}
@@ -2162,6 +2199,18 @@ export interface components {
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
+        /** @description A TextMate grammar a plugin adds, as the app loads it into its highlighter. */
+        Grammar: {
+            aliases: string[];
+            /** @description File name endings (`.roc`), or whole file names (`Rocfile`), it highlights. */
+            extensions: string[];
+            /** @description The `.tmLanguage.json` object. */
+            grammar: Record<string, never>;
+            /** @description The language's name, which a code fence uses; it replaces a bundled language of the same name. */
+            name: string;
+            /** @description The plugin that added it. */
+            plugin: string;
+        };
         /** @description What the user approved with "always": kept for the workspace, across sessions and restarts. */
         Grant: {
             /** @enum {string} */
@@ -2739,6 +2788,11 @@ export interface components {
             name?: string;
         };
         PatchSession: {
+            /**
+             * @description The provider account this chat uses while it has usage left, by account id; null leaves it to the account
+             *     order. Left out, it stays as it is.
+             */
+            account?: string | null;
             agent?: string | null;
             archived?: boolean | null;
             /** @description Answer this session's asks, and its subagents', except secrets and anything outside the workspace. */
@@ -2784,7 +2838,7 @@ export interface components {
         };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
-            /** @description The host interfaces it imports: `store`, `files`, `process`, `http`. */
+            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers. */
             capabilities?: string[];
             /** @description Its config object from drift.json, so Settings can show and edit it. */
             config?: unknown;
@@ -3210,6 +3264,11 @@ export interface components {
             workspaces: components["schemas"]["WorkspaceChoice"][];
         };
         Session: {
+            /**
+             * @description The provider account the user set this chat to use while it has usage left; its subagents and spawned threads
+             *     start with it. Absent, the provider's account order decides.
+             */
+            account?: string | null;
             agent: string;
             /** Format: int64 */
             archivedAt?: number | null;
@@ -3327,6 +3386,13 @@ export interface components {
             text: string;
             /** @description The provider's voice; its default when left out. */
             voice?: string | null;
+        };
+        SpeechVoice: {
+            /** @description What its labels say of it: gender, age, accent. */
+            detail?: string | null;
+            group: components["schemas"]["VoiceGroup"];
+            id: string;
+            name: string;
         };
         SpokenAudio: {
             /** @description The audio file, base64. */
@@ -3476,6 +3542,7 @@ export interface components {
             restricted?: number | null;
             resultFile?: string | null;
             running?: boolean | null;
+            scope?: string | null;
             server?: string | null;
             sessionId?: string | null;
             /** Format: int64 */
@@ -3600,6 +3667,11 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        /**
+         * @description Where a voice comes from, as ElevenLabs sorts its voices.
+         * @enum {string}
+         */
+        VoiceGroup: "default" | "custom" | "community" | "workspace";
         VoiceKey: {
             key: string;
             provider: string;
@@ -3924,6 +3996,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listGrammars: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grammar"][];
+                };
             };
         };
     };
@@ -6335,6 +6426,27 @@ export interface operations {
             };
         };
     };
+    speechVoices: {
+        parameters: {
+            query: {
+                provider: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeechVoice"][];
+                };
+            };
+        };
+    };
     getWebSearch: {
         parameters: {
             query?: never;
@@ -6710,8 +6822,8 @@ export interface operations {
     reviewWorkspace: {
         parameters: {
             query: {
-                source: "uncommitted" | "branch" | "commit";
-                /** @description The branch for `branch`, the commit for `commit`. */
+                source: "uncommitted" | "branch" | "commit" | "files";
+                /** @description The branch for `branch`, the commit for `commit`, workspace-relative paths a line for `files`. */
                 target?: string | null;
             };
             header?: never;

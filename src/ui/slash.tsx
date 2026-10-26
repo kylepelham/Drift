@@ -1,12 +1,13 @@
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { accountPresets, choosesAccount, setSessionAccount } from "./slash-account";
 import { previousUserMessage, resolveModel, savedChoice } from "../engine/store";
 import { activeWorkspace, archiveSession } from "../state/workspaces";
 import { selectedSession, selectSession } from "../state/selection";
 import { setTheme, theme, themes } from "../state/theme";
+import { prefsFor, seedPrefs } from "../state/prefs";
 import { emitThreadArchived } from "../plugins";
 import { archiveFailed } from "./workspaces";
 import { restoreReverted } from "./revert";
-import { prefsFor } from "../state/prefs";
 import { openMcpServers } from "./mcp";
 import { t } from "../state/i18n";
 
@@ -63,6 +64,7 @@ const builtins: SlashItem[] = [
     { name: "undo", description: "command.session.undo.description", needsSession: true },
     { name: "redo", description: "command.session.redo.description", needsSession: true },
     { name: "compact", description: "command.session.compact.description", needsSession: true },
+    { name: "account", description: "drift.slash.account", needsSession: true, usage: "[auto|<account>]" },
     { name: "theme", description: "command.theme.cycle" },
     { name: "mcp", description: "drift.slash.mcp" },
 ];
@@ -92,9 +94,16 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
             literal: true,
         })),
     }));
+    const session = selectedSession();
     return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
-        .filter((item) => !item.needsSession || selectedSession())
-        .filter((item) => item.name.toLowerCase().startsWith(needle));
+        .filter((item) => !item.needsSession || session)
+        .filter((item) => item.name.toLowerCase().startsWith(needle))
+        .flatMap((item) => (item.name === "account" ? withAccounts(engine, item, session) : [item]));
+}
+
+/** `/account` lists the chat's provider's accounts as they stand now, and only when there is more than one. */
+function withAccounts(engine: Engine, item: SlashItem, session: string | null): SlashItem[] {
+    return choosesAccount(engine, session) ? [{ ...item, presets: accountPresets(engine, session) }] : [];
 }
 
 export function slashItem(engine: Engine, name: string) {
@@ -113,9 +122,13 @@ export function slashPresets(item: SlashItem, query: string) {
 export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     const current = selectedSession();
     if (item.engine) {
+        const model = resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model);
         const id = current ?? (await engine.actions.newSession())?.id;
         if (!id) return;
+        if (!current) seedPrefs(id);
         selectSession(id);
+        // A command's turn runs on the session's model, which a chat that has sent nothing yet does not have.
+        await engine.actions.useModel(id, model);
         return engine.actions.runCommand(id, item.name, args);
     }
 
@@ -135,6 +148,8 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
             return spawnSession(engine, current, args);
         case "archive":
             return archiveCurrentSession(engine, current);
+        case "account":
+            return setSessionAccount(engine, current, args);
         case "compact":
             return engine.actions.summarize(
                 current,

@@ -357,3 +357,11 @@ test("clarification UI uses a closed native disclosure with full QAs and the sta
     expect(userBubble.getText(parsed)).toContainCode("engine.actions.revert(info().sessionId, info().id, keepFiles)");
     expect(userBubble.getText(parsed)).toContain("if (clarification()) restored.text = text()");
 });
+
+test("an answer stays an answer when an instructions change rides in the same message", () => {
+    const answer = structured([single]);
+    const update = { id: "p0", messageId: "u1", sessionId: "s1", type: "instruction_update", generation: "g2" };
+    const message = { ...answer, parts: [update, ...answer.parts] } as unknown as MessageEntry;
+
+    expect(clarificationAnswer(message)?.preview).toBe("Blue");
+});

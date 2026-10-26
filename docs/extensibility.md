@@ -6,7 +6,7 @@
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
    servers (see [mcp.md](mcp.md)), per-family base prompts in Settings > Prompts, and engine
-   plugins: WebAssembly components that see tool calls and session events (below). The engine runs
+   plugins: WebAssembly components that see tool calls and session events and can add languages (below). The engine runs
    no JavaScript. Plugins written for opencode are named in the import summary and not run.
 2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
@@ -39,7 +39,7 @@ Drift's data.
 Settings > Plugins > Registry lists the plugins at
 [Drift-Plugins](https://github.com/kylepelham/Drift-Plugins): guard, protect-files, auto-format,
 lint-check, test-gate, notify, git-autocommit, git-context and tool-log, the hooks most people run
-in Claude Code, built as components. Cards show the plugin's picture (an SVG tile from the
+in Claude Code, built as components, and slang, a language plugin (category Languages). Cards show the plugin's picture (an SVG tile from the
 repository, through jsDelivr, since raw GitHub serves SVG as text), category, hooks and a line of
 description; the install sheet shows its config fields (text, comma-separated list, switch, number
 or JSON) with the registry's defaults, its size and a link to its source. Install fetches the
@@ -164,13 +164,16 @@ Drift does the swapping itself, at the two places everything passes, so no hook 
   is parsed (`Assembler::revealing`), before permission checks, `before-tool` plugins, early reads
   or the tool itself see it: shell commands, edits, writes, MCP servers and subagent prompts all get
   the real value. The stored call keeps the real value; the next request hides it again.
+- The model's replies, reasoning and one-shot answers (titles, summaries) have their placeholders
+  turned back the same way when each block ends, so what you read shows the real values. While a
+  block streams it shows the placeholder, until the block finishes.
 
 Matching is exact text, longest secret first, in one pass. A pair is skipped (and logged) when its
-secret or placeholder is empty, a secret or a placeholder is listed twice, or a placeholder contains
+secret or placeholder is empty, its placeholder is the secret itself, a secret or a placeholder is listed twice, or a placeholder contains
 any secret; the log names the pair by its place, never by its values.
 Choose placeholders that never occur on their own (`API_KEY_PLACEHOLDER`, not `key`): any
-occurrence the model writes in a tool call becomes the secret. What you see in Drift keeps the real
-values (your prompts, tool output, file contents); the model's own replies show the placeholder.
+occurrence the model writes becomes the secret. What you see in Drift keeps the real values (your
+prompts, tool output, file contents, and the model's replies once each block ends).
 Output cut at the engine's bound can end partway through a secret, and that fragment is not
 recognised.
 
@@ -213,6 +216,33 @@ plugin reaches the network through the `http` host interface; Drift never calls 
 behalf.
 
 `plugins/searxng` is that plugin: it asks the SearXNG instance in `config.url` for JSON results.
+
+### Adding languages
+
+A plugin built for the `languages` world (the `configurable` world plus two exports) adds languages
+Drift does not know. Both exports are asked once, when the plugin loads.
+
+- `language-servers()`: servers Drift starts as it starts the built-in ones and those in drift.json
+  `lsp`. Each has an id, a command found on PATH, the file name endings it handles and optionally the
+  LSP language id it is told. The errors an edit leaves in those files come back with the edit. Your
+  drift.json `lsp` entry of the same id replaces a plugin's server or, set to `false`, turns it off;
+  a project's file can turn it off too. Two plugins naming one id: the first listed wins. A plugin
+  that declares a server lists "starts language servers" among what it can reach, since Drift runs
+  that program for it.
+- `grammars()`: TextMate grammars, each with the language's name, other fence names, the file name
+  endings (`.roc`) or whole file names (`Rocfile`) it highlights, and the grammar's
+  `.tmLanguage.json` text, which must have a `scopeName` and `patterns` (one that does not is logged
+  and left out). The app highlights those files and Markdown code fences named for them, in
+  transcripts, previews and diffs, and a grammar comes before the bundled language for the same file
+  or name. Grammars are served at `GET /grammars`; the engine sends `grammars.updated` when a
+  plugin load changes them, and views shown before they arrived highlight again. Highlighting keeps a grammar it
+  has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
+
+`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and starts
+`roc_language_server` unless `config.server` names another command (empty turns it off). The
+registry's `slang` does the same for the Slang shading language, with Khronos' grammar and `slangd`.
+The app copies each grammar out of the engine store into plain data, since the syntax worker that
+tokenizes off the main thread is posted it and a store proxy cannot be posted.
 
 ## Skills
 

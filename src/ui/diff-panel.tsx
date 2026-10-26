@@ -1,5 +1,6 @@
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code";
 import { createEffect, createMemo, createSignal, For, Show, untrack } from "solid-js";
+import { pluginGrammarsRevision } from "../syntax-grammars";
 import { codeTokens, type SyntaxToken } from "./markdown";
 import { resolveFileLanguage } from "../syntax-language";
 import { Chevron } from "./controls";
@@ -82,6 +83,7 @@ export function createDiffHighlight(filename: () => string, code: () => string) 
 
     createEffect(() => {
         const name = filename();
+        pluginGrammarsRevision();
         const current = ++languageRequest;
 
         setLanguage(undefined);

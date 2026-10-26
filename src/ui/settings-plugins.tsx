@@ -303,7 +303,7 @@ function PluginRow(props: {
         !props.plugin.enabled ? t("drift.plugins.off") : (props.plugin.error ?? t("drift.plugins.loaded"));
 
     return (
-        <div class="flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40">
+        <div class="settings-item-row flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40">
             <LogoTile image={props.image} title={props.plugin.name} />
             <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-medium text-ink">{props.plugin.name}</div>
@@ -328,7 +328,7 @@ function PluginRow(props: {
                     <span class="truncate font-mono text-ink-faint">{props.plugin.path}</span>
                 </div>
             </div>
-            <div class="flex shrink-0 items-center gap-1.5">
+            <div class="settings-item-actions flex shrink-0 items-center gap-1.5">
                 <button
                     type="button"
                     disabled={props.disabled}
@@ -606,7 +606,7 @@ function InstallSheet(props: {
                 onClick={() => props.onBack()}
             >
                 <IconArrowUp class="size-3.5 -rotate-90" />
-                {t("drift.mcp.registry.back")}
+                {t("common.back")}
             </button>
             <div class="flex items-start gap-3">
                 <LogoTile image={props.plugin.image} title={props.plugin.name} large />
@@ -662,7 +662,7 @@ export function Tab(props: { active: boolean; onClick: () => void; children: JSX
         <button
             type="button"
             aria-pressed={props.active}
-            class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
+            class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs whitespace-nowrap"
             classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
             onClick={() => props.onClick()}
         >

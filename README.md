@@ -159,7 +159,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a substantial pull reques
 | [Engine](docs/engine.md) | How the app hosts the engine, its API and events, data locations, and usage limits |
 | [Engine design](docs/engine-rewrite.md) | Every engine decision in detail, with milestones and baselines |
 | [Extensibility](docs/extensibility.md) | Drift plugins, hooks, tool renderers, slash commands, and spawned threads |
-| [Code review](docs/code-review.md) | `/review` levels and scope, the `report_findings` tool, the findings card, and findings in the review panel |
+| [Code review](docs/code-review.md) | `/review` levels and scope, `/audit` for the whole codebase, the `report_findings` tool, the findings card, and findings in the review panel |
 | [MCP](docs/mcp.md) | Servers, transports, sign-in, read-only trust, and the registry |
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |

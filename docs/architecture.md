@@ -191,6 +191,16 @@ as `C:/`. Multiple matches produce an error listing the candidates. Absolute pat
 and explicit parent navigation keep their normal meaning; unknown paths retain the
 workspace-relative fallback. Resolution does not search the filesystem.
 
+Inline code paths copy whole (`src/ui/markdown-paths.ts`). A double click on inline code
+without spaces selects the whole span rather than the word under the pointer. Copying a
+selection that is exactly one inline code span that names a path puts its full path on the
+clipboard: resolved as a citation is, so a drive-root workspace finds the file the chat
+touched, then joined to the chat's folder, in that folder's separators, with any `:line`
+kept. A bare name (`drift.exe`) counts as a path only when the chat touched a file by that
+name, so identifiers such as `session.account` copy as written, and so does a path that
+matches more than one touched file. Prose takes no focus, so the copy is heard on the
+document and mapped back to its transcript through the `.md` root.
+
 Local chat images use the same owning directory and bounded preview reader. Sanitization
 removes their raw `src` and responsive `srcset` before insertion, leaving only internally
 generated image markers. External HTTP(S) and data images retain transcript behavior.
@@ -210,6 +220,8 @@ Automatic reads (embedded images and nested document links) keep the original wo
 Spawned-thread tool rows finish when the spawn call succeeds, independently of the
 sibling's later activity or errors. Only subagent task rows display live child tool
 counts; spawn rows retain their receipt and navigation link without ongoing progress.
+Clicking a subagent or spawn row opens its session, running or finished; only a row that
+never got a session (a call refused before it started) expands to show its output.
 
 General settings persist file preview mode as All, None, or Custom, with All the default.
 Custom keeps a toggle for each type; switching modes preserves those choices. Filename
@@ -317,8 +329,14 @@ the canvas before cancelling the frame loop, disposing resources, and losing the
 so WebView2 cannot composite a cleared canvas over the next settings section.
 
 Transcript scrolling unsticks on the first upward movement, including inside the
-bottom follow zone. Virtual row resize correction uses the measured row's real viewport
-position so a tall row cannot be mistaken for a short row above the viewport. Range
+bottom follow zone. Off the bottom, the transcript keeps what the reader is looking at in place:
+it takes the element on the reading line (just under the header) and its position before rows
+for a new scroll position mount, and after any row resizes it moves the view by however far that
+element drifted, carrying a running wheel animation along. That covers a row mounting above
+at its real height instead of its estimate, a tall row that straddles the top edge, and code
+or Markdown finishing its rendering above the reader. Without an anchor, a row is compensated
+when it sat wholly above the viewport at its old height (2.4.2: judging by its new height let a
+row that grew from a 96px estimate to 2000px past the top jerk the view by the difference). Range
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
 
@@ -380,7 +398,8 @@ while any still runs: calls side by side count once, calls one after another add
 gaps between them do not count. Any
 tool row leaves out a duration under a second. A
 disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
-2 patterns · <latest target>`; delegation and questions never group. The row stays
+2 patterns · <latest target>`, and a lone read, search or listing is its own row, since a group
+of one only added a second disclosure to open; delegation and questions never group. The row stays
 collapsed while it runs, counts background commands still
 alive, and says Failed when any call failed. An opened group indents its calls with their
 own disclosure and no rule line. The edited files card ends a finished turn, never a step

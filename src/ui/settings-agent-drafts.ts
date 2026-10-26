@@ -18,7 +18,7 @@ export type AgentDraft = {
     permissions: PermissionRule[];
 };
 
-const levelOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+const levelOrder = ["none", "thinking", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** Returns the pinned model's reasoning levels, or all connected levels, retaining the saved choice. */
 export function reasoningLevels(state: Pick<EngineState, "providers" | "connected">, model: string, current: string) {

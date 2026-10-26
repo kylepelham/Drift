@@ -11,6 +11,7 @@ import { initDevtoolsShortcut } from "./state/devtools";
 import { ImportSummaryHost } from "./ui/import-summary";
 import { bindShellTimeoutPolicy } from "./state/prefs";
 import { listenMirrorLiveError } from "./state/mirror";
+import { setPluginGrammars } from "./syntax-grammars";
 import { EngineProvider, useEngine } from "./engine";
 import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
@@ -197,6 +198,7 @@ function WorkspaceBinding() {
         void initWorkspaces();
     });
     createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null));
+    createEffect(() => setPluginGrammars(engine.state.grammars));
     createEffect(() => {
         if (engine.state.connection !== "online") return;
 
