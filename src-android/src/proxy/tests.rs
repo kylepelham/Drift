@@ -287,16 +287,27 @@ async fn the_pages_saved_values_outlive_the_launch_and_come_back_before_its_scri
     let (proxy, address, client) = proxy().await;
     let url = |path: &str| format!("http://{address}{path}");
     let values = json!({ "drift.workspace.collapsed": "[\"w1\"]", "drift.diff.wrap": "true" });
+    let put = |sequence: u64, body: &serde_json::Value| {
+        client
+            .put(url(&format!("/app/api/storage?page=p1&sequence={sequence}")))
+            .header("cookie", signed_in())
+            .json(body)
+            .send()
+    };
 
-    let kept = client
-        .put(url("/app/api/storage"))
-        .header("cookie", signed_in())
+    assert_eq!(put(2, &values).await.unwrap().status(), StatusCode::NO_CONTENT);
+    let stale = put(1, &json!({ "drift.diff.wrap": "false" })).await.unwrap();
+    assert_eq!(
+        stale.status(),
+        StatusCode::NO_CONTENT,
+        "a slow earlier snapshot is answered"
+    );
+    let refused = client
+        .put(url("/app/api/storage?page=p1&sequence=3"))
         .json(&values)
         .send()
         .await
         .unwrap();
-    assert_eq!(kept.status(), StatusCode::NO_CONTENT);
-    let refused = client.put(url("/app/api/storage")).json(&values).send().await.unwrap();
     assert_eq!(
         refused.status(),
         StatusCode::UNAUTHORIZED,
@@ -305,6 +316,10 @@ async fn the_pages_saved_values_outlive_the_launch_and_come_back_before_its_scri
 
     let script = next_launch_restores(&proxy).await;
     assert!(script.contains(r#""drift.workspace.collapsed":"[\"w1\"]""#), "{script}");
+    assert!(
+        script.contains(r#""drift.diff.wrap":"true""#),
+        "a slow earlier snapshot is not kept: {script}"
+    );
     assert!(script.contains("localStorage.setItem"), "{script}");
 
     let page = storage::with_restore("<html><head><script>reads()</script></head></html>");

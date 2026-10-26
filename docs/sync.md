@@ -32,7 +32,9 @@ object sizes (padded to 4 KiB), upload times and how many computers there are.
 - **Objects.** Each object is a batch of a chat's changes: compressed with zstd (conversation data shrinks about
   3.7 times), padded, and sealed with ChaCha20-Poly1305 under a key HKDF draws from the group key and the object's
   own random 16-byte id, so no key and nonce pair can repeat. The group, the writing computer and its sequence
-  number are bound into the seal, so an object moved, replayed or renumbered does not open.
+  number are bound into the seal, so an object moved to another computer or renumbered does not open. A replayed
+  object still opens under its own sequence, so a reader applies each computer's sequence numbers in order and drops
+  any it has already applied.
 - **Signatures.** Each computer has an Ed25519 key and signs everything it uploads. The device list pairs each
   computer's public key with an HMAC tag only the group key can make, so a server cannot add a key of its own and
   write as a new computer. Readers check both.

@@ -123,20 +123,18 @@ impl Store {
 
     /// Adds a directory, or restores and touches the row that already holds it.
     pub fn add_workspace(&self, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
-        // Paths differ only by case on the same folder where the file system ignores case, and nowhere else.
-        let same_path = if cfg!(any(windows, target_os = "macos")) {
-            "LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))"
-        } else {
-            "REPLACE(path, '\\', '/') = REPLACE(?1, '\\', '/')"
-        };
         let conn = self.lock();
-        let existing: Option<String> = conn
-            .prepare_cached(&format!(
-                "SELECT id FROM workspace WHERE {same_path}
-                 ORDER BY (removed_at IS NULL) DESC, last_used DESC LIMIT 1"
-            ))?
-            .query_row([path], |row| row.get(0))
-            .optional()?;
+        let existing = conn
+            .prepare_cached(
+                "SELECT id, path FROM workspace
+                 WHERE LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))
+                 ORDER BY (removed_at IS NULL) DESC, last_used DESC",
+            )?
+            .query_map([path], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .find(|(_, kept)| same_folder(kept, path))
+            .map(|(id, _)| id);
 
         let id = match existing {
             Some(id) => {
@@ -160,6 +158,21 @@ impl Store {
 
         Ok(workspace)
     }
+}
+
+/// Paths that differ only by case name one folder on Windows, elsewhere only when the disk says they are one folder.
+fn same_folder(kept: &str, path: &str) -> bool {
+    if cfg!(windows) || kept.replace('\\', "/") == path.replace('\\', "/") {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(a), Ok(b)) = (std::fs::metadata(kept), std::fs::metadata(path)) {
+            return (a.dev(), a.ino()) == (b.dev(), b.ino());
+        }
+    }
+    false
 }
 
 impl Store {
@@ -245,11 +258,10 @@ pub(crate) mod tests {
         let second = store.add_workspace("C:\\Repo", "other", "").unwrap();
         let cased = store.add_workspace("c:/repo", "cased", "").unwrap();
         assert_eq!(first.id, second.id);
-        let case_insensitive = cfg!(any(windows, target_os = "macos"));
         assert_eq!(
             first.id == cased.id,
-            case_insensitive,
-            "casing folds only where the file system does"
+            cfg!(windows),
+            "casing folds on Windows, and elsewhere only for one folder on disk"
         );
     }
 

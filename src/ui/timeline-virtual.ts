@@ -56,27 +56,29 @@ export function resizeCompensation(previous: number, next: number, rowBottom: nu
     return rowBottom - next + previous <= viewportTop ? next - previous : 0;
 }
 
-/** What the reader is looking at and where it was, so a size change anywhere else can be undone. */
-export type ScrollAnchor = { node: Element; top: number };
+/** What the reader is looking at and where it was, most precise first, so a size change anywhere else can be undone. */
+export type ScrollAnchor = { node: Element; top: number }[];
 
-/** The element on the reading line (just under the header), else the first row crossing it. */
+/** The element on the reading line (just under the header) and its row, else the first row crossing the line. */
 export function captureAnchor(scroller: HTMLElement, line: number): ScrollAnchor | undefined {
     const box = scroller.getBoundingClientRect();
     const y = box.top + line;
     const hit = document.elementFromPoint(box.left + box.width / 2, y);
-    const node = hit && scroller.contains(hit) && hit.closest("[data-mid]") ? hit : firstRowAt(scroller, y);
+    const row = hit && scroller.contains(hit) ? hit.closest("[data-mid]") : null;
+    const nodes = row && hit ? [hit, row] : [firstRowAt(scroller, y)];
+    const anchor = nodes.flatMap((node) => (node ? [{ node, top: node.getBoundingClientRect().top }] : []));
 
-    return node ? { node, top: node.getBoundingClientRect().top } : undefined;
+    return anchor.length ? anchor : undefined;
 }
 
 function firstRowAt(scroller: HTMLElement, y: number) {
     for (const row of scroller.querySelectorAll("[data-mid]")) if (row.getBoundingClientRect().bottom > y) return row;
 }
 
-/** How far the anchor moved since it was taken; `undefined` once it left the page. */
+/** How far the anchor moved since it was taken, by the row when a re-render replaced the element; `undefined` once both left. */
 export function anchorDrift(anchor: ScrollAnchor | undefined) {
-    if (!anchor?.node.isConnected) return undefined;
-    return anchor.node.getBoundingClientRect().top - anchor.top;
+    const kept = anchor?.find(({ node }) => node.isConnected);
+    return kept && kept.node.getBoundingClientRect().top - kept.top;
 }
 
 export function virtualRange(offsets: number[], viewTop: number, viewHeight: number) {
