@@ -20,10 +20,11 @@ async fn proxy() -> (Proxy, SocketAddr, reqwest::Client) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy = Shared::new(
-        Computers::load(path),
+        Computers::load(path.clone()),
         Arc::new(Native {}),
         SECRET.into(),
         address.port(),
+        path.with_extension("storage.json"),
     );
     tokio::spawn(serve(listener, proxy.clone()));
     let client = reqwest::Client::builder()
@@ -279,4 +280,60 @@ async fn a_pc_without_a_tunnel_that_does_not_answer_says_how_to_reach_it_from_an
     let computer = proxy.computers.lock().unwrap().get(&id).cloned().unwrap();
     let error = proxy.connect(&computer).await.unwrap_err().to_string();
     assert!(error.contains("Reach from anywhere"), "{error}");
+}
+
+#[tokio::test]
+async fn the_pages_saved_values_outlive_the_launch_and_come_back_before_its_scripts() {
+    let (proxy, address, client) = proxy().await;
+    let url = |path: &str| format!("http://{address}{path}");
+    let values = json!({ "drift.workspace.collapsed": "[\"w1\"]", "drift.diff.wrap": "true" });
+
+    let kept = client
+        .put(url("/app/api/storage"))
+        .header("cookie", signed_in())
+        .json(&values)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(kept.status(), StatusCode::NO_CONTENT);
+    let refused = client.put(url("/app/api/storage")).json(&values).send().await.unwrap();
+    assert_eq!(
+        refused.status(),
+        StatusCode::UNAUTHORIZED,
+        "another app cannot plant values"
+    );
+
+    let script = next_launch_restores(&proxy).await;
+    assert!(script.contains(r#""drift.workspace.collapsed":"[\"w1\"]""#), "{script}");
+    assert!(script.contains("localStorage.setItem"), "{script}");
+
+    let page = storage::with_restore("<html><head><script>reads()</script></head></html>");
+    assert!(
+        page.starts_with(r#"<html><head><script src="/app/api/storage.js"></script><script>reads()"#),
+        "{page}"
+    );
+}
+
+/// The script the next launch, a new proxy on another port reading the same file, restores the page with.
+async fn next_launch_restores(proxy: &Proxy) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let proxy = Shared::new(
+        Computers::load(crate::test_dir().join("unused.json")),
+        Arc::new(Native {}),
+        SECRET.into(),
+        address.port(),
+        proxy.storage.clone(),
+    );
+    tokio::spawn(serve(listener, proxy));
+
+    reqwest::Client::new()
+        .get(format!("http://{address}/app/api/storage.js"))
+        .header("cookie", signed_in())
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
 }

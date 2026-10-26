@@ -318,10 +318,30 @@
         font-size: 0.9375rem;
     }
 
+    /* Words wrap whole; only a word longer than its line, such as a path or a key, breaks inside it. */
     .settings-content {
         padding: 1rem;
         overscroll-behavior: contain;
+        overflow-wrap: break-word;
+    }
+
+    .settings-content button,
+    .settings-content [role="radio"] {
+        overflow-wrap: normal;
+    }
+
+    .settings-content .font-mono {
         overflow-wrap: anywhere;
+    }
+
+    /* An installed plugin's or skill's actions go under its name, which then keeps the whole width. */
+    .settings-item-row {
+        flex-wrap: wrap;
+    }
+
+    .settings-item-row > .settings-item-actions {
+        flex-basis: 100%;
+        justify-content: flex-end;
     }
 
     .settings-row {
@@ -356,10 +376,6 @@
         width: auto;
         min-width: 0;
         flex: 1;
-    }
-
-    .settings-row-copy > div + div {
-        overflow-wrap: anywhere;
     }
 
     /* A group's title keeps its line; a wide action such as a workspace picker goes below it. */
@@ -653,6 +669,19 @@
 
     .touch-reveal {
         opacity: 1;
+    }
+
+    /* A line's comment button is its line-number gutter on touch: a "+" on every line would bury the code. */
+    .review-comment-button.review-comment-button {
+        top: 0;
+        left: 0;
+        width: 3rem;
+        min-width: 0;
+        height: 100%;
+        min-height: 0;
+        transform: none;
+        background: transparent;
+        opacity: 0;
     }
 
     .secret-input {

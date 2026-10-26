@@ -101,7 +101,7 @@ function BackButton(props: { onBack: () => void }) {
     return (
         <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={() => props.onBack()}>
             <IconArrowUp class="size-3.5 -rotate-90" />
-            {t("drift.mcp.registry.back")}
+            {t("common.back")}
         </button>
     );
 }

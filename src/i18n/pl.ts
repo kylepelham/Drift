@@ -23,6 +23,7 @@ export const dict = {
     "common.requestFailed": "Żądanie nie powiodło się",
     "common.attachment": "załącznik",
     "common.cancel": "Anuluj",
+    "common.back": "Wstecz",
     "common.close": "Zamknij",
     "common.connect": "Połącz",
     "common.default": "Domyślny",
@@ -279,7 +280,6 @@ export const dict = {
     "drift.mcp.registry.searchingOfficial": "Przeszukiwanie oficjalnego rejestru MCP...",
     "drift.mcp.registry.empty":
         "Żaden serwer nie pasuje. Spróbuj innego słowa lub dodaj serwer ręcznie w sekcji Serwery.",
-    "drift.mcp.registry.back": "Wszystkie serwery",
     "drift.mcp.registry.repository": "Repozytorium",
     "drift.mcp.registry.website": "Strona internetowa",
     "drift.mcp.registry.runAs": "Uruchom jako",

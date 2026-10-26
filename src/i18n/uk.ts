@@ -23,6 +23,7 @@ export const dict = {
     "common.requestFailed": "Запит не виконано",
     "common.attachment": "вкладення",
     "common.cancel": "Скасувати",
+    "common.back": "Назад",
     "common.close": "Закрити",
     "common.connect": "Підключити",
     "common.default": "За замовчуванням",
@@ -277,7 +278,6 @@ export const dict = {
     "drift.mcp.registry.searchingOfficial": "Пошук в офіційному реєстрі MCP...",
     "drift.mcp.registry.empty":
         "Немає відповідних серверів. Спробуйте інше слово або додайте сервер вручну в розділі «Сервери».",
-    "drift.mcp.registry.back": "Усі сервери",
     "drift.mcp.registry.repository": "Репозиторій",
     "drift.mcp.registry.website": "Вебсайт",
     "drift.mcp.registry.runAs": "Запускати як",

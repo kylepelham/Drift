@@ -357,7 +357,7 @@ function InstallSheet(props: {
                 onClick={() => props.onBack()}
             >
                 <IconArrowUp class="size-3.5 -rotate-90" />
-                {t("drift.mcp.registry.back")}
+                {t("common.back")}
             </button>
             <div class="flex items-start gap-3">
                 <LogoTile image={server().listing?.image} title={title(server())} large />

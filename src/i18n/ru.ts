@@ -23,6 +23,7 @@ export const dict = {
     "common.requestFailed": "Запрос не выполнен",
     "common.attachment": "вложение",
     "common.cancel": "Отмена",
+    "common.back": "Назад",
     "common.close": "Закрыть",
     "common.connect": "Подключить",
     "common.default": "По умолчанию",
@@ -278,7 +279,6 @@ export const dict = {
     "drift.mcp.registry.searchingOfficial": "Поиск в официальном реестре MCP...",
     "drift.mcp.registry.empty":
         "Подходящих серверов нет. Попробуйте другое слово или добавьте сервер вручную в разделе «Серверы».",
-    "drift.mcp.registry.back": "Все серверы",
     "drift.mcp.registry.repository": "Репозиторий",
     "drift.mcp.registry.website": "Сайт",
     "drift.mcp.registry.runAs": "Запускать как",
