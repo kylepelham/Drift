@@ -1,29 +1,34 @@
-/**
- * Installs the latest Android build on a phone over wireless debugging, pairing it first by QR code when it has
- * never been paired with this PC. `bun run phone` (`--build` builds the APK first). See `docs/android.md`.
- *
- * Finding the phone needs mDNS, which `adb`'s own discovery sends only out of the lowest-metric adapter: with a VPN
- * or Hyper-V switch installed that is not the LAN, so this asks on every adapter itself.
- */
+// Installs the Android app on a phone over wireless debugging, pairing it by QR code first if needed (docs/android.md).
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { driftTemp, tempFolder } from "./temp";
 import { randomInt } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { tempFolder } from "./temp";
 import { renderSVG } from "uqr";
 import dgram from "node:dgram";
 import path from "node:path";
+import net from "node:net";
 import os from "node:os";
 
 const root = path.resolve(import.meta.dir, "..");
 const apk = path.join(root, "src-android/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk");
 const PAIRING = "_adb-tls-pairing._tcp.local";
-const CONNECT = "_adb-tls-connect._tcp.local";
+/** The phone last installed on, so the next run finds it without pairing again. */
+const remembered = path.join(driftTemp("phone"), "last-phone.txt");
 
-type Service = { instance: string; type: string; host: string; port: number };
+type Service = { instance: string; host: string; port: number };
 
-function adb(...args: string[]) {
-    const run = spawnSync("adb", args, { encoding: "utf8" });
-    return { ok: run.status === 0, output: `${run.stdout}${run.stderr}`.trim() };
+/** Runs adb, stopped after `seconds` by our own timer: spawnSync's fires at once after much network work in Bun. */
+async function adb(args: string[], seconds = 8) {
+    const run = Bun.spawn(["adb", ...args], { stdout: "pipe", stderr: "pipe" });
+    const limit = setTimeout(() => run.kill(), seconds * 1000);
+    const [stdout, stderr, status] = await Promise.all([
+        new Response(run.stdout).text(),
+        new Response(run.stderr).text(),
+        run.exited,
+    ]);
+    clearTimeout(limit);
+
+    return { ok: status === 0, output: `${stdout}${stderr}`.trim() };
 }
 
 function encodeName(name: string) {
@@ -58,7 +63,7 @@ function readName(packet: Buffer, start: number): [string, number] {
     throw new Error("name loops");
 }
 
-/** The adb services a response names, each with the address it came from when it names no A record. */
+/** The pairing services a response names, each with the address it came from when it names no A record. */
 function services(packet: Buffer, from: string): Service[] {
     const counts = [4, 6, 8, 10].map((at) => packet.readUInt16BE(at));
     let offset = 12;
@@ -75,14 +80,13 @@ function services(packet: Buffer, from: string): Service[] {
     }
 
     return [...targets].flatMap(([name, target]) => {
-        const type = [PAIRING, CONNECT].find((service) => name.endsWith(`.${service}`));
-        if (!type) return [];
-        const instance = name.slice(0, -type.length - 1);
-        return [{ instance, type, host: addresses.get(target.host) ?? from, port: target.port }];
+        if (!name.endsWith(`.${PAIRING}`)) return [];
+        const instance = name.slice(0, -PAIRING.length - 1);
+        return [{ instance, host: addresses.get(target.host) ?? from, port: target.port }];
     });
 }
 
-/** Asks every adapter's network for adb services until `wanted` accepts one, or `seconds` pass. */
+/** Asks every adapter's network for phones waiting to pair until `wanted` accepts one, or `seconds` pass. */
 function discover(wanted: (service: Service) => boolean, seconds: number) {
     const lan = Object.values(os.networkInterfaces())
         .flat()
@@ -102,7 +106,7 @@ function discover(wanted: (service: Service) => boolean, seconds: number) {
         const send = () => {
             for (const address of lan) {
                 socket.setMulticastInterface(address);
-                socket.send(query([PAIRING, CONNECT]), 5353, "224.0.0.251");
+                socket.send(query([PAIRING]), 5353, "224.0.0.251");
             }
         };
         socket.on("message", (packet, from) => {
@@ -142,24 +146,80 @@ async function pair() {
     );
     console.log(`Scan the code on the phone (Wireless debugging, Pair device with QR code). Also at:\n${page}\n`);
 
-    const pairing = await discover((service) => service.type === PAIRING && service.instance === name, 300);
+    const pairing = await discover((service) => service.instance === name, 300);
     if (!pairing) throw new Error("no phone scanned the code within five minutes");
-    const paired = adb("pair", `${pairing.host}:${pairing.port}`, code);
+    const paired = await adb(["pair", `${pairing.host}:${pairing.port}`, code]);
     if (!paired.ok) throw new Error(`pairing failed: ${paired.output}`);
     console.log(paired.output);
 
     return pairing.host;
 }
 
-/** Connects to a paired phone that offers wireless debugging, the one at `host` when given. */
-async function connect(host?: string, seconds = 8) {
-    const offered = await discover((service) => service.type === CONNECT && (!host || service.host === host), seconds);
-    if (!offered) return undefined;
-    const serial = `${offered.host}:${offered.port}`;
-    const connected = adb("connect", serial);
-
-    return connected.ok && !connected.output.includes("failed") ? serial : undefined;
+/** A phone adb already has online over the network. */
+async function connected() {
+    return (await adb(["devices"])).output
+        .split("\n")
+        .map((line) => line.trim().split(/\s+/))
+        .find(([serial, state]) => serial?.includes(":") && state === "device")?.[0];
 }
+
+/** `adb connect`, keeping the serial only when the phone came online; a wrong port is dropped again. */
+async function attach(serial: string) {
+    if (!(await adb(["connect", serial])).output.startsWith("connected")) return undefined;
+    // The phone shows as offline for a moment while it accepts this PC.
+    for (let tries = 0; tries < 10; tries++) {
+        if ((await connected()) === serial) return serial;
+        await Bun.sleep(300);
+    }
+    await adb(["disconnect", serial]);
+    return undefined;
+}
+
+function listening(host: string, port: number) {
+    return new Promise<boolean>((resolve) => {
+        const socket = net.connect({ host, port });
+        const finish = (open: boolean) => {
+            socket.resetAndDestroy();
+            resolve(open);
+        };
+        socket.setTimeout(400, () => finish(false));
+        socket.once("connect", () => finish(true));
+        socket.once("error", () => finish(false));
+    });
+}
+
+/** The phone's wireless debugging port, tried directly: some phones answer mDNS only while pairing. */
+async function scan(host: string) {
+    const open: number[] = [];
+    let next = 32768;
+    const worker = async () => {
+        while (next <= 60999) {
+            const port = next++;
+            if (await listening(host, port)) open.push(port);
+        }
+    };
+    await Promise.all(Array.from({ length: 800 }, worker));
+
+    for (const port of open.sort((a, b) => a - b)) {
+        const serial = await attach(`${host}:${port}`);
+        if (serial) return serial;
+    }
+    return undefined;
+}
+
+/** Connects to a paired phone at `host` by trying its ports, since phones rarely answer mDNS for them. */
+async function connect(host?: string) {
+    if (!host) return undefined;
+    console.log(`Looking for ${host}'s wireless debugging port...`);
+
+    return scan(host);
+}
+
+function remember(serial: string) {
+    writeFileSync(remembered, serial.split(":")[0]!);
+}
+
+const lastHost = () => (existsSync(remembered) ? readFileSync(remembered, "utf8").trim() || undefined : undefined);
 
 if (process.argv.includes("--build")) {
     const built = spawnSync("bunx", ["tauri", "android", "build", "--debug", "--apk", "--target", "aarch64"], {
@@ -170,12 +230,32 @@ if (process.argv.includes("--build")) {
     if (built.status !== 0) process.exit(built.status ?? 1);
 }
 
-adb("start-server");
-const serial = (await connect()) ?? (await connect(await pair(), 60));
-if (!serial) throw new Error("paired, but the phone offered no connection; is Wireless debugging still on?");
+await adb(["start-server"]);
+const serial = (await connected()) ?? (await connect(lastHost())) ?? (await connect(await pair()));
+if (!serial) {
+    console.error("Paired, but the phone accepted no connection; is Wireless debugging still on?");
+    process.exit(1);
+}
+remember(serial);
+console.log(`Connected to ${serial}.`);
 
-const installed = adb("-s", serial, "install", "-r", apk);
+const install = () => adb(["-s", serial, "install", "-r", apk], 300);
+let installed = await install();
 console.log(installed.output);
+// Another key signed the installed app: only removing it, and its data, lets this one in.
+if (installed.output.includes("INSTALL_FAILED_UPDATE_INCOMPATIBLE")) {
+    if (!process.argv.includes("--replace")) {
+        console.error(
+            "The app on the phone was signed with another key. Run again with --replace to uninstall it first;",
+        );
+        console.error("its data goes with it, so the PC is linked again in the app.");
+        process.exit(1);
+    }
+    console.log((await adb(["-s", serial, "uninstall", "dev.drift.remote"])).output);
+    installed = await install();
+    console.log(installed.output);
+}
 if (!installed.ok) process.exit(1);
-adb("-s", serial, "shell", "monkey", "-p", "dev.drift.remote", "1");
+await adb(["-s", serial, "shell", "monkey", "-p", "dev.drift.remote", "1"]);
 console.log(`Installed and opened on ${serial}.`);
+process.exit(0);
