@@ -158,3 +158,10 @@ adb install -r gen/android/app/build/outputs/apk/universal/debug/app-universal-d
 ```
 
 The build runs `bun run build` first; the proxy embeds `dist/` in debug builds too.
+
+`bun run phone` installs that APK on a phone over wireless debugging and opens it (`--build` builds
+it first). A phone paired before is found and connected to; otherwise the script shows a QR code, in
+the terminal output's page, for the phone's Wireless debugging > Pair device with QR code, and pairs
+with the phone that scans it. It finds phones over mDNS itself, asking on every network adapter:
+`adb`'s own discovery sends only out of the lowest-metric adapter, which on a PC with a VPN or a
+Hyper-V switch is not the LAN, so it never sees the phone and pairing hangs on "Pairing device".
