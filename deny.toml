@@ -2,6 +2,13 @@
 [advisories]
 # Unmaintained crates deep in Tauri's Linux GTK stack have no replacement; flag only those Drift depends on directly.
 unmaintained = "workspace"
+# zstd 0.13 and zstd-safe 7 stay only through wasmtime's module cache (wasmtime 50 still pins them), which calls
+# just `encode_all` and `decode_all` with default features off: no `with_context`, no seekable, no legacy frames.
+ignore = [
+  { id = "RUSTSEC-2026-0391", reason = "zstd 0.13 via wasmtime-internal-cache, which never calls with_context" },
+  { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7 via wasmtime-internal-cache, built without the seekable feature" },
+  { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 via wasmtime-internal-cache, built without legacy frame support" },
+]
 
 [licenses]
 allow = [
