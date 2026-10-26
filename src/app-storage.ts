@@ -1,10 +1,11 @@
 /** Sends the phone app every change to saved values, which it restores next launch (`docs/android.md`). */
 export function keepAppStorage(storage: Storage = localStorage, send = sendToApp, proto = Storage.prototype) {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let sent = 0;
     const flush = () => {
         clearTimeout(timer);
         timer = undefined;
-        send(JSON.stringify(Object.fromEntries(entries(storage))));
+        send(JSON.stringify(Object.fromEntries(entries(storage))), ++sent);
     };
     const later = () => {
         clearTimeout(timer);
@@ -36,9 +37,12 @@ function entries(storage: Storage) {
     return found;
 }
 
-function sendToApp(body: string) {
+/** This page's name to the app, so a slow earlier snapshot of it never replaces a later one. */
+const page = Math.random().toString(36).slice(2);
+
+function sendToApp(body: string, sequence: number) {
     // A request the page may not outlive must stay under the browser's 64 KB keepalive budget.
-    void fetch("/app/api/storage", {
+    void fetch(`/app/api/storage?page=${page}&sequence=${sequence}`, {
         method: "PUT",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
