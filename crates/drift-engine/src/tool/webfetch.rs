@@ -138,8 +138,7 @@ fn visible_chars(html: &str) -> usize {
 /// must not leave this machine.
 async fn through_provider(ctx: &Context, url: &str) -> Option<Result<Output, String>> {
     // Tests serve the site and the provider both on loopback, which a real fallback never sends anywhere.
-    let allowed = cfg!(test) || (public(url) && resolves_public(url).await);
-    if !allowed || !ctx.engine.web_scrape_available() {
+    if !ctx.engine.web_scrape_available() || !(cfg!(test) || (public(url) && resolves_public(url).await)) {
         return None;
     }
     let read = tokio::select! {

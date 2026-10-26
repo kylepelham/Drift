@@ -308,7 +308,27 @@ fn runs_inline_code(program: &str, arguments: &[String]) -> bool {
     INLINE_CODE
         .iter()
         .find(|(name, _)| *name == program)
-        .is_some_and(|(_, flags)| arguments.iter().any(|argument| flags.contains(&argument.as_str())))
+        .is_some_and(|(_, flags)| {
+            arguments
+                .iter()
+                .any(|argument| flags.iter().any(|flag| gives_flag(argument, flag)))
+        })
+}
+
+/// Whether `argument` passes `flag`: bare, as `--flag=value`, with its code attached (`-cCODE`) or last in a cluster (`-ne`).
+fn gives_flag(argument: &str, flag: &str) -> bool {
+    if flag.starts_with("--") {
+        return argument
+            .strip_prefix(flag)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('='));
+    }
+    let Some(letter) = flag.strip_prefix('-') else {
+        return argument == flag;
+    };
+    argument.strip_prefix('-').is_some_and(|cluster| {
+        cluster.starts_with(letter)
+            || (cluster.ends_with(letter) && cluster.chars().all(|character| character.is_ascii_alphabetic()))
+    })
 }
 
 /// True only for a line that can be read, writes nothing by redirection, and runs nothing but

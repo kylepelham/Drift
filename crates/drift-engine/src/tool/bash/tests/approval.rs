@@ -115,6 +115,9 @@ fn lines_inside_the_workspace_run_without_asking_and_anything_reaching_out_or_at
         "rm src/*/../../../outside",
         "python -c \"print(1)\"",
         "node -e \"console.log(1)\"",
+        "node --eval=\"require('fs').rmSync('../outside')\"",
+        "python -c\"print(1)\"",
+        "perl -ne \"print\" file",
     ] {
         assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
     }
