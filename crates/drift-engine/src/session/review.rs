@@ -283,12 +283,12 @@ async fn files(root: &Path, listed: &str) -> Result<Review, ReviewError> {
 
     let mut review = Review::default();
     for path in paths {
-        let side = on_disk(root, path).await;
-        if matches!(side, Side::Absent) {
+        if review.full() {
+            review.omitted += usize::from(tokio::fs::try_exists(root.join(path)).await.unwrap_or(false));
             continue;
         }
-        if review.full() {
-            review.omitted += 1;
+        let side = on_disk(root, path).await;
+        if matches!(side, Side::Absent) {
             continue;
         }
         review.files.push(ReviewFile {
@@ -538,8 +538,11 @@ async fn on_disk(root: &Path, path: &str) -> Side {
 
     let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
     let mut bytes = Vec::new();
-    let read = match tokio::fs::File::open(root.join(path)).await {
-        Ok(file) => file.take(MAX_DIFF_BYTES as u64 + 1).read_to_end(&mut bytes).await,
+    let read = match contained(root, path).await {
+        Ok(path) => match tokio::fs::File::open(path).await {
+            Ok(file) => file.take(MAX_DIFF_BYTES as u64 + 1).read_to_end(&mut bytes).await,
+            Err(error) => Err(error),
+        },
         Err(error) => Err(error),
     };
     match read {
@@ -547,6 +550,17 @@ async fn on_disk(root: &Path, path: &str) -> Side {
         Ok(_) => Side::Present(bytes),
         Err(error) if missing(&error) => Side::Absent,
         Err(_) => Side::Unavailable,
+    }
+}
+
+/// `path` under `root` with its links followed; a link leading out of the workspace is refused.
+async fn contained(root: &Path, path: &str) -> std::io::Result<PathBuf> {
+    let root = tokio::fs::canonicalize(root).await?;
+    let path = tokio::fs::canonicalize(root.join(path)).await?;
+    if path.starts_with(&root) {
+        Ok(path)
+    } else {
+        Err(std::io::ErrorKind::PermissionDenied.into())
     }
 }
 

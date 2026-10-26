@@ -59,6 +59,13 @@ fn kimi_keeps_a_conversation_on_its_cache_and_every_reply_carries_reasoning() {
             .get("prompt_cache_key")
             .is_none()
     );
+
+    request.tools.clear();
+    let bare = Compat::moonshot("https://api.moonshot.example/v1").shaped(&request);
+    assert!(
+        bare.get("tools").is_none(),
+        "a request without tools sends no tools field"
+    );
 }
 
 #[test]

@@ -70,7 +70,7 @@ pub(super) async fn receive(
         match frame {
             Some(Ok(Message::Text(text))) => return parse(serde_json::from_str(&text)),
             Some(Ok(Message::Binary(bytes))) => return parse(serde_json::from_slice(&bytes)),
-            Some(Ok(Message::Ping(_))) => heartbeat(socket, deadline).await?,
+            Some(Ok(Message::Ping(_))) => heartbeat(socket, deadline, wait).await?,
             Some(Ok(Message::Pong(_))) => {}
             Some(Err(error)) => return Err(Error::Transport(format!("Responses WebSocket: {error}"))),
             Some(Ok(Message::Close(Some(frame)))) => {
@@ -89,10 +89,11 @@ pub(super) async fn receive(
     }
 }
 
-async fn heartbeat(socket: &mut Socket, deadline: Instant) -> Result<(), Error> {
+/// A heartbeat still unsent at the deadline is the server's silence, not a dropped socket: the request may be underway.
+async fn heartbeat(socket: &mut Socket, deadline: Instant, wait: Duration) -> Result<(), Error> {
     tokio::time::timeout_at(deadline, socket.flush())
         .await
-        .map_err(|_| Error::Transport("sending the Responses WebSocket heartbeat timed out".into()))?
+        .map_err(|_| silence(wait))?
         .map_err(|error| Error::Transport(error.to_string()))
 }
 

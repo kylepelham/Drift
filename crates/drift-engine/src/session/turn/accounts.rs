@@ -106,8 +106,9 @@ impl Engine {
     /// A new turn goes to the account the user set the conversation to use, else back to the account its last reply
     /// used while that account suits it and the cache there is still warm; the user's order decides once it has gone cold.
     pub(super) async fn stay_where_warm(&self, plan: &mut Plan) {
-        if let Some(pinned) = self.pinned_account(&plan.model_ref.provider, &plan.session.id, &plan.model) {
-            self.move_to_pinned(plan, pinned).await;
+        if let Some(pinned) = self.pinned_account(&plan.model_ref.provider, &plan.session.id, &plan.model)
+            && self.move_to_pinned(plan, pinned).await
+        {
             return;
         }
         let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
@@ -142,17 +143,18 @@ impl Engine {
         self.codex_offers.fit(&mut plan.model, &plan.credential);
     }
 
-    async fn move_to_pinned(&self, plan: &mut Plan, pinned: String) {
+    async fn move_to_pinned(&self, plan: &mut Plan, pinned: String) -> bool {
         if plan.account.as_ref() == Some(&pinned) {
-            return;
+            return true;
         }
         let Some(credential) = self.account_credential(&plan.model_ref.provider, &pinned).await else {
-            return;
+            return false;
         };
 
         plan.credential = credential;
         plan.account = Some(pinned);
         self.codex_offers.fit(&mut plan.model, &plan.credential);
+        true
     }
 
     /// Moves to the first suitable account in the user's order. While the current one still suits and the conversation's
