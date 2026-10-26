@@ -133,6 +133,37 @@ async fn a_server_the_write_starts_is_heard_even_when_it_starts_slower_than_the_
     std::fs::remove_dir_all(dir).ok();
 }
 
+#[tokio::test]
+async fn a_server_a_read_started_still_initializing_gets_its_start_allowance() {
+    let dir = workspace("warmed");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let servers = Servers::default();
+    let config = fake(&["slow"]);
+
+    servers.warm(&dir, &file, &config).await;
+    let found = servers.report(&dir, std::slice::from_ref(&file), &config).await;
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_that_dies_before_initializing_holds_up_nothing() {
+    let dir = workspace("crash");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let started = std::time::Instant::now();
+
+    let found = Servers::default()
+        .report(&dir, std::slice::from_ref(&file), &fake(&["crash"]))
+        .await;
+
+    assert!(found.is_empty(), "{found:?}");
+    assert!(started.elapsed() < WAIT, "{:?}", started.elapsed());
+    std::fs::remove_dir_all(dir).ok();
+}
+
 #[test]
 fn a_project_file_can_turn_a_server_off_but_never_name_one() {
     let named = |name: &str| table::BUILTIN.iter().find(|server| server.name == name);

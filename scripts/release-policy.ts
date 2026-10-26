@@ -229,17 +229,17 @@ function replaceRequired(content: string, pattern: RegExp, replacement: string, 
     return content.replace(pattern, replacement);
 }
 
-const workspaceCrates = ["drift", "drift-engine", "drift-engined", "drift-migrate"];
+const workspaceCrates = ["drift", "drift-android", "drift-engine", "drift-engined", "drift-migrate", "drift-pairing"];
 
 export function stampReleaseVersion(tag: string, root = path.resolve(import.meta.dirname, "..")) {
     const version = versionFromTag(tag);
 
     // Only the version string is replaced, so the files keep the formatting Prettier gave them.
-    for (const relative of ["package.json", "src-tauri/tauri.conf.json"]) {
+    for (const relative of ["package.json", "src-tauri/tauri.conf.json", "src-android/tauri.conf.json"]) {
         const file = path.join(root, relative);
         const stamped = replaceRequired(
             readFileSync(file, "utf8"),
-            // The first "version" key is the top-level one in both files.
+            // The first "version" key is the top-level one in each file.
             /("version":\s*")[^"]+(")/,
             `$1${version}$2`,
             file,

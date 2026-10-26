@@ -193,11 +193,9 @@ pub(super) async fn run(workspace: &Path, target: Option<&str>) -> Surveyed {
     let mut paths: Vec<String> = names(&listed).filter(|path| counted_name(path)).collect();
     paths.sort();
     paths.dedup();
-    let unmeasured = paths.len().saturating_sub(MAX_MEASURED);
-    paths.truncate(MAX_MEASURED);
 
     let root = workspace.to_path_buf();
-    let files = tokio::task::spawn_blocking(move || measure(&root, paths))
+    let (files, unmeasured) = tokio::task::spawn_blocking(move || measure(&root, paths))
         .await
         .unwrap_or_default();
     if files.is_empty() {
@@ -227,22 +225,32 @@ fn counted_name(path: &str) -> bool {
     !LOCKFILES.contains(&name) && !SKIPPED_ENDINGS.iter().any(|ending| lower.ends_with(ending))
 }
 
-/// Each file's lines, leaving out what is missing, past [`MAX_BYTES`], binary or empty.
-fn measure(root: &Path, paths: Vec<String>) -> Vec<Counted> {
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            let full = root.join(&path);
-            let small = std::fs::metadata(&full).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_BYTES);
-            let bytes = small.then(|| std::fs::read(&full).ok()).flatten()?;
-            if bytes.contains(&0) {
-                return None;
-            }
-            let breaks = bytes.iter().filter(|byte| **byte == b'\n').count();
-            let lines = breaks + usize::from(bytes.last().is_some_and(|byte| *byte != b'\n'));
-            (lines > 0).then_some(Counted { path, lines })
-        })
-        .collect()
+/// Up to [`MAX_MEASURED`] files counted, and how many paths were left untried once it was reached.
+fn measure(root: &Path, paths: Vec<String>) -> (Vec<Counted>, usize) {
+    let mut counted = Vec::new();
+    let mut paths = paths.into_iter();
+    for path in paths.by_ref() {
+        counted.extend(count(root, path));
+        if counted.len() == MAX_MEASURED {
+            break;
+        }
+    }
+
+    (counted, paths.len())
+}
+
+/// The file's lines; `None` when it is missing, past [`MAX_BYTES`], binary or empty.
+fn count(root: &Path, path: String) -> Option<Counted> {
+    let full = root.join(&path);
+    let small = std::fs::metadata(&full).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_BYTES);
+    let bytes = small.then(|| std::fs::read(&full).ok()).flatten()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    let breaks = bytes.iter().filter(|byte| **byte == b'\n').count();
+    let lines = breaks + usize::from(bytes.last().is_some_and(|byte| *byte != b'\n'));
+
+    (lines > 0).then_some(Counted { path, lines })
 }
 
 /// The surveyed files changed in most commits of the last 90 days.

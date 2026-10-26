@@ -1,7 +1,8 @@
 // A language server for tests: errors on lines holding ERROR, warnings on WARN. `mute` never initializes;
 // `pull` publishes nothing and answers textDocument/diagnostic instead, registering it after initialize.
-// `slow` answers initialize after 3.5 seconds, longer than a write waits for errors.
+// `slow` answers initialize after 3.5 seconds, longer than a write waits for errors; `crash` exits instead.
 const mute = process.argv[2] === "mute";
+const crash = process.argv[2] === "crash";
 const slow = process.argv[2] === "slow";
 const pull = process.argv[2] === "pull";
 // `--count=<file>` adds a line to that file each time a server starts.
@@ -63,6 +64,7 @@ function initialized(message) {
 function handle(message) {
     if (message.method === "initialize") {
         if (mute) return;
+        if (crash) process.exit(1);
         if (slow) return setTimeout(() => initialized(message), 3500);
         initialized(message);
     } else if (message.id === "cfg-1") {
