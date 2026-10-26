@@ -32,7 +32,24 @@ pub(super) fn copy_home(from: &Path, to: &Path, report: &mut SettingsReport) {
 }
 
 fn copy_tree(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
-    for entry in std::fs::read_dir(from).into_iter().flatten().flatten() {
+    let unread = |report: &mut SettingsReport, error: std::io::Error| {
+        report.left(shown, format!("{shown}: could not be read ({error})"), |left| {
+            &mut left.failed
+        });
+    };
+    let entries = match std::fs::read_dir(from) {
+        Ok(entries) => entries,
+        Err(_) if !from.is_dir() => return,
+        Err(error) => return unread(report, error),
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                unread(report, error);
+                continue;
+            }
+        };
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         let shown = format!("{shown}/{name}");
