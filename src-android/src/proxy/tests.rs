@@ -322,6 +322,42 @@ async fn the_pages_saved_values_outlive_the_launch_and_come_back_before_its_scri
     );
     assert!(script.contains("localStorage.setItem"), "{script}");
 
+    let reloaded = client
+        .put(url("/app/api/storage?page=p2&sequence=1"))
+        .header("cookie", signed_in())
+        .json(&json!({ "drift.diff.wrap": "reloaded" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reloaded.status(), StatusCode::NO_CONTENT);
+    put(9, &json!({ "drift.diff.wrap": "late" })).await.unwrap();
+    let script = next_launch_restores(&proxy).await;
+    assert!(
+        script.contains(r#""drift.diff.wrap":"reloaded""#),
+        "a page load that was replaced cannot overwrite the new one: {script}"
+    );
+
+    let changes = |sequence: u64, base: u64| {
+        client
+            .put(url(&format!(
+                "/app/api/storage?page=p2&sequence={sequence}&base={base}"
+            )))
+            .header("cookie", signed_in())
+            .json(&json!({ "set": { "drift.theme": "dim" }, "removed": ["drift.diff.wrap"] }))
+            .send()
+    };
+    assert_eq!(
+        changes(2, 7).await.unwrap().status(),
+        StatusCode::CONFLICT,
+        "changes from a snapshot not kept"
+    );
+    assert_eq!(changes(2, 1).await.unwrap().status(), StatusCode::NO_CONTENT);
+    let script = next_launch_restores(&proxy).await;
+    assert!(
+        script.contains(r#""drift.theme":"dim""#) && !script.contains("drift.diff.wrap"),
+        "changes apply to what was kept: {script}"
+    );
+
     let page = storage::with_restore("<html><head><script>reads()</script></head></html>");
     assert!(
         page.starts_with(r#"<html><head><script src="/app/api/storage.js"></script><script>reads()"#),

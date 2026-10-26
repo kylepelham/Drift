@@ -249,8 +249,13 @@ fn vouched(device: &str, public: &[u8]) -> Vec<u8> {
 }
 
 fn object_aad(header: &[u8], context: &Context) -> Aad<Vec<u8>> {
-    let bound = format!("|{}|{}|{}", context.group, context.device, context.sequence);
-    Aad::from([header, bound.as_bytes()].concat())
+    let mut aad = header.to_vec();
+    for field in [context.group, context.device] {
+        aad.extend_from_slice(&(field.len() as u64).to_be_bytes());
+        aad.extend_from_slice(field.as_bytes());
+    }
+    aad.extend_from_slice(&context.sequence.to_be_bytes());
+    Aad::from(aad)
 }
 
 /// A four-byte length, the data, then zeros up to the next multiple of [`PAD`].

@@ -292,7 +292,7 @@ async fn files(root: &Path, listed: &str) -> Result<Review, ReviewError> {
             continue;
         }
         review.files.push(ReviewFile {
-            location: Some(location(&root.join(path))),
+            location: openable(root, path).await.as_deref().map(location),
             ..as_it_is(path.into(), &side)
         });
     }
@@ -363,7 +363,7 @@ async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
             continue;
         }
         let after = on_disk(root, path).await;
-        review.push(path.to_string(), Some(root.join(path)), Side::Absent, after);
+        review.push(path.to_string(), openable(root, path).await, Side::Absent, after);
     }
 
     Ok(review)
@@ -421,7 +421,8 @@ async fn push_changes(root: &Path, review: &mut Review, changes: Vec<RawChange>,
                 Source::Disk => on_disk(root, &change.path).await,
                 Source::Blobs => stored(&blobs, change.after.as_deref()),
             };
-            review.push(change.path.clone(), Some(root.join(&change.path)), before, after);
+            let opens = openable(root, &change.path).await;
+            review.push(change.path.clone(), opens, before, after);
         }
     }
 }
@@ -562,6 +563,11 @@ async fn contained(root: &Path, path: &str) -> std::io::Result<PathBuf> {
     } else {
         Err(std::io::ErrorKind::PermissionDenied.into())
     }
+}
+
+/// Where the review panel may open `path`: under `root`, and only while its links stay in the workspace.
+async fn openable(root: &Path, path: &str) -> Option<PathBuf> {
+    contained(root, path).await.ok().map(|_| root.join(path))
 }
 
 async fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>, ReviewError> {

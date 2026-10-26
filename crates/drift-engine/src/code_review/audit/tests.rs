@@ -135,6 +135,10 @@ fn the_scope_names_hot_spots_and_an_empty_or_unlisted_workspace_says_so() {
     );
     assert!(text.contains("- `src/hot.rs` (7)") && text.contains("- `crates/a.rs` (50 lines)"));
     assert!(text.contains("Do not edit") && text.contains("## Afterwards"));
+    assert!(
+        text.contains("`scope` `codebase`, `path` `crates`"),
+        "a rerun keeps the path"
+    );
     assert!(render(&parse("--fix"), &Surveyed::Files(wide())).contains("the code clearly intends"));
 
     let empty = render(&parse("nowhere"), &Surveyed::Empty);

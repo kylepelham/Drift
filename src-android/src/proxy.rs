@@ -47,7 +47,7 @@ pub(crate) struct Shared {
     port: u16,
     /// The page's saved values (`storage`), and the last snapshot written, held while writing so writes go one at a time.
     storage: PathBuf,
-    storing: Mutex<Option<storage::Snapshot>>,
+    storing: Mutex<storage::Storing>,
 }
 
 pub(crate) type Proxy = Arc<Shared>;
@@ -68,7 +68,7 @@ impl Shared {
             secret,
             port,
             storage,
-            storing: Mutex::new(None),
+            storing: Mutex::default(),
         })
     }
 
