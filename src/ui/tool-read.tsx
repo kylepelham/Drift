@@ -20,9 +20,10 @@ export function parseReadOutput(output: string) {
     const rows = output.split("\n");
     const lines: ReadLine[] = [];
     for (const row of rows) {
-        const numbered = /^(\d+): ?(.*)$/.exec(row);
+        // A file's own carriage returns and line separators stay inside its numbered line.
+        const numbered = /^(\d+): ?(.*)$/s.exec(row);
         if (!numbered) break;
-        lines.push({ line: Number(numbered[1]), text: numbered[2]! });
+        lines.push({ line: Number(numbered[1]), text: numbered[2]!.replaceAll("\r", "") });
     }
 
     return { lines, rest: rows.slice(lines.length).join("\n").trim() };
@@ -34,7 +35,7 @@ export function ReadPanel(props: { path: string; lines: ReadLine[]; rest: string
 
     return (
         <div class="space-y-1.5">
-            <div class="overflow-hidden rounded-lg border border-edge">
+            <div class="diff-view overflow-hidden rounded-lg border border-edge">
                 <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
                     <div classList={{ "w-full": diffWordWrap(), "w-max min-w-full": !diffWordWrap() }}>
                         <For each={props.lines}>
