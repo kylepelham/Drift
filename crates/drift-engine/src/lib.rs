@@ -3,6 +3,7 @@
 pub mod api;
 pub mod background;
 pub mod browser;
+pub mod cloudsync;
 pub mod code_review;
 pub mod config;
 pub mod edit;

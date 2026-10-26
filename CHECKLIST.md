@@ -386,6 +386,14 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
 - [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
 
+## Conversation sync (`docs/sync.md`)
+
+- [x] Cryptography: password stretched with Argon2id into a login key and a wrapping key, group key wrapped for the server, per-object keys, signed objects bound to computer and sequence, vouched device list, blinded attachment names
+- [ ] Server: Worker, R2 and a Durable Object on the user's own Cloudflare account, with a setup wizard and an in-process fake for tests
+- [ ] Upload each computer's chats and catalog; open another computer's chats in a temporary view
+- [ ] Continue another computer's chat as a fork in a mapped workspace
+- [ ] Computers button in the sidebar, Settings > Sync (password, authenticator, remember, per-workspace opt-out, storage), phone picker
+
 ## Drift for Android (`docs/android.md`)
 
 - [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, all reachable addresses, the LAN MAC, and the tunnel with its key
