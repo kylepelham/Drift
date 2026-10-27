@@ -307,6 +307,29 @@ async fn a_turn_passes_over_an_account_that_cannot_be_renewed_to_the_next() {
 }
 
 #[tokio::test]
+async fn a_refused_account_with_no_other_that_renews_ends_the_turn_with_its_error() {
+    let (_held, _) = token_endpoint(
+        400,
+        json!({ "error": "invalid_grant", "error_description": "Refresh token revoked" }),
+    )
+    .await;
+    let h = harness().await;
+    live_and_expired_accounts(&h);
+    h.provider.push_error(llm::Error::api(
+        429,
+        "rate_limit_error",
+        "Usage credits are required for this model.",
+    ));
+
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(h.provider.credentials.lock().unwrap().len(), 1, "never sent again");
+    let error = transcript(&h)[1].info.error.clone().unwrap();
+    assert!(error.contains("Usage credits are required"), "{error}");
+}
+
+#[tokio::test]
 async fn an_account_that_cannot_be_renewed_is_listed_without_a_credential() {
     let (_held, _) = token_endpoint(
         400,
