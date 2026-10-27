@@ -33,6 +33,8 @@ pub(crate) enum PcError {
     SignedOut(String),
     #[error("{0}")]
     Refused(String),
+    #[error("connected, but this phone could not save it for next time: {0}")]
+    Unsaved(std::io::Error),
     #[error(transparent)]
     Pairing(#[from] drift_pairing::PairingError),
 }

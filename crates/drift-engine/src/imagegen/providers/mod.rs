@@ -334,9 +334,27 @@ pub(super) async fn download(http: &reqwest::Client, url: &str) -> Result<Image,
     if !response.status().is_success() {
         return Err(format!("the image could not be fetched: {}", response.status()).into());
     }
-    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
 
-    sniffed(&bytes)
+    sniffed(&capped(response).await?)
+}
+
+/// The most of a generated image read from a URL; far past any real one.
+const MAX_DOWNLOAD: usize = 64 * 1024 * 1024;
+
+async fn capped(mut response: reqwest::Response) -> Result<Vec<u8>, Failure> {
+    let too_large = || Failure::from(format!("the image is over {} MB", MAX_DOWNLOAD / 1024 / 1024));
+    if response.content_length().is_some_and(|size| size > MAX_DOWNLOAD as u64) {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_DOWNLOAD {
+            return Err(too_large());
+        }
+    }
+
+    Ok(bytes)
 }
 
 /// Asks `check` until it has an answer, or gives up after [`POLL_FOR`].

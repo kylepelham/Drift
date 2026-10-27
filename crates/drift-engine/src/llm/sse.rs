@@ -6,6 +6,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 
+/// The most of one unfinished line or event held while its end is awaited: far past any real event.
+const MAX_HELD: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct SseEvent {
     pub event: String,
@@ -62,9 +65,18 @@ impl Parser {
 
         Some(SseEvent { event, data })
     }
+
+    /// Bytes of the event not yet dispatched.
+    fn held(&self) -> usize {
+        self.lines.held() + self.data.iter().map(String::len).sum::<usize>()
+    }
 }
 
 impl LineReader {
+    fn held(&self) -> usize {
+        self.buffer.len() + self.pending.len()
+    }
+
     /// Feeds bytes and returns every line completed by them, without its line ending.
     pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<String> {
         self.decode(chunk);
@@ -115,14 +127,21 @@ where
 {
     let mut parser = Parser::default();
 
-    watched(bytes, idle).flat_map(move |chunk| {
+    let events = watched(bytes, idle).flat_map(move |chunk| {
         let items: Vec<Result<SseEvent, StreamError>> = match chunk {
-            Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
+            Ok(bytes) => {
+                let mut items: Vec<_> = parser.feed(&bytes).into_iter().map(Ok).collect();
+                if parser.held() > MAX_HELD {
+                    items.push(Err(StreamError::Oversized));
+                }
+                items
+            }
             Err(error) => vec![Err(error)],
         };
 
         futures_util::stream::iter(items)
-    })
+    });
+    until_error(events)
 }
 
 /// The non-empty lines of a byte stream (newline-delimited JSON), with the same stall limit as [`events`].
@@ -132,18 +151,36 @@ where
 {
     let mut reader = LineReader::default();
 
-    watched(bytes, idle).flat_map(move |chunk| {
+    let lines = watched(bytes, idle).flat_map(move |chunk| {
         let items: Vec<Result<String, StreamError>> = match chunk {
-            Ok(bytes) => reader
-                .feed(&bytes)
-                .into_iter()
-                .filter(|line| !line.trim().is_empty())
-                .map(Ok)
-                .collect(),
+            Ok(bytes) => {
+                let mut items: Vec<_> = reader
+                    .feed(&bytes)
+                    .into_iter()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(Ok)
+                    .collect();
+                if reader.held() > MAX_HELD {
+                    items.push(Err(StreamError::Oversized));
+                }
+                items
+            }
             Err(error) => vec![Err(error)],
         };
 
         futures_util::stream::iter(items)
+    });
+    until_error(lines)
+}
+
+/// The stream through its first error, which ends it.
+fn until_error<T>(stream: impl Stream<Item = Result<T, StreamError>>) -> impl Stream<Item = Result<T, StreamError>> {
+    stream.scan(false, |failed, item| {
+        let next = (!*failed).then(|| {
+            *failed = item.is_err();
+            item
+        });
+        std::future::ready(next)
     })
 }
 
@@ -175,6 +212,8 @@ pub(crate) enum StreamError {
     Transport(reqwest::Error),
     #[error("the stream stalled: nothing for {seconds} s")]
     Stalled { seconds: u64 },
+    #[error("the stream sent over {} MB without ending a line", MAX_HELD / 1024 / 1024)]
+    Oversized,
 }
 
 fn innermost(error: &(dyn std::error::Error + 'static)) -> String {
@@ -254,6 +293,16 @@ mod tests {
         assert!(matches!(error, StreamError::Stalled { seconds: 0 }), "{error}");
         assert_eq!(error.to_string(), "the stream stalled: nothing for 0 s");
         assert!(events.next().await.is_none(), "and nothing follows");
+    }
+
+    #[tokio::test]
+    async fn a_line_that_never_ends_is_given_up_on_past_the_cap() {
+        let chunk = Bytes::from(vec![b'x'; 1024 * 1024]);
+        let endless = futures_util::stream::repeat_with(move || Ok::<_, reqwest::Error>(chunk.clone()));
+        let mut lines = Box::pin(lines(endless, Duration::from_secs(5)));
+        let error = lines.next().await.unwrap().unwrap_err();
+        assert!(matches!(error, StreamError::Oversized), "{error}");
+        assert!(lines.next().await.is_none(), "and nothing follows");
     }
 
     #[tokio::test]

@@ -35,8 +35,9 @@ impl Tool for WebFetch {
 
     fn ask(&self, _ctx: &Context, input: &Value) -> Option<Ask> {
         let url = input["url"].as_str()?;
-        // As opencode: fetching runs without asking; a rule can still ask or deny by URL.
-        Some(Ask::new("webfetch", url, format!("Fetch {url}")).allow_by_default())
+        // As opencode, a public URL fetches unasked; this machine, its network or metadata hosts ask.
+        let ask = Ask::new("webfetch", url, format!("Fetch {url}"));
+        Some(if public(url) { ask.allow_by_default() } else { ask })
     }
 
     /// Fetches the page itself first; a page that will not load, or loads nearly empty, is read through a web search

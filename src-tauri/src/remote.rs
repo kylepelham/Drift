@@ -152,6 +152,7 @@ impl RemoteAccess {
             .await
             .map_err(RemoteError::Listen)?;
         let router = router(self.app.clone());
+        let tunnel = config.tunnel.then(|| self.start_tunnel(&router)).transpose()?;
         let (shutdown, http_shutdown) = watch::channel(false);
         let http = tokio::spawn(accept_loop(
             http_listener,
@@ -159,7 +160,6 @@ impl RemoteAccess {
             self.tls.clone(),
             http_shutdown,
         ));
-        let tunnel = config.tunnel.then(|| self.start_tunnel(&router)).transpose()?;
 
         *running = Some(Running {
             shutdown,

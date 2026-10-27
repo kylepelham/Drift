@@ -125,7 +125,7 @@ pub fn import_sessions(import: SessionImport<'_>) -> rusqlite::Result<Report> {
         store: import.store,
         source: &source,
         records: undo::records(&source, &planned, now, import.blobs)?,
-        pending: source.pending_inputs(),
+        pending: source.pending_inputs()?,
         checkpoints: import.store.import_checkpoints(),
     };
 

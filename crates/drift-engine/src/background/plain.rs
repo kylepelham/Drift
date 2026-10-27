@@ -3,6 +3,7 @@
 
 const ESC: u8 = 0x1b;
 const BEL: u8 = 0x07;
+const MAX_SEQUENCE: usize = 4096;
 
 #[derive(Default)]
 pub(super) struct Plain {
@@ -27,6 +28,8 @@ impl Plain {
 
             match sequence_end(&input[at..]) {
                 Some(length) => at += length,
+                // A sequence this long never ends; its escape is dropped and the rest reads as text.
+                None if input.len() - at > MAX_SEQUENCE => at += 1,
                 None => {
                     self.pending = input[at..].to_vec();
                     break;
@@ -73,5 +76,13 @@ mod tests {
         assert_eq!(plain.strip(b"6mnow\x1b[0m\n"), b"now\n");
         assert_eq!(plain.strip(b"\x1b]0;title\x07done\x1b]2;t\x1b\\!"), b"done!");
         assert_eq!(plain.strip(b"plain text"), b"plain text");
+    }
+
+    #[test]
+    fn an_escape_that_never_ends_does_not_swallow_what_follows() {
+        let mut plain = Plain::default();
+        assert_eq!(plain.strip(b"\x1b]0;"), b"");
+        let rest = vec![b'x'; MAX_SEQUENCE + 1];
+        assert_eq!(plain.strip(&rest), [&b"]0;"[..], &rest].concat());
     }
 }

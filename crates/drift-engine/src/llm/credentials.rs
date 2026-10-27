@@ -129,7 +129,7 @@ impl Credentials {
     }
 
     /// As `resolve`, with the key of the account the credential is stored under; none for one found elsewhere.
-    /// The first account `usable` accepts is taken, else the first, so a refusal still says why.
+    /// The first `usable` account whose credential reads is taken, else the first that reads, so a refusal says why.
     pub fn resolve_account(
         &self,
         provider: &str,
@@ -137,17 +137,14 @@ impl Credentials {
         usable: impl Fn(&str) -> bool,
     ) -> Option<(Option<String>, Credential)> {
         let accounts = self.accounts(provider);
-        let preferred = accounts
-            .iter()
-            .find(|account| usable(&account.key))
-            .or(accounts.first());
-        if let Some(account) = preferred
-            && let Some(stored) = self.account(&account.key)
-        {
-            return Some((Some(account.key.clone()), stored));
-        }
+        let stored = |key: &str| self.account(key).map(|credential| (Some(key.to_owned()), credential));
 
-        self.unstored(provider, env).map(|credential| (None, credential))
+        accounts
+            .iter()
+            .filter(|account| usable(&account.key))
+            .find_map(|account| stored(&account.key))
+            .or_else(|| accounts.iter().find_map(|account| stored(&account.key)))
+            .or_else(|| self.unstored(provider, env).map(|credential| (None, credential)))
     }
 
     /// The provider's first stored API key, else one from `env`. Subscription sign-ins are passed over:
