@@ -295,9 +295,14 @@ export function Chat(props: { dock: JSX.Element }) {
     });
     onCleanup(() => observer.disconnect());
 
+    // A search hit or focused element is never brought into view behind the dock; the caret in it would scroll on each key.
+    function padForDock(focused: EventTarget | null) {
+        const inDock = focused instanceof Node && dock.contains(focused);
+        scroller.style.scrollPaddingBottom = inDock ? "0px" : `${dock.offsetHeight}px`;
+    }
+
     const viewportObserver = new ResizeObserver(() => {
-        // A search hit or focused element is never brought into view behind the dock.
-        scroller.style.scrollPaddingBottom = `${dock.offsetHeight}px`;
+        padForDock(document.activeElement);
         // Snap before publishing: browser clamping as the dock grows would otherwise make the range jump.
         if (untrack(stick)) snapViewportToBottom();
         else publishViewport();
@@ -593,7 +598,12 @@ export function Chat(props: { dock: JSX.Element }) {
                             </div>
                         </div>
                     </Show>
-                    <div ref={dock} class="composer-dock shrink-0 px-4 pb-4">
+                    <div
+                        ref={dock}
+                        class="composer-dock shrink-0 px-4 pb-4"
+                        onFocusIn={(event) => padForDock(event.target)}
+                        onFocusOut={(event) => padForDock(event.relatedTarget)}
+                    >
                         <button
                             type="button"
                             title={t("drift.chat.scrollToLatest")}

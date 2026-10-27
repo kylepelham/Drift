@@ -356,6 +356,9 @@ jumps. Row height estimates, the virtual range and stick thresholds are in
 history behind a revert is `revert-backfill.ts`. The composer dock is the scroller's last child,
 `position: sticky` at its bottom, so a wheel, touchpad or swipe over the composer scrolls the
 conversation as the browser scrolls anything, momentum included; the transcript passes under it.
+The scroller's bottom scroll padding is the dock's height, so search hits and focused rows stay
+clear of it, except while focus is in the dock: the caret sat inside that padding, and the browser
+scrolled the transcript on every keystroke to bring it out.
 `chat-wheel.ts` only keeps a wheel over an inline menu marked `data-wheel-lock` (the composer's
 pickers) from scrolling the conversation behind it.
 
