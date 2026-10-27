@@ -1562,6 +1562,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Stimmen konnten nicht geladen werden: {{reason}}",
     "drift.voice.read.voice.library":
         "Deine eigenen, gespeicherten und vorgefertigten Stimmen. Speichere eine Stimme aus der Voice Library von ElevenLabs, um sie hier zu sehen.",
+    "drift.voice.read.voice.idPlaceholder": "Stimmen-ID, leer für die Standardstimme",
     "drift.voice.read.voice.system": "Systemstandard",
     "drift.voice.read.voice.title": "Stimme",
     "drift.voice.retry": "Erneut versuchen",

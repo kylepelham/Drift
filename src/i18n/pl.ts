@@ -1546,6 +1546,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Nie udało się wczytać głosów: {{reason}}",
     "drift.voice.read.voice.library":
         "Twoje własne, zapisane i gotowe głosy. Zapisz głos z Voice Library ElevenLabs, aby zobaczyć go tutaj.",
+    "drift.voice.read.voice.idPlaceholder": "ID głosu, puste dla domyślnego",
     "drift.voice.read.voice.system": "Domyślny systemowy",
     "drift.voice.read.voice.title": "Głos",
     "drift.voice.retry": "Ponów",

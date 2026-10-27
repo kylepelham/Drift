@@ -1539,6 +1539,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Не вдалося завантажити голоси: {{reason}}",
     "drift.voice.read.voice.library":
         "Ваші власні, збережені та готові голоси. Збережіть голос із Voice Library ElevenLabs, щоб побачити його тут.",
+    "drift.voice.read.voice.idPlaceholder": "ID голосу, порожньо для типового",
     "drift.voice.read.voice.system": "Системний типовий",
     "drift.voice.read.voice.title": "Голос",
     "drift.voice.retry": "Повторити",

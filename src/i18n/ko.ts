@@ -1515,6 +1515,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "음성을 불러오지 못했습니다: {{reason}}",
     "drift.voice.read.voice.library":
         "직접 만든 음성, 저장한 음성, 기본 제공 음성입니다. ElevenLabs Voice Library에서 음성을 저장하면 여기에 표시됩니다.",
+    "drift.voice.read.voice.idPlaceholder": "음성 ID, 비우면 기본값",
     "drift.voice.read.voice.system": "시스템 기본값",
     "drift.voice.read.voice.title": "목소리",
     "drift.voice.retry": "다시 시도",

@@ -1544,6 +1544,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Sesler listelenemedi: {{reason}}",
     "drift.voice.read.voice.library":
         "Kendi, kaydedilmiş ve hazır sesleriniz. Burada görmek için ElevenLabs Voice Library'den bir ses kaydedin.",
+    "drift.voice.read.voice.idPlaceholder": "Ses kimliği, varsayılan için boş bırakın",
     "drift.voice.read.voice.system": "Sistem varsayılanı",
     "drift.voice.read.voice.title": "Ses",
     "drift.voice.retry": "Yeniden dene",

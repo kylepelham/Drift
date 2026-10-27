@@ -1501,6 +1501,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "تعذّر عرض الأصوات: {{reason}}",
     "drift.voice.read.voice.library":
         "أصواتك الخاصة والمحفوظة والجاهزة. احفظ صوتًا من مكتبة أصوات ElevenLabs لتراه هنا.",
+    "drift.voice.read.voice.idPlaceholder": "معرّف الصوت، اتركه فارغًا للافتراضي",
     "drift.voice.read.voice.system": "افتراضي النظام",
     "drift.voice.read.voice.title": "الصوت",
     "drift.voice.retry": "إعادة المحاولة",

@@ -1552,6 +1552,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Não foi possível listar as vozes: {{reason}}",
     "drift.voice.read.voice.library":
         "Suas vozes próprias, salvas e prontas. Salve uma voz da Voice Library do ElevenLabs para vê-la aqui.",
+    "drift.voice.read.voice.idPlaceholder": "ID da voz, vazio para a padrão",
     "drift.voice.read.voice.system": "Padrão do sistema",
     "drift.voice.read.voice.title": "Voz",
     "drift.voice.retry": "Tentar de novo",

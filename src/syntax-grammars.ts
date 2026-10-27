@@ -22,16 +22,19 @@ export const pluginGrammarsRevision = revision;
 export function setPluginGrammars(grammars: readonly Grammar[]) {
     const byName = new Map<string, PluginLanguage>();
     const byFile: Index["byFile"] = [];
-    for (const grammar of grammars) {
+    const languages = grammars.map((grammar) => {
         const name = grammar.name.toLowerCase();
         const id = `plugin-${name}`;
         // A plain copy, since the store's proxies cannot be posted to the syntax worker.
         const copied = JSON.parse(JSON.stringify(grammar.grammar)) as object;
         const registration = { ...copied, name: id, aliases: [] } as unknown as LanguageRegistration;
-        for (const alias of [name, ...grammar.aliases.map((value) => value.toLowerCase())])
-            if (!byName.has(alias)) byName.set(alias, { id, registration });
         for (const ending of grammar.extensions) byFile.push({ ending: ending.toLowerCase(), name });
-    }
+        return { name, aliases: grammar.aliases.map((value) => value.toLowerCase()), language: { id, registration } };
+    });
+    // Every grammar's own name first, so another's alias never takes it.
+    for (const { name, language } of languages) if (!byName.has(name)) byName.set(name, language);
+    for (const { aliases, language } of languages)
+        for (const alias of aliases) if (!byName.has(alias)) byName.set(alias, language);
     index = { byName, byFile };
     setRevision((value) => value + 1);
 }

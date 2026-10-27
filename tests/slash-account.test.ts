@@ -56,6 +56,13 @@ test("/account lists Auto and each account by name, marking the one in use", () 
     expect(presets[2].description).toStartWith("In use. Cyber Verification. ");
     expect(presets[0].description).not.toStartWith("In use.");
     expect(slashPresets(item, "main").map((preset) => preset.value)).toEqual(["main@example.com"]);
+
+    const twins = engineWith([
+        { id: "anthropic", label: "work" },
+        { id: "anthropic~b", label: "work" },
+    ]).engine;
+    const shared = slashPresets(slashItems(twins, "account")[0], "");
+    expect(shared.map((preset) => preset.value)).toEqual(["auto", "anthropic", "anthropic~b"]);
 });
 
 test("/account sets the chat by name or number, clears it with auto, and says when nothing matches", async () => {

@@ -1536,6 +1536,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Kunne ikke hente stemmer: {{reason}}",
     "drift.voice.read.voice.library":
         "Dine egne, gemte og færdige stemmer. Gem en stemme fra ElevenLabs' Voice Library for at se den her.",
+    "drift.voice.read.voice.idPlaceholder": "Stemme-id, tom for standard",
     "drift.voice.read.voice.system": "Systemstandard",
     "drift.voice.read.voice.title": "Stemme",
     "drift.voice.retry": "Prøv igen",

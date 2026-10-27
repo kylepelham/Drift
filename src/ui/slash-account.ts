@@ -41,7 +41,8 @@ export function accountPresets(engine: Engine, session: string | null): SlashPre
             literal: true,
         },
         ...accounts.map((account) => ({
-            value: account.name,
+            // A label two accounts share would pick the first of them, so those go by id.
+            value: accounts.filter((other) => other.name === account.name).length > 1 ? account.id : account.name,
             label: account.name,
             description:
                 inUse(account.id === pinned) +

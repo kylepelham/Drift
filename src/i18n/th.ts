@@ -1504,6 +1504,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "แสดงรายการเสียงไม่ได้: {{reason}}",
     "drift.voice.read.voice.library":
         "เสียงของคุณเอง เสียงที่บันทึกไว้ และเสียงสำเร็จรูป บันทึกเสียงจาก Voice Library ของ ElevenLabs เพื่อให้แสดงที่นี่",
+    "drift.voice.read.voice.idPlaceholder": "รหัสเสียง เว้นว่างเพื่อใช้ค่าเริ่มต้น",
     "drift.voice.read.voice.system": "ค่าเริ่มต้นของระบบ",
     "drift.voice.read.voice.title": "เสียง",
     "drift.voice.retry": "ลองอีกครั้ง",

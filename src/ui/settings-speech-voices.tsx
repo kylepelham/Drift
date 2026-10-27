@@ -1,5 +1,5 @@
 import { setSpeechVoice, speechVoices } from "../state/voice";
-import { createMemo, createResource } from "solid-js";
+import { createMemo, createResource, Show } from "solid-js";
 import { Picker, type PickerItem } from "./picker";
 import { SettingsRow } from "./settings-controls";
 import { useEngine } from "../engine";
@@ -21,7 +21,9 @@ export function ElevenLabsVoiceRow(props: { keyed?: string | null }) {
     );
     const chosen = () => speechVoices().elevenlabs ?? "";
     const items = createMemo<PickerItem[]>(() => {
-        const listed = [...(voices.error ? [] : (voices() ?? []))].sort(
+        // Only the current key's finished list: a removed or replaced key's voices are not offered meanwhile.
+        const current = props.keyed && voices.state === "ready" ? voices() : [];
+        const listed = [...current].sort(
             (a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || a.name.localeCompare(b.name),
         );
         const kept = chosen() && !listed.some((voice) => voice.id === chosen());
@@ -50,13 +52,27 @@ export function ElevenLabsVoiceRow(props: { keyed?: string | null }) {
 
     return (
         <SettingsRow title={t("drift.voice.read.voice.title")} description={description()}>
-            <Picker
-                label={t("drift.voice.read.voice.title")}
-                items={items()}
-                selected={chosen()}
-                {...picker}
-                onPick={(value) => setSpeechVoice("elevenlabs", value)}
-            />
+            {/* A key that may speak but not list voices still takes a voice ID typed in. */}
+            <Show
+                when={voices.error}
+                fallback={
+                    <Picker
+                        label={t("drift.voice.read.voice.title")}
+                        items={items()}
+                        selected={chosen()}
+                        {...picker}
+                        onPick={(value) => setSpeechVoice("elevenlabs", value)}
+                    />
+                }
+            >
+                <input
+                    aria-label={t("drift.voice.read.voice.title")}
+                    placeholder={t("drift.voice.read.voice.idPlaceholder")}
+                    class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent sm:w-56"
+                    value={chosen()}
+                    onChange={(event) => setSpeechVoice("elevenlabs", event.currentTarget.value.trim())}
+                />
+            </Show>
         </SettingsRow>
     );
 }
