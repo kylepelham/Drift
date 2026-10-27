@@ -1,12 +1,13 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { collapseCompaction, compactionCollapsed, showReasoning, toolGroups } from "../state/prefs";
 import { compareMessages, messageRevisionKey, type MessageEntry } from "../engine/store";
-import { collapseCompaction, compactionCollapsed } from "../state/prefs";
+import { groupAssistantEntries, ownGroups, type OwnGroups } from "./message-groups";
 import { clearReveal, revealTarget } from "./session-search";
-import { groupAssistantEntries } from "./message-groups";
 import { createRevertBackfill } from "./revert-backfill";
 import { selectedSession } from "../state/selection";
 import { messageProblem } from "../engine/messages";
 import { holdWheelInLock } from "./chat-wheel";
+import { rendererVersion } from "../plugins";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
 import { messageVisible } from "./message";
@@ -39,6 +40,7 @@ import {
 } from "./transcript-find";
 import {
     copiedCount,
+    entryResults,
     retryInFlight,
     thinkingState,
     timelineEntries,
@@ -71,15 +73,15 @@ export function Chat(props: { dock: JSX.Element }) {
         for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)];
 
         const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined;
-        const sorted = [...transcript]
-            .filter((entry) => {
-                if (!revertedAt) return true;
-                if (boundary) return compareMessages(entry, boundary) < 0;
-                return entry.info.id < revertedAt;
-            })
-            .sort(compareMessages);
+        const kept = transcript.filter((entry) => {
+            if (!revertedAt) return true;
+            if (boundary) return compareMessages(entry, boundary) < 0;
+            return entry.info.id < revertedAt;
+        });
+        // The transcript is almost always in order already; sorting it on every token cost the most.
+        const ordered = kept.every((entry, index) => index === 0 || compareMessages(kept[index - 1]!, entry) <= 0);
 
-        return sorted;
+        return ordered ? kept : kept.sort(compareMessages);
     });
     const spawnedCopy = createMemo(() => {
         const id = selectedSession();
@@ -138,8 +140,23 @@ export function Chat(props: { dock: JSX.Element }) {
 
         return status?.type === "busy" ? retryInFlight(entries(), thinking()?.messageID) : undefined;
     });
-    const timelineSource = createMemo(() => timelineEntries(entries(), thinking()?.messageID));
-    const assistantGroups = createMemo(() => groupAssistantEntries(timelineSource()));
+    const revisionOf = (entry: MessageEntry) =>
+        engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)] ?? 0;
+    const visibleResults = entryResults<boolean>(revisionOf);
+    const groupResults = entryResults<OwnGroups>(revisionOf);
+    const timelineSource = createMemo(() => {
+        const settings = `${showReasoning()}|${collapseCompaction()}|${rendererVersion()}`;
+        return timelineEntries(entries(), thinking()?.messageID, (entry) =>
+            visibleResults(entry, settings, () => messageVisible(entry)),
+        );
+    });
+    const assistantGroups = createMemo(() => {
+        const kinds = toolGroups();
+        const settings = `${showReasoning()}|${rendererVersion()}|${JSON.stringify(kinds)}`;
+        return groupAssistantEntries(timelineSource(), kinds, (entry) =>
+            groupResults(entry, settings, () => ownGroups(entry, kinds)),
+        );
+    });
     const timeline = createMemo(() => {
         const source = timelineSource();
         const groups = assistantGroups();
@@ -218,11 +235,16 @@ export function Chat(props: { dock: JSX.Element }) {
         const groups = assistantGroups();
         for (let index = 0; index < list.length; index++) {
             const entry = list[index];
-            const parts = timelineParts(entry, groups.get(entry.info.id));
-            result[index + 1] =
-                result[index] +
-                (heights.get(entry.info.id) ??
-                    rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)));
+            const height =
+                heights.get(entry.info.id) ??
+                rowEstimate(
+                    entry,
+                    timelineParts(entry, groups.get(entry.info.id)),
+                    fontSize,
+                    thinkingOnly(entry),
+                    collapsedSummary(entry),
+                );
+            result[index + 1] = result[index] + height;
         }
 
         return result;

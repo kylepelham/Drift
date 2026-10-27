@@ -92,21 +92,41 @@ export function assistantFlowContinues(previous: MessageEntry, next: MessageEntr
     );
 }
 
-export function groupAssistantEntries(entries: MessageEntry[], kinds: GroupKinds = toolGroups()) {
+/** A reply's own groups, and whether it starts or ends an assistant flow, before neighbours merge into it. */
+export type OwnGroups = { groups: PartGroup[]; boundary: boolean };
+
+export function ownGroups(entry: MessageEntry, kinds: GroupKinds = toolGroups()): OwnGroups {
+    return { groups: collectParts(entry.parts, kinds), boundary: assistantBoundary(entry) };
+}
+
+/** A copy whose member lists a merge may grow, so a remembered reply's own groups stay as they were. */
+function mergeable(group: PartGroup): PartGroup {
+    if ("explored" in group) return { ...group, explored: [...group.explored] };
+    if ("run" in group) return { ...group, run: [...group.run] };
+    return group;
+}
+
+/** `own` may hand back a reply's remembered groups; they are copied before neighbours merge into them. */
+export function groupAssistantEntries(
+    entries: MessageEntry[],
+    kinds: GroupKinds = toolGroups(),
+    own: (entry: MessageEntry) => OwnGroups = (entry) => ownGroups(entry, kinds),
+) {
     const result = new Map<string, PartGroup[]>();
-    let previous: MessageEntry | undefined;
+    let flowOpen = false;
     let trailing: PartGroup | undefined;
 
     for (const entry of entries) {
         if (entry.info.role !== "assistant") {
-            previous = entry;
+            flowOpen = false;
             trailing = undefined;
             continue;
         }
 
-        if (!previous || !assistantFlowContinues(previous, entry)) trailing = undefined;
+        const reply = own(entry);
+        if (!flowOpen || reply.boundary) trailing = undefined;
         const groups: PartGroup[] = [];
-        for (const group of collectParts(entry.parts, kinds)) {
+        for (const group of reply.groups.map(mergeable)) {
             const kind = memberKind(group);
             if (kind && trailing && memberKind(trailing) === kind) {
                 groupMembers(trailing)!.push(...groupMembers(group)!);
@@ -118,7 +138,7 @@ export function groupAssistantEntries(entries: MessageEntry[], kinds: GroupKinds
         }
 
         result.set(entry.info.id, groups);
-        previous = entry;
+        flowOpen = !reply.boundary;
     }
 
     // A run is only complete once every step that continues it has been read.

@@ -17,8 +17,27 @@ export function copiedCount(entries: MessageEntry[], threadCreated: number) {
     return own < 0 ? entries.length : own;
 }
 
-export function timelineEntries(entries: MessageEntry[], activeMessageID?: string | null) {
-    return entries.filter((entry) => entry.info.id === activeMessageID || messageVisible(entry));
+export function timelineEntries(
+    entries: MessageEntry[],
+    activeMessageID?: string | null,
+    visible: (entry: MessageEntry) => boolean = messageVisible,
+) {
+    return entries.filter((entry) => entry.info.id === activeMessageID || visible(entry));
+}
+
+/** Remembers a result per message until its revision or `settings` change, so a token redoes one message. */
+export function entryResults<T>(revision: (entry: MessageEntry) => number) {
+    const results = new WeakMap<MessageEntry, { revision: number; settings: string; value: T }>();
+
+    return (entry: MessageEntry, settings: string, compute: () => T) => {
+        const current = revision(entry);
+        const known = results.get(entry);
+        if (known && known.revision === current && known.settings === settings) return known.value;
+
+        const value = compute();
+        results.set(entry, { revision: current, settings, value });
+        return value;
+    };
 }
 
 export function timelinePitch(entry: MessageEntry, next?: MessageEntry) {

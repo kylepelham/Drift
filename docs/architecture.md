@@ -45,6 +45,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   `produce` for fine-grained solid updates. It consumes the generated native event union
   directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
   There is no SDK record conversion or event-name translation.
+- `src/engine/deltas.ts` holds `part.delta` events for 100 ms and folds each part's contiguous run
+  into one before the reducer sees it; any other event flushes them first, so order holds. A token
+  rewrote the part and reran every transcript memo, which made long sessions stutter while streaming.
 - `src/engine/actions.ts` and its `actions-*.ts` groups are the only place engine calls
   happen. `actions.ts` keeps transcripts, session listing and sending, and merges the
   groups for sessions, asks, providers and configuration, which share one `ActionContext`.
@@ -339,6 +342,12 @@ when it sat wholly above the viewport at its old height (2.4.2: judging by its n
 row that grew from a 96px estimate to 2000px past the top jerk the view by the difference). Range
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
+
+Which messages show and how each reply's tools group are remembered per message (`entryResults`),
+keyed by its revision and the settings they read, so a streamed token works out only the reply it
+lands in. Neighbouring replies still merge their groups on every pass, from copies, so a remembered
+reply's own groups never grow. The transcript skips its sort when it is already in order, and a row
+with a measured height is never estimated.
 
 `src/ui/chat.tsx` owns the transcript scroller: stickiness, gestures, paging and search
 jumps. Row height estimates, the virtual range and stick thresholds are in
