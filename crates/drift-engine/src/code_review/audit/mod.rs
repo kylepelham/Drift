@@ -88,9 +88,13 @@ fn render(request: &Request, surveyed: &Surveyed) -> String {
         }
     };
 
+    let scope = match target {
+        Some(target) => format!(", `scope` `codebase`, `path` `{target}`"),
+        None => ", `scope` `codebase`".into(),
+    };
     sections.push(include_str!("../prompts/conventions.md").into());
     sections.push(method(level, survey));
-    sections.push(report(level, ", `scope` `codebase`", cap(level), "the codebase"));
+    sections.push(report(level, &scope, cap(level), "the codebase"));
     sections.push(after(request.fix, "code"));
 
     sections.join("\n").trim_end().to_string()

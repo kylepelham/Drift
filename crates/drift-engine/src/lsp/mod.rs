@@ -146,7 +146,7 @@ pub struct Found {
     pub errors: Vec<Diagnostic>,
 }
 
-/// Running servers by the folder they are rooted at and their name.
+/// Running servers by the folder they are rooted at, their name and the commands they were started from.
 type Running = Arc<Mutex<HashMap<Slot, Arc<Client>>>>;
 
 /// The servers running for each project root; dropping it (the engine stopping) ends them all.
@@ -160,7 +160,7 @@ pub struct Servers {
     reaping: std::sync::atomic::AtomicBool,
 }
 
-type Slot = (PathBuf, String);
+type Slot = (PathBuf, String, Vec<Vec<String>>);
 
 impl Servers {
     /// What the servers that handle `files` report about them within [`WAIT`]; files with no errors are left out.
@@ -226,7 +226,7 @@ impl Servers {
 
     /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
     async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
-        let slot: Slot = (root.to_path_buf(), spec.name.clone());
+        let slot: Slot = (root.to_path_buf(), spec.name.clone(), spec.commands.clone());
         let running = || {
             self.running
                 .lock()
@@ -262,7 +262,10 @@ impl Servers {
 
         match started {
             Ok(client) => {
-                self.running.lock().unwrap().insert(slot, client.clone());
+                let replaced = self.replace(slot, client.clone());
+                for old in replaced {
+                    old.shutdown().await;
+                }
                 self.reap_idle();
                 Some(client)
             }
@@ -271,6 +274,19 @@ impl Servers {
                 None
             }
         }
+    }
+
+    /// Keeps `client` in `slot`, handing back any server of that name and root started from commands since changed.
+    fn replace(&self, slot: Slot, client: Arc<Client>) -> Vec<Arc<Client>> {
+        let mut running = self.running.lock().unwrap();
+        let stale: Vec<Slot> = running
+            .keys()
+            .filter(|(root, name, commands)| *root == slot.0 && *name == slot.1 && *commands != slot.2)
+            .cloned()
+            .collect();
+        let replaced = stale.iter().filter_map(|old| running.remove(old)).collect();
+        running.insert(slot, client);
+        replaced
     }
 
     /// Once, a task that stops servers left idle (or dead); it ends when the engine does.

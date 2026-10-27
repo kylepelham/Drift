@@ -375,6 +375,29 @@ async fn reading_a_file_starts_its_server_before_the_first_edit() {
     drop(servers);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[tokio::test]
+async fn a_server_whose_command_changed_replaces_the_one_running() {
+    let dir = workspace("changed");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "fine").unwrap();
+    let servers = Servers::default();
+    servers.warm(&dir, &file, &fake(&[])).await;
+    let first = servers.running.lock().unwrap().values().next().cloned().unwrap();
+
+    servers.warm(&dir, &file, &fake(&["pull"])).await;
+    let running = servers.running.lock().unwrap();
+    assert_eq!(running.len(), 1, "the old command's server is not kept");
+    assert!(
+        running
+            .keys()
+            .all(|(_, _, commands)| commands[0].last().is_some_and(|arg| arg == "pull"))
+    );
+    assert!(!first.alive(), "and it was stopped");
+    drop(running);
+    drop(servers);
+    std::fs::remove_dir_all(dir).ok();
+}
 #[tokio::test]
 async fn a_server_that_is_asked_rather_than_publishing_still_reports() {
     let dir = workspace("pull");
@@ -447,9 +470,9 @@ async fn a_server_that_failed_at_one_root_is_still_tried_at_another() {
     assert!(servers.client(&dir, &scripts, spec).await.is_none());
     assert!(servers.client(&dir, &web, spec).await.is_none());
     let failed = servers.failed.lock().unwrap();
+    let slot = |root: &PathBuf| (root.clone(), "fake".to_string(), spec.commands.clone());
     assert!(
-        failed.contains_key(&(scripts.clone(), "fake".to_string()))
-            && failed.contains_key(&(web.clone(), "fake".to_string())),
+        failed.contains_key(&slot(&scripts)) && failed.contains_key(&slot(&web)),
         "each root tried for itself"
     );
     drop(failed);

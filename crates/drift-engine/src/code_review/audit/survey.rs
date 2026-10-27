@@ -11,6 +11,8 @@ const MAX_BYTES: u64 = 1024 * 1024;
 const SPLIT_LINES: usize = 4_000;
 const MAX_DEPTH: usize = 8;
 const MAX_CHURN: usize = 12;
+/// The most recent commits churn reads, so a busy repository's 90 days stay a bounded read.
+const CHURN_COMMITS: &str = "--max-count=1000";
 const MAX_LARGEST: usize = 8;
 const LOCKFILES: [&str; 6] = [
     "Cargo.lock",
@@ -253,13 +255,14 @@ fn count(root: &Path, path: String) -> Option<Counted> {
     (lines > 0).then_some(Counted { path, lines })
 }
 
-/// The surveyed files changed in most commits of the last 90 days.
+/// The surveyed files changed in most commits of the last 90 days, up to [`CHURN_COMMITS`] of them.
 async fn churn(workspace: &Path, pathspec: &str, files: &[Counted]) -> Vec<(String, usize)> {
     let log = plain_git(
         workspace,
         &[
             "log",
             "--since=90.days.ago",
+            CHURN_COMMITS,
             "--name-only",
             "--relative",
             "-z",

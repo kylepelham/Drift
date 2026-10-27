@@ -22,6 +22,8 @@ struct Input {
     level: Option<String>,
     #[serde(default)]
     scope: Option<Scope>,
+    #[serde(default)]
+    path: Option<String>,
     findings: Vec<Reported>,
 }
 
@@ -70,6 +72,7 @@ impl Tool for ReportFindings {
                 "properties": {
                     "level": { "type": "string", "description": "The review level that ran: low, medium, high or max." },
                     "scope": { "type": "string", "enum": ["changes", "codebase"], "description": "What was reviewed: `codebase` for an `/audit` review, else `changes`." },
+                    "path": { "type": "string", "description": "The path an `/audit` was limited to, when it named one." },
                     "findings": {
                         "type": "array",
                         "maxItems": MAX_FINDINGS,
@@ -129,6 +132,10 @@ impl Tool for ReportFindings {
                     findings: Some(findings),
                     level,
                     scope: input.scope.map(|scope| scope.name().into()),
+                    path: input
+                        .path
+                        .map(|path| path.trim().to_string())
+                        .filter(|path| !path.is_empty()),
                     ..Default::default()
                 },
             })
@@ -239,6 +246,7 @@ mod tests {
         let input = json!({
             "level": "High",
             "scope": "codebase",
+            "path": " src ",
             "findings": [
                 {
                     "file": absolute.to_string_lossy(),
@@ -259,6 +267,7 @@ mod tests {
         assert_eq!(out.output, "2 findings reported.");
         assert_eq!(out.metadata.level.as_deref(), Some("high"));
         assert_eq!(out.metadata.scope.as_deref(), Some("codebase"));
+        assert_eq!(out.metadata.path.as_deref(), Some("src"));
         assert_eq!(findings[0].file, "src/lib.rs");
         assert_eq!(
             findings[0].code.as_deref(),
