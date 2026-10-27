@@ -224,12 +224,7 @@ impl Engine {
         };
 
         let (account, credential) = self
-            .credentials
-            .resolve_account(&model_ref.provider, &env, |key| self.account_serves(key, &model))
-            .ok_or(TurnError::NoCredentials)?;
-        refuse_signin_elsewhere(&model_ref.provider, &credential, api.as_deref())?;
-        let credential = self
-            .fresh_credential(&model_ref.provider, account.as_deref(), credential)
+            .renewed_account(&model_ref.provider, &env, &model, api.as_deref())
             .await?;
         self.codex_offers.fit(&mut model, &credential);
         let provider = self
@@ -243,6 +238,39 @@ impl Engine {
             credential,
             account,
         })
+    }
+
+    /// The first account in the user's order that serves `model` and whose credential renews, passing over any that
+    /// cannot; with none left, the first renewal's error.
+    async fn renewed_account(
+        &self,
+        provider: &str,
+        env: &[String],
+        model: &crate::llm::catalog::Model,
+        api: Option<&str>,
+    ) -> Result<(Option<String>, crate::llm::Credential), TurnError> {
+        let mut failed: Vec<String> = Vec::new();
+        let mut first_error = None;
+        loop {
+            let resolved = self
+                .credentials
+                .resolve_account(provider, env, |key| {
+                    !failed.iter().any(|gone| gone == key) && self.account_serves(key, model)
+                })
+                .filter(|(account, _)| account.as_ref().is_none_or(|key| !failed.contains(key)));
+            let Some((account, stored)) = resolved else {
+                return Err(first_error.unwrap_or(TurnError::NoCredentials));
+            };
+            refuse_signin_elsewhere(provider, &stored, api)?;
+            match self.fresh_credential(provider, account.as_deref(), stored).await {
+                Ok(credential) => return Ok((account, credential)),
+                Err(error) => {
+                    let Some(key) = account else { return Err(error) };
+                    first_error.get_or_insert(error);
+                    failed.push(key);
+                }
+            }
+        }
     }
 
     /// The reply and what it used. The request forbids tool calls; a reply that makes one anyway is refused, never run.
