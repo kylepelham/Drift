@@ -12,17 +12,18 @@ export type FindingAnchor = { index: number; state: "exact" | "moved" | "changed
 /** The engine records at most this many characters of a finding's line. */
 const recordedChars = 400;
 
+/** A `report_findings` call's findings, each with its id. */
+export function reportFindings(part: ToolPart): FindingReport["findings"] {
+    return (part.metadata?.findings ?? []).map((finding, at) => ({ ...finding, id: `${part.id}:${at}` }));
+}
+
 /** Every finished `report_findings` call in a transcript, oldest first. */
 export function findingReports(entries: MessageEntry[]): FindingReport[] {
     const reports: FindingReport[] = [];
     for (const entry of entries) {
         for (const part of entry.parts) {
             if (part.type !== "tool_call" || part.name !== "report_findings" || part.status !== "done") continue;
-            const findings = (part.metadata?.findings ?? []).map((finding, at) => ({
-                ...finding,
-                id: `${part.id}:${at}`,
-            }));
-            reports.push({ part, level: part.metadata?.level ?? undefined, findings });
+            reports.push({ part, level: part.metadata?.level ?? undefined, findings: reportFindings(part) });
         }
     }
 

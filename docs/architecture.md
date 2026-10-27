@@ -449,7 +449,9 @@ be sent.
 
 A code review (`/review`, see [code-review.md](code-review.md)) leaves a findings card in the
 transcript; Walk through in diff opens the panel on All changes with each finding as a note
-under its line and a "Finding N of M" stepper above the files.
+under its line and a "Finding N of M" stepper above the files. The card reads its findings from its own
+part and keeps its rows while the session streams: outcomes come from later reports, so it watches
+the whole transcript, but an unchanged result never remounts the rows (that reset their hover).
 
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with
