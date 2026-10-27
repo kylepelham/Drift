@@ -1553,6 +1553,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "No se pudieron cargar las voces: {{reason}}",
     "drift.voice.read.voice.library":
         "Tus voces propias, guardadas y predefinidas. Guarda una voz de la Voice Library de ElevenLabs para verla aquí.",
+    "drift.voice.read.voice.idPlaceholder": "ID de voz, vacío para la predeterminada",
     "drift.voice.read.voice.system": "Predeterminada del sistema",
     "drift.voice.read.voice.title": "Voz",
     "drift.voice.retry": "Reintentar",

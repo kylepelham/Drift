@@ -17,7 +17,8 @@ and uploads them again the next time it is online.
 The server stores only sealed objects under random names, with a small index of which computer wrote each one and
 in what order. It never sees a title, path, message, workspace name or attachment, and it cannot forge or reorder
 what a computer wrote. Whoever runs the server (Cloudflare, or someone who gets into the account) learns only
-object sizes (padded to 4 KiB), upload times and how many computers there are.
+object sizes (padded to 4 KiB), upload times, how many computers there are, and from the index which computer
+wrote each object and in what order, so how active each computer is.
 
 - **Unlocking.** The user picks a sync password. Argon2id (64 MiB, three passes, a random salt per group) stretches
   it into a master key, and HKDF-SHA256 draws two keys from that: a login key, sent to the server, which stores

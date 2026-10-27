@@ -1465,6 +1465,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "无法列出声音：{{reason}}",
     "drift.voice.read.voice.library":
         "你自己的、已保存的和预设的声音。在 ElevenLabs 的 Voice Library 中保存声音后即可在此看到。",
+    "drift.voice.read.voice.idPlaceholder": "语音 ID，留空使用默认",
     "drift.voice.read.voice.system": "系统默认",
     "drift.voice.read.voice.title": "声音",
     "drift.voice.retry": "重试",

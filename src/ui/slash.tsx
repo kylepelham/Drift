@@ -98,7 +98,7 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
     return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
         .filter((item) => !item.needsSession || session)
         .filter((item) => item.name.toLowerCase().startsWith(needle))
-        .flatMap((item) => (item.name === "account" ? withAccounts(engine, item, session) : [item]));
+        .flatMap((item) => (item.name === "account" && !item.engine ? withAccounts(engine, item, session) : [item]));
 }
 
 /** `/account` lists the chat's provider's accounts as they stand now, and only when there is more than one. */

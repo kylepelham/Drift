@@ -27,6 +27,10 @@ test("a plugin's grammar names its files and fences, before and over the bundled
     expect(await resolveFileLanguage("tool.py")).toBe("python");
     expect(pluginLanguage("python")).toBeUndefined();
     expect(await resolveFileLanguage("main.roc")).toBe("text");
+
+    setPluginGrammars([grammar("elm", [".elm"], ["roc"]), grammar("roc", [".roc"])]);
+    expect(pluginLanguage("roc")?.id, "a grammar's own name wins over another's alias").toBe("plugin-roc");
+    setPluginGrammars([]);
 });
 
 test("code in a plugin's language is highlighted with its grammar, as tokens and as HTML", async () => {

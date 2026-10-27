@@ -1538,6 +1538,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "音声を取得できませんでした: {{reason}}",
     "drift.voice.read.voice.library":
         "自分の音声、保存した音声、プリセット音声です。ElevenLabs の Voice Library で音声を保存するとここに表示されます。",
+    "drift.voice.read.voice.idPlaceholder": "音声 ID (空欄で既定)",
     "drift.voice.read.voice.system": "システムの既定",
     "drift.voice.read.voice.title": "声",
     "drift.voice.retry": "再試行",

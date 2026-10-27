@@ -1532,6 +1532,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Nije moguće prikazati glasove: {{reason}}",
     "drift.voice.read.voice.library":
         "Vaši vlastiti, sačuvani i gotovi glasovi. Sačuvajte glas iz ElevenLabs Voice Library da biste ga vidjeli ovdje.",
+    "drift.voice.read.voice.idPlaceholder": "ID glasa, prazno za zadani",
     "drift.voice.read.voice.system": "Sistemski zadani",
     "drift.voice.read.voice.title": "Glas",
     "drift.voice.retry": "Pokušaj ponovo",

@@ -1546,6 +1546,7 @@ export const drift = {
     "drift.voice.read.voice.failed": "Не удалось загрузить голоса: {{reason}}",
     "drift.voice.read.voice.library":
         "Ваши собственные, сохранённые и готовые голоса. Сохраните голос из Voice Library ElevenLabs, чтобы он появился здесь.",
+    "drift.voice.read.voice.idPlaceholder": "ID голоса, пусто для голоса по умолчанию",
     "drift.voice.read.voice.system": "Системный по умолчанию",
     "drift.voice.read.voice.title": "Голос",
     "drift.voice.retry": "Повторить",
