@@ -75,7 +75,9 @@ async fn redeem(proxy: &Proxy, text: &str) -> Response {
     match pc::pair(&pairing, &device).await {
         Ok((computer, pc)) => {
             let name = computer.name.clone();
-            proxy.adopt(computer, pc);
+            if let Err(error) = proxy.adopt(computer, pc) {
+                return refuse(&error.to_string());
+            }
             Json(json!({ "linked": name })).into_response()
         }
         Err(error) => refuse(&error.to_string()),

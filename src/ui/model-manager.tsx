@@ -44,7 +44,6 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
     return (
         <Portal>
             <div
-                data-wheel-lock
                 data-modal-layer
                 class="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-2 sm:p-4"
                 onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}

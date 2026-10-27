@@ -11,7 +11,7 @@ export function EmptyState() {
     const quote = `drift.chat.empty.quote${Math.floor(Math.random() * quotes) + 1}`;
 
     return (
-        <div class="flex h-full flex-col items-center justify-center gap-3 select-none">
+        <div class="flex flex-1 flex-col items-center justify-center gap-3 select-none">
             <div class="fade-up" data-mascot={splashMascotAnimation()}>
                 <DriftLogo class="startup-jelly" label="Drift" />
             </div>{" "}

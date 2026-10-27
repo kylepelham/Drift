@@ -84,7 +84,8 @@ impl Shared {
         }
         let active = self.computers.lock().unwrap().active().cloned();
         let computer = active.ok_or(Unrouted::NoneChosen)?;
-        self.connect(&computer).await.map_err(|_| Unrouted::Unreachable)?;
+        // A PC reached but not saved still routes; only no route at all is unreachable.
+        let _ = self.connect(&computer).await;
 
         self.route.lock().unwrap().clone().ok_or(Unrouted::Unreachable)
     }
@@ -93,8 +94,8 @@ impl Shared {
     pub(crate) async fn connect(&self, computer: &Computer) -> Result<(), PcError> {
         let (pc, reach) = pc::reach(computer).await?;
         let mut computers = self.computers.lock().unwrap();
-        let _ = computers.refresh(&computer.id, &pc.endpoint, reach);
-        let _ = computers.set_active(Some(&computer.id));
+        let refreshed = computers.refresh(&computer.id, &pc.endpoint, reach);
+        let activated = computers.set_active(Some(&computer.id));
         drop(computers);
 
         *self.route.lock().unwrap() = Some(Route {
@@ -102,14 +103,14 @@ impl Shared {
             pc,
             token: computer.token.clone(),
         });
-        Ok(())
+        refreshed.and(activated).map_err(PcError::Unsaved)
     }
 
     /// Saves a PC just linked and connects to it at the address it answered on.
-    pub(crate) fn adopt(&self, computer: Computer, pc: Pc) {
+    pub(crate) fn adopt(&self, computer: Computer, pc: Pc) -> Result<(), PcError> {
         let mut computers = self.computers.lock().unwrap();
-        let _ = computers.upsert(computer.clone());
-        let _ = computers.set_active(Some(&computer.id));
+        let saved = computers.upsert(computer.clone());
+        let activated = computers.set_active(Some(&computer.id));
         drop(computers);
 
         *self.route.lock().unwrap() = Some(Route {
@@ -117,6 +118,7 @@ impl Shared {
             pc,
             token: computer.token,
         });
+        saved.and(activated).map_err(PcError::Unsaved)
     }
 
     /// How the PC lists this phone: the name the user gave it, read on Android's own thread.
