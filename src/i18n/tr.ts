@@ -541,6 +541,9 @@ export const drift = {
         "Claude'un önbelleği beş dakika yerine bir saat sürer. Yazma işlemleri 1.25 kat yerine girdi maliyetinin 2 katıdır.",
     "drift.providers.options.hourCache.subscription":
         "Claude girişleri ek kullanımda olmadığı sürece bir saat kullanır.",
+    "drift.providers.route.plan": "Kodlama planı",
+    "drift.providers.route.apiChina": "API (Çin)",
+    "drift.providers.route.planChina": "Kodlama planı (Çin)",
     "drift.model.details": "Model ayarları",
     "drift.model.details.window": "Bağlam penceresi",
     "drift.model.details.output": "En uzun yanıt",

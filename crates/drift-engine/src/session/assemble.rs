@@ -101,6 +101,7 @@ impl<'a> Assembler<'a> {
                 Ok(())
             }
             Chunk::BlockStop => self.stop_block(),
+            Chunk::Generating => Ok(()),
             Chunk::Usage(usage) => {
                 self.usage.merge(usage);
                 Ok(())

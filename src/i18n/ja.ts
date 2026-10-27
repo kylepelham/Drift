@@ -538,6 +538,9 @@ export const drift = {
         "Claude のキャッシュが 5 分ではなく 1 時間保持されます。書き込みコストは 1.25 倍ではなく入力の 2 倍になります。",
     "drift.providers.options.hourCache.subscription":
         "Claude アカウントでのサインイン時は、追加使用時を除き 1 時間が適用されます。",
+    "drift.providers.route.plan": "コーディングプラン",
+    "drift.providers.route.apiChina": "API（中国）",
+    "drift.providers.route.planChina": "コーディングプラン（中国）",
     "drift.model.details": "モデル設定",
     "drift.model.details.window": "コンテキストウィンドウ",
     "drift.model.details.output": "最長応答",

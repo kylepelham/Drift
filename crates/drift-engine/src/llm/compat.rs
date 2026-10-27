@@ -318,6 +318,7 @@ impl StreamState {
 
         for call in delta["tool_calls"].as_array().into_iter().flatten() {
             self.tool_delta(call);
+            out.push(Chunk::Generating);
         }
 
         if let Some(reason) = choice["finish_reason"].as_str() {

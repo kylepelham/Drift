@@ -538,6 +538,9 @@ export const drift = {
         "Claudeov keš traje sat vremena umjesto pet minuta. Upisi koštaju 2x ulaza umjesto 1,25x.",
     "drift.providers.options.hourCache.subscription":
         "Claude prijave koriste sat vremena osim ako se ne koristi dodatna potrošnja.",
+    "drift.providers.route.plan": "Plan kodiranja",
+    "drift.providers.route.apiChina": "API (Kina)",
+    "drift.providers.route.planChina": "Plan kodiranja (Kina)",
     "drift.model.details": "Postavke modela",
     "drift.model.details.window": "Kontekstni prozor",
     "drift.model.details.output": "Najduži odgovor",

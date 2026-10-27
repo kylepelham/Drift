@@ -27,7 +27,7 @@ type Todo = components["schemas"]["Todo"];
 export type QueuedPrompt = components["schemas"]["QueuedPrompt"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
-export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
+export type { ModelInfo, ProviderAccount, ProviderFamily, ProviderInfo } from "./catalog";
 export type ModelRef = { providerID: string; modelID: string };
 /** An agent as the engine resolved it for the workspace, Settings overrides applied. */
 export type AgentInfo = {

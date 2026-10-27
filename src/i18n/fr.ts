@@ -553,6 +553,9 @@ export const drift = {
         "Le cache de Claude dure une heure au lieu de cinq minutes. Les écritures coûtent 2x l'entrée au lieu de 1,25x.",
     "drift.providers.options.hourCache.subscription":
         "Les connexions Claude utilisent une heure, sauf en cas d'utilisation supplémentaire.",
+    "drift.providers.route.plan": "Forfait de codage",
+    "drift.providers.route.apiChina": "API (Chine)",
+    "drift.providers.route.planChina": "Forfait de codage (Chine)",
     "drift.model.details": "Paramètres du modèle",
     "drift.model.details.window": "Fenêtre de contexte",
     "drift.model.details.output": "Réponse la plus longue",

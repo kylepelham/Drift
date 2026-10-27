@@ -517,6 +517,9 @@ export const drift = {
     "drift.providers.options.hourCache.description":
         "Claude 的快取可維持一小時而非五分鐘。寫入費用為輸入的 2 倍而非 1.25 倍。",
     "drift.providers.options.hourCache.subscription": "Claude 登入使用一小時，除非處於額外用量。",
+    "drift.providers.route.plan": "程式設計方案",
+    "drift.providers.route.apiChina": "API (中國)",
+    "drift.providers.route.planChina": "程式設計方案 (中國)",
     "drift.model.details": "模型設定",
     "drift.model.details.window": "脈絡視窗",
     "drift.model.details.output": "最長回覆",

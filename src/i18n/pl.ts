@@ -543,6 +543,9 @@ export const drift = {
         "Pamięć podręczna Claude działa przez godzinę zamiast pięciu minut. Zapisy kosztują 2x kosztu tokenów wejściowych zamiast 1,25x.",
     "drift.providers.options.hourCache.subscription":
         "Logowania Claude korzystają z godziny, chyba że używane jest dodatkowe zużycie.",
+    "drift.providers.route.plan": "Plan kodowania",
+    "drift.providers.route.apiChina": "API (Chiny)",
+    "drift.providers.route.planChina": "Plan kodowania (Chiny)",
     "drift.model.details": "Ustawienia modelu",
     "drift.model.details.window": "Okno kontekstu",
     "drift.model.details.output": "Najdłuższa odpowiedź",

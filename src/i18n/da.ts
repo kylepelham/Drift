@@ -539,6 +539,9 @@ export const drift = {
         "Claudes cache varer en time i stedet for fem minutter. Skrivninger koster 2x input i stedet for 1,25x.",
     "drift.providers.options.hourCache.subscription":
         "Claude-logins bruger en time, medmindre der er tale om ekstra forbrug.",
+    "drift.providers.route.plan": "Kodningsplan",
+    "drift.providers.route.apiChina": "API (Kina)",
+    "drift.providers.route.planChina": "Kodningsplan (Kina)",
     "drift.model.details": "Modelindstillinger",
     "drift.model.details.window": "Kontekstvindue",
     "drift.model.details.output": "Længste svar",

@@ -549,6 +549,9 @@ export const drift = {
         "Claudes Cache bleibt eine Stunde lang statt fünf Minuten erhalten. Schreibvorgänge kosten das 2-Fache des Inputs statt das 1,25-Fache.",
     "drift.providers.options.hourCache.subscription":
         "Claude-Anmeldungen nutzen eine Stunde, außer bei zusätzlicher Nutzung.",
+    "drift.providers.route.plan": "Coding-Abo",
+    "drift.providers.route.apiChina": "API (China)",
+    "drift.providers.route.planChina": "Coding-Abo (China)",
     "drift.model.details": "Modelleinstellungen",
     "drift.model.details.window": "Kontextfenster",
     "drift.model.details.output": "Längste Antwort",

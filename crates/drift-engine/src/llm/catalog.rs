@@ -18,16 +18,15 @@ use raw::RawProvider;
 const SNAPSHOT: &str = include_str!("../../data/models.json");
 const SOURCE_URL: &str = "https://models.dev/api.json";
 /// Renamed whenever the entries made from models.dev change, so a cache an older build wrote is not read.
-const CACHE_FILE: &str = "models-4.json";
-const OLDER_CACHES: [&str; 3] = ["models.json", "models-2.json", "models-3.json"];
+const CACHE_FILE: &str = "models-5.json";
+const OLDER_CACHES: [&str; 4] = ["models.json", "models-2.json", "models-3.json", "models-4.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
-pub const PROVIDERS: [&str; 12] = [
+pub const PROVIDERS: [&str; 11] = [
     "anthropic",
     "openai",
     "google",
     "xai",
-    "zai",
     "openrouter",
     "amazon-bedrock",
     "google-vertex",

@@ -544,6 +544,9 @@ export const drift = {
         "Кэш Claude сохраняется на час вместо пяти минут. Запись стоит 2x от ввода вместо 1.25x.",
     "drift.providers.options.hourCache.subscription":
         "При входе через Claude используется час, если не расходуется дополнительный лимит.",
+    "drift.providers.route.plan": "План программирования",
+    "drift.providers.route.apiChina": "API (Китай)",
+    "drift.providers.route.planChina": "План программирования (Китай)",
     "drift.model.details": "Параметры модели",
     "drift.model.details.window": "Окно контекста",
     "drift.model.details.output": "Максимальный ответ",

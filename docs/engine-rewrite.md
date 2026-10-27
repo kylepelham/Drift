@@ -24,7 +24,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
 | Phone UI | Android and the companion share the frontend. Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings become a labeled full-screen list, pickers become sheets, and composer controls use separate rows. Touch targets and keyboard behavior adapt to coarse pointers; desktop layout remains unchanged. See `docs/android.md`. |
 | API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
-| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Model makers' own routes (`llm/makers.rs`): Meta on Responses over SSE, Moonshot (Kimi), DeepSeek and Alibaba (Qwen) on Chat Completions, MiniMax on Anthropic Messages, each with its regions and coding plans. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, LM Studio. Model makers' own routes (`llm/makers.rs`): Meta on Responses over SSE, Moonshot (Kimi), DeepSeek, Alibaba (Qwen) and Z.AI (GLM, Zhipu in China) on Chat Completions, MiniMax on Anthropic Messages, each with its regions and coding plans, which settings shows as tabs of one provider. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
@@ -2225,13 +2225,22 @@ code until he picks.
   - `alibaba`, `alibaba-cn` and their coding plans: Chat Completions on DashScope, with the cap as
     `max_completion_tokens`, and Qwen models marked with `cache_control` on the system prompt and
     the last turn (opencode's Qwen policy); other models DashScope hosts get no breakpoints.
+  - `zai`, `zai-coding-plan` (`api.z.ai/api/coding/paas/v4`), `zhipuai` and `zhipuai-coding-plan`
+    (`open.bigmodel.cn`): Chat Completions with thinking kept across steps. A plan key bills the plan
+    only on its coding endpoint, so each plan is a route of its own, as in opencode v2. Z.AI's
+    models.dev toggle is not offered as a switch.
+  - A maker with more than one route tags each in `GET /providers` with `family` (its main route's
+    id, the maker's name, `plan`, `china`); settings lists the family as one provider with a tab per
+    route. Each route keeps its own key.
   - DeepSeek, Kimi and Qwen get `reasoning_content` on every assistant message, empty when the
     reply kept none, as opencode sends it (`requireReasoning`).
   - Regions opencode reaches by setting (Alibaba's Hong Kong and US hosts) are a `baseUrl` in
     drift.json.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Moonshot, DeepSeek, Alibaba) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
-  hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
+  hand them on after the stream ends, in index order, one start each. Each fragment as it arrives is
+  a `Chunk::Generating`, which only the reply's generation clock reads, so tok/s for a reply that is
+  only calls covers the time they streamed, not the burst at the end. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
   that ends without saying why.
   - A turn's `tool` messages go straight after the assistant message that called them; anything

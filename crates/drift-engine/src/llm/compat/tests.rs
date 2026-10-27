@@ -189,14 +189,14 @@ fn stream_deltas_become_blocks() {
             ] } }] })
             .to_string()
         ),
-        vec![]
+        vec![Chunk::Generating]
     );
     assert_eq!(
         feed(
             &mut state,
             r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"p\":1}"}}]}}]}"#
         ),
-        vec![]
+        vec![Chunk::Generating]
     );
     assert_eq!(
         feed(&mut state, r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#),
@@ -251,7 +251,8 @@ fn interleaved_calls_are_put_together_by_index() {
             state
                 .chunks(&format!(r#"{{"choices":[{{"delta":{{"tool_calls":[{delta}]}}}}]}}"#))
                 .unwrap()
-                .is_empty()
+                == [Chunk::Generating],
+            "a held fragment only times the reply"
         );
     }
     state

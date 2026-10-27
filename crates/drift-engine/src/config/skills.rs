@@ -238,11 +238,7 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
             let name = doc
                 .field("name")
                 .unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
-            let pack = folder
-                .strip_prefix(&packs)
-                .ok()
-                .and_then(|rest| rest.components().next())
-                .map(|part| part.as_os_str().to_string_lossy().into_owned());
+            let pack = pack_of(folder, &packs);
             skills.push(UserSkill {
                 name,
                 description: doc.field("description").unwrap_or_default(),
@@ -255,6 +251,16 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
     }
     skills.sort_by(|left, right| left.pack.cmp(&right.pack).then(left.name.cmp(&right.name)));
     skills
+}
+
+/// The installed pack a skill folder sits in; a user's own skill beside the packs, with no marker, has none.
+fn pack_of(folder: &Path, packs: &Path) -> Option<String> {
+    let id = folder.strip_prefix(packs).ok()?.components().next()?.as_os_str();
+    packs
+        .join(id)
+        .join(MARKER)
+        .is_file()
+        .then(|| id.to_string_lossy().into_owned())
 }
 
 /// The skill folder the switch names, as the engine compares it; only a folder under a skill folder of the user's or the workspace's.
@@ -348,6 +354,18 @@ body",
             "only a skill folder may be switched"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_skill_beside_the_packs_is_the_users_own_unless_its_folder_has_a_pack_marker() {
+        let packs = crate::platform::temp::test_run().join(format!("drift-pack-of-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(packs.join("unslop")).unwrap();
+        std::fs::create_dir_all(packs.join("kit/skills/a")).unwrap();
+        std::fs::write(packs.join("kit").join(MARKER), "{}").unwrap();
+        assert_eq!(pack_of(&packs.join("unslop"), &packs), None);
+        assert_eq!(pack_of(&packs.join("kit/skills/a"), &packs), Some("kit".to_owned()));
+        assert_eq!(pack_of(&packs.join("kit/skills/a"), Path::new("")), None);
+        let _ = std::fs::remove_dir_all(&packs);
     }
 
     #[test]

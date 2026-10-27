@@ -2935,6 +2935,15 @@ export interface components {
             /** @description A subscription sign-in, which takes turns with the provider's others; else an API key. */
             signedIn: boolean;
         };
+        /** @description Where a route sits among its maker's others, so settings can show them as one provider. */
+        ProviderFamily: {
+            china: boolean;
+            /** @description The maker's main route, which names the family. */
+            id: string;
+            name: string;
+            /** @description A coding plan's endpoint rather than pay-as-you-go. */
+            plan: boolean;
+        };
         /** @description One provider's options, all off by default. */
         ProviderOptions: {
             /**
@@ -2950,6 +2959,7 @@ export interface components {
             connected: boolean;
             /** @description `keychain`, `env` or absent. */
             credential?: string | null;
+            family?: components["schemas"]["ProviderFamily"] | null;
             id: string;
             models: {
                 [key: string]: components["schemas"]["Model"];

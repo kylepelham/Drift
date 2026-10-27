@@ -539,6 +539,9 @@ export const drift = {
         "Claudes mellomlager varer i en time i stedet for fem minutter. Skriving koster 2x inndata i stedet for 1,25x.",
     "drift.providers.options.hourCache.subscription":
         "Claude-pålogginger bruker en time med mindre det er ekstra forbruk.",
+    "drift.providers.route.plan": "Kodingsplan",
+    "drift.providers.route.apiChina": "API (Kina)",
+    "drift.providers.route.planChina": "Kodingsplan (Kina)",
     "drift.model.details": "Modellinnstillinger",
     "drift.model.details.window": "Kontekstvindu",
     "drift.model.details.output": "Lengste svar",
