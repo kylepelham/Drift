@@ -209,10 +209,31 @@ impl Engine {
         model: &Model,
         current: &str,
     ) -> Option<(String, Credential)> {
-        for account in self.preferred_accounts(provider, session, model) {
-            if account == current {
-                return None;
-            }
+        let ahead = self
+            .preferred_accounts(provider, session, model)
+            .into_iter()
+            .take_while(|account| account != current);
+        self.renewed(provider, ahead).await
+    }
+
+    /// The best suitable account other than `refusing` whose credential renews, passing over any that cannot.
+    async fn renewed_other(
+        &self,
+        provider: &str,
+        session: &str,
+        model: &Model,
+        refusing: &str,
+    ) -> Option<(String, Credential)> {
+        let others = self
+            .preferred_accounts(provider, session, model)
+            .into_iter()
+            .filter(|account| account != refusing);
+        self.renewed(provider, others).await
+    }
+
+    /// The first of `accounts` whose stored credential renews, with that credential.
+    async fn renewed(&self, provider: &str, accounts: impl Iterator<Item = String>) -> Option<(String, Credential)> {
+        for account in accounts {
             let Some(stored) = self.credentials.account(&account) else {
                 continue;
             };
@@ -266,19 +287,13 @@ impl Engine {
         self.unserved.refuse_conversation(account, &plan.session.id);
 
         let provider = &plan.model_ref.provider;
-        let Some(next) = self
-            .preferred_account(provider, &plan.session.id, &plan.model)
-            .filter(|next| next != account)
+        // An account whose credential cannot renew would only send the request back to the refusing one.
+        let Some((next, _)) = self
+            .renewed_other(provider, &plan.session.id, &plan.model, account)
+            .await
         else {
             return false;
         };
-        let Some(stored) = self.credentials.account(&next) else {
-            return false;
-        };
-        // An account whose credential cannot renew would only send the request back to the refusing one.
-        if self.fresh_credential(provider, Some(&next), stored).await.is_err() {
-            return false;
-        }
         self.settle_after_refusal(provider, &plan.session.id, account, &next)
     }
 
@@ -305,11 +320,7 @@ impl Engine {
         }
         self.unserved.refuse_conversation(account, session);
 
-        let next = self
-            .preferred_account(provider, session, &resolved.model)
-            .filter(|next| next != account)?;
-        let stored = self.credentials.account(&next)?;
-        let credential = self.fresh_credential(provider, Some(&next), stored).await.ok()?;
+        let (next, credential) = self.renewed_other(provider, session, &resolved.model, account).await?;
         if !self.settle_after_refusal(provider, session, account, &next) {
             return None;
         }
