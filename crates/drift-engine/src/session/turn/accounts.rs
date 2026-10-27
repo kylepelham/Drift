@@ -247,8 +247,7 @@ impl Engine {
         else {
             return false;
         };
-        self.settle_after_refusal(provider, &plan.session.id, account, &next);
-        true
+        self.settle_after_refusal(provider, &plan.session.id, account, &next)
     }
 
     /// After the safety filter refused a request made for `session` outside its turns (a compaction summary), passes
@@ -279,7 +278,9 @@ impl Engine {
             .filter(|next| next != account)?;
         let stored = self.credentials.account(&next)?;
         let credential = self.fresh_credential(provider, Some(&next), stored).await.ok()?;
-        self.settle_after_refusal(provider, session, account, &next);
+        if !self.settle_after_refusal(provider, session, account, &next) {
+            return None;
+        }
         let mut model = resolved.model.clone();
         self.codex_offers.fit(&mut model, &credential);
 
@@ -294,11 +295,12 @@ impl Engine {
 
     /// Sets the chat to the account that takes over from one whose filter refused it, as `/account` would: only this
     /// chat moves, it stays there across restarts, and its subagents and spawned threads start there. The user's
-    /// order still decides for every other chat.
-    fn settle_after_refusal(&self, provider: &str, session: &str, from: &str, to: &str) {
-        if let Ok(Some(updated)) = self.store.set_session_account(session, Some(to)) {
-            self.hub.publish(Event::SessionUpdated { session: updated });
-        }
+    /// order still decides for every other chat. `false` when the chat could not be set, so the refusal stands.
+    fn settle_after_refusal(&self, provider: &str, session: &str, from: &str, to: &str) -> bool {
+        let Ok(Some(updated)) = self.store.set_session_account(session, Some(to)) else {
+            return false;
+        };
+        self.hub.publish(Event::SessionUpdated { session: updated });
 
         self.announce_switch(Switch {
             session,
@@ -307,6 +309,7 @@ impl Engine {
             from: from.into(),
             to: to.into(),
         });
+        true
     }
 
     /// Whether an account other than `account` suits the turn now.

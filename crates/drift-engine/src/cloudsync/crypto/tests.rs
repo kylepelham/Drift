@@ -87,6 +87,28 @@ fn an_object_opens_only_unchanged_from_its_own_computer_and_place() {
 }
 
 #[test]
+fn a_separator_in_a_name_cannot_move_an_object_to_another_place() {
+    let key = GroupKey::generate().unwrap();
+    let work = DeviceKey::generate().unwrap();
+    let sealed_at = Context {
+        group: "a|b",
+        device: "c",
+        sequence: 1,
+    };
+    let moved = Context {
+        group: "a",
+        device: "b|c",
+        sequence: 1,
+    };
+    let object = key.seal(&work, &sealed_at, b"x").unwrap();
+
+    assert_eq!(
+        key.open(work.public(), &moved, &object).err(),
+        Some(CryptoError::Tampered)
+    );
+}
+
+#[test]
 fn a_device_list_entry_is_vouched_for_only_by_the_group_key() {
     let key = GroupKey::generate().unwrap();
     let device = DeviceKey::generate().unwrap();

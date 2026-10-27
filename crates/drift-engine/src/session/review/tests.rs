@@ -201,6 +201,7 @@ async fn a_link_leading_out_of_the_workspace_is_never_read() {
     let review = git_review(&root, GitSource::Files, Some("link.txt")).await.unwrap();
     let link = file(&review, "link.txt");
     assert_eq!((link.preview, link.lines.len()), (Preview::Unavailable, 0));
+    assert_eq!(link.location, None, "nor opened from the review");
     let _ = std::fs::remove_dir_all(base);
 }
 
