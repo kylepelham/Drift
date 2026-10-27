@@ -565,9 +565,12 @@ async fn contained(root: &Path, path: &str) -> std::io::Result<PathBuf> {
     }
 }
 
-/// Where the review panel may open `path`: under `root`, and only while its links stay in the workspace.
+/// Where the review panel may open `path`: under `root` with its links resolved, so retargeting one later moves nothing.
 async fn openable(root: &Path, path: &str) -> Option<PathBuf> {
-    contained(root, path).await.ok().map(|_| root.join(path))
+    let real_root = tokio::fs::canonicalize(root).await.ok()?;
+    let real = contained(root, path).await.ok()?;
+
+    real.strip_prefix(&real_root).ok().map(|inside| root.join(inside))
 }
 
 async fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>, ReviewError> {

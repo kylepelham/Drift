@@ -184,8 +184,8 @@ impl Snapshots {
         let large = tokio::task::spawn_blocking(sized)
             .await
             .map_err(|error| Error::Failed(error.to_string()))?;
-        let pending = changed || !large.is_empty() || !excluded.trim().is_empty();
-        self.exclude(workspace, &large).await?;
+        // A changed exclusion list adds what left it; otherwise the index stamp tells whether removals changed anything.
+        let pending = self.exclude(workspace, &large).await? || changed;
 
         Ok((large, pending))
     }
@@ -233,8 +233,8 @@ impl Snapshots {
         Ok(large)
     }
 
-    /// Keeps `large` out of the shadow index from now on, and drops any already in it.
-    async fn exclude(&self, workspace: &Path, large: &[(String, Stamp)]) -> Result<(), Error> {
+    /// Keeps `large` out of the shadow index from now on, and drops any already in it; says whether the list changed.
+    async fn exclude(&self, workspace: &Path, large: &[(String, Stamp)]) -> Result<bool, Error> {
         let info = self.git_dir(workspace).join("info");
         tokio::fs::create_dir_all(&info)
             .await
@@ -244,7 +244,8 @@ impl Snapshots {
             let _ = writeln!(lines, "/{}", escape_pattern(path));
         }
         let file = info.join("exclude");
-        if tokio::fs::read_to_string(&file).await.ok().as_deref() != Some(lines.as_str()) {
+        let changed = tokio::fs::read_to_string(&file).await.ok().as_deref() != Some(lines.as_str());
+        if changed {
             tokio::fs::write(file, lines)
                 .await
                 .map_err(|error| Error::Failed(error.to_string()))?;
@@ -264,7 +265,7 @@ impl Snapshots {
             .await?;
         }
 
-        Ok(())
+        Ok(changed)
     }
 }
 
