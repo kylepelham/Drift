@@ -172,18 +172,8 @@ impl Engine {
 
         // Direct commands temporarily use their chosen agent and model; skills and tasks keep the session's.
         let chosen = !routed && (command.agent.is_some() || model.is_some());
-        let shown = if routed {
-            format!("/{name} {arguments}").trim_end().to_string()
-        } else {
-            text
-        };
-        let mentioned = if routed {
-            Vec::new()
-        } else {
-            mentions(&workspace, &shown)
-        };
         let prompt = Prompt {
-            parts: std::iter::once(Part::Text { text: shown }).chain(mentioned).collect(),
+            parts: prompt_parts(&workspace, name, arguments, (!routed).then_some(text)),
             model: if chosen {
                 model.or_else(|| definition.model.clone())
             } else {
@@ -203,6 +193,22 @@ impl Engine {
 
         self.admit(id, prompt, how).await.map_err(CommandError::Turn)
     }
+}
+
+/// What a command's prompt holds: the expanded template with its @ mentions, or for a skill or a task how it was
+/// typed; and the command itself, which only the transcript reads.
+fn prompt_parts(workspace: &Path, name: &str, arguments: &str, expanded: Option<String>) -> Vec<Part> {
+    let command = Part::Command {
+        name: name.to_string(),
+        arguments: arguments.trim().to_string(),
+    };
+    let Some(text) = expanded else {
+        let typed = format!("/{name} {arguments}").trim_end().to_string();
+        return vec![Part::Text { text: typed }, command];
+    };
+
+    let mentioned = mentions(workspace, &text);
+    [Part::Text { text }, command].into_iter().chain(mentioned).collect()
 }
 
 /// A prompt starting in a new worktree runs `worktree_create` then `session_move` before the model answers, so

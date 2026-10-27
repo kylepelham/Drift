@@ -3175,6 +3175,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   command ran `line`, which returned: ...". A delegating command cannot use them (400), since they
   run in the conversation. A template's `@path` naming a workspace file or directory is attached
   as an @ mention, read in under the same rules as one the user typed.
+  The prompt also carries a `command` part (`name`, `arguments`) that the model never reads, so the
+  transcript shows `/name arguments` as a command note instead of the expanded template or a plain
+  message; earlier prompts that are a bare `/name args` naming a known command show the same way.
   Command front matter may name an `agent`, a `model` (`provider/model`) and `subtask`. The
   command is validated against the running config generation, the one its turn is then admitted
   with. An action agent is refused. As in opencode, a command's agent and model apply to its own

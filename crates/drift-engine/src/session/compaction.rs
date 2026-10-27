@@ -812,7 +812,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::ProcessExit { .. } => super::processes::exit_text(&row.part).len(),
             Part::InstructionUpdate { changes, .. } => super::convert::instruction_text(changes).len(),
             Part::Continuation { text } => text.len(),
-            Part::Compaction { .. } | Part::EffortUpdate { .. } | Part::Unknown { .. } => 0,
+            Part::Compaction { .. } | Part::EffortUpdate { .. } | Part::Command { .. } | Part::Unknown { .. } => 0,
         })
         .sum();
 

@@ -337,7 +337,7 @@ test("clarification UI uses a closed native disclosure with full QAs and the sta
     expect(expanded).toContain("{item.question}");
     expect(expanded).toContain('item.answers.join(", ")');
     expect(expanded).toContain('t("drift.question.unanswered")');
-    expect(expanded).toContain("{answer().text}");
+    expect(expanded).toContain("{answer().body ?? answer().text}");
     expect(expanded).toContain("whitespace-pre-wrap");
     expect(expanded).not.toMatch(/\btruncate\b|line-clamp|max-h-|\.slice\(/);
 

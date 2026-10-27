@@ -8,9 +8,30 @@ export type ClarificationAnswer = {
     spawned?: boolean;
     /** The engine's prompt keeping an orchestrator working toward the goal. */
     nudge?: boolean;
+    /** The slash command that wrote the prompt, as `/name`; `text` is how it was typed. */
+    command?: string;
+    /** What a command sent when it is more than how it was typed: a template's expansion. */
+    body?: string;
 };
 
 const riders = ["task_result", "unknown", "instruction_update", "context", "process_exit", "continuation"];
+
+/** A prompt a slash command wrote; before the engine recorded commands, a bare `/name args` naming a known one. */
+export function commandNote(entry: MessageEntry, known: (name: string) => boolean): ClarificationAnswer | undefined {
+    if (entry.info.role !== "user") return;
+
+    const texts = entry.parts.filter((part) => part.type === "text");
+    const sent = texts.map((part) => part.text).join("\n\n");
+    const recorded = entry.parts.find((part) => part.type === "command");
+    const typed = /^\/(\S+)(?:[ \t]+(.+))?$/.exec(sent.trim());
+    const name = recorded?.name ?? (typed && known(typed[1]) ? typed[1] : undefined);
+    if (!name) return;
+
+    const args = recorded ? recorded.arguments : (typed?.[2] ?? "").trim();
+    const text = `/${name} ${args}`.trimEnd();
+
+    return { items: [], text, preview: args, command: `/${name}`, body: sent.trim() === text ? undefined : sent };
+}
 
 export function clarificationAnswer(entry: MessageEntry): ClarificationAnswer | undefined {
     // Worker results and engine notes (an instructions change, a process exit) ride along; they are not the user's words.

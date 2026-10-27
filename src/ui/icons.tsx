@@ -351,6 +351,16 @@ export function IconCode(props: IconProps) {
     );
 }
 
+export function IconSlash(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <rect x="3" y="3" width="18" height="18" rx="4" />
+            <path d="m14.5 7.5-5 9" />
+        </>,
+    );
+}
+
 export function IconInfo(props: IconProps) {
     return frame(
         props,

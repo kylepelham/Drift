@@ -2770,6 +2770,11 @@ export interface components {
             /** @enum {string} */
             type: "effort_update";
         } | {
+            arguments: string;
+            name: string;
+            /** @enum {string} */
+            type: "command";
+        } | {
             raw: string;
             /** @enum {string} */
             type: "unknown";

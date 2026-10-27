@@ -5,7 +5,7 @@ const summaryClass = "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 tex
 
 /** A folded note in the transcript, as an answered question shows: an icon, a label and a preview; open for the rest.
  * Without a body it is the same line, with nothing to open. */
-export function NoteBox(props: { icon: JSX.Element; label: string; preview?: string; children?: JSX.Element }) {
+export function NoteBox(props: { icon: JSX.Element; label: JSX.Element; preview?: string; children?: JSX.Element }) {
     const line = () => (
         <>
             <span class="flex size-3.5 shrink-0 items-center justify-center text-ink-faint">{props.icon}</span>
