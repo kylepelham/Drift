@@ -330,7 +330,8 @@ Every job the engine does can run on its own model, chosen under Settings > Prom
   the automatic switch-off. The timeout holds for each attempt.
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
-  the placeholder.
+  the placeholder. A first message that is a slash command (`/audit high`) goes to the title model
+  with the command's description, since alone it was named "Greeting".
 - Reasoning is replayed as reasoning only to the model and account that produced it
   (`convert::Target`): the same catalog entry, or one that runs the same model, a mode and its base
   (`Catalog::same_model`: Claude Opus 5.5 and Claude Opus 5.5 Fast send one id). Any other model or
