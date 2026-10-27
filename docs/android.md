@@ -95,7 +95,10 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   with `/app/api/storage.js` first in `<head>`, which puts the saved values back before any script
   reads them, and `src/app-storage.ts` sends the whole set to `PUT /app/api/storage` after each
   burst of changes and when the app is left, numbered per page so a slow earlier snapshot never
-  replaces a later one. Both need the launch cookie, like every route.
+  replaces a later one, and once a reloaded page has written, the page it replaced is refused. A set
+  past the 64 KB a request may carry while the page closes goes as its changes since the last
+  snapshot the app kept (`base`), refused with 409 unless that is still the one kept. Both need the
+  launch cookie, like every route.
 - The manifest declares `RECORD_AUDIO`: the WebView's microphone prompt is only granted for a
   permission the app itself has, so dictation could not start without it.
 - `/app/computers` is `app.html`, a second Vite entry (`src/app/`): linked PCs (open, forget), each

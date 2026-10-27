@@ -541,6 +541,10 @@ export const drift = {
     "drift.providers.options.hourCache.description":
         "Claude's cache lasts an hour instead of five minutes. Writes cost 2x input instead of 1.25x.",
     "drift.providers.options.hourCache.subscription": "Claude sign-ins use an hour unless on extra usage.",
+    "drift.providers.route.api": "API",
+    "drift.providers.route.plan": "Coding plan",
+    "drift.providers.route.apiChina": "API (China)",
+    "drift.providers.route.planChina": "Coding plan (China)",
     "drift.model.details": "Model settings",
     "drift.model.details.window": "Context window",
     "drift.model.details.output": "Longest reply",

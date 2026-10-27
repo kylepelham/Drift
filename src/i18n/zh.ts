@@ -516,6 +516,9 @@ export const drift = {
     "drift.providers.options.hourCache.description":
         "Claude 的缓存保留 1 小时而非 5 分钟。写入成本为输入的 2 倍而非 1.25 倍。",
     "drift.providers.options.hourCache.subscription": "Claude 登录默认使用 1 小时，除非使用额外额度。",
+    "drift.providers.route.plan": "编程套餐",
+    "drift.providers.route.apiChina": "API (中国)",
+    "drift.providers.route.planChina": "编程套餐 (中国)",
     "drift.model.details": "模型设置",
     "drift.model.details.window": "上下文窗口",
     "drift.model.details.output": "最长回复",

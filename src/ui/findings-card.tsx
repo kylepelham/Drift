@@ -145,8 +145,11 @@ export function FindingsCard(props: { part: ToolPart }) {
         await applyFindingFixes(engine, sessionId(), open());
         setSending(false);
     };
-    const rerun = () =>
-        void engine.actions.runCommand(sessionId(), codebase() ? "audit" : "review", props.part.metadata?.level ?? "");
+    const rerun = () => {
+        const scoped = codebase() ? props.part.metadata?.path : undefined;
+        const args = [props.part.metadata?.level, scoped].filter(Boolean).join(" ");
+        void engine.actions.runCommand(sessionId(), codebase() ? "audit" : "review", args);
+    };
 
     return (
         <div class="findings-card rounded-lg border border-edge/70 p-1.5 text-sm">

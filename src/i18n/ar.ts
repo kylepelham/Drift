@@ -530,6 +530,9 @@ export const drift = {
         "تدوم ذاكرة التخزين المؤقت لـ Claude ساعة بدلًا من خمس دقائق. تكلفة عمليات الكتابة ضعف تكلفة الإدخال بدلًا من 1.25 ضعفًا.",
     "drift.providers.options.hourCache.subscription":
         "تستخدم عمليات تسجيل الدخول إلى Claude ساعة ما لم تكن في الاستخدام الإضافي.",
+    "drift.providers.route.plan": "خطة البرمجة",
+    "drift.providers.route.apiChina": "API (الصين)",
+    "drift.providers.route.planChina": "خطة البرمجة (الصين)",
     "drift.model.details": "إعدادات النموذج",
     "drift.model.details.window": "نافذة السياق",
     "drift.model.details.output": "أطول رد",

@@ -528,6 +528,9 @@ export const drift = {
         "แคชของ Claude จะอยู่ได้หนึ่งชั่วโมงแทนที่จะเป็นห้านาที การเขียนมีค่าใช้จ่าย 2x ของอินพุตแทนที่จะเป็น 1.25x",
     "drift.providers.options.hourCache.subscription":
         "การลงชื่อเข้าใช้ของ Claude จะใช้หนึ่งชั่วโมง เว้นแต่จะใช้เกินปริมาณการใช้งานเพิ่มเติม",
+    "drift.providers.route.plan": "แผน Coding",
+    "drift.providers.route.apiChina": "API (จีน)",
+    "drift.providers.route.planChina": "แผน Coding (จีน)",
     "drift.model.details": "การตั้งค่าโมเดล",
     "drift.model.details.window": "หน้าต่างบริบท",
     "drift.model.details.output": "การตอบกลับที่ยาวที่สุด",

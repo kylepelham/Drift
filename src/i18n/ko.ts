@@ -531,6 +531,9 @@ export const drift = {
     "drift.providers.options.hourCache.description":
         "Claude의 캐시가 5분 대신 1시간 동안 유지됩니다. 쓰기 비용은 입력의 1.25배 대신 2배입니다.",
     "drift.providers.options.hourCache.subscription": "Claude 로그인은 추가 사용량이 아닌 경우 1시간을 사용합니다.",
+    "drift.providers.route.plan": "코딩 플랜",
+    "drift.providers.route.apiChina": "API (중국)",
+    "drift.providers.route.planChina": "코딩 플랜 (중국)",
     "drift.model.details": "모델 설정",
     "drift.model.details.window": "컨텍스트 창",
     "drift.model.details.output": "최대 응답 길이",

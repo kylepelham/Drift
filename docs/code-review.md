@@ -70,8 +70,8 @@ The engine surveys the files before writing the prompt:
   At most 20,000 files are counted, in one blocking task; the prompt says how many more were not.
 - Areas: from the files' common folder down, a folder with more than about 4,000 lines splits into its children, at
   most 8 deep. The files sitting directly in a split folder form their own area, "files directly in X".
-- Hot spots: the 12 files changed in most commits of the last 90 days (`git log --since=90.days.ago --name-only`),
-  and the 8 largest.
+- Hot spots: the 12 files changed in most commits of the last 90 days (`git log --since=90.days.ago --name-only`,
+  the newest 1,000 commits at most, so a busy repository stays a bounded read), and the 8 largest.
 - Outside a git repository the prompt says so and asks the model to list the files with `glob`, skipping
   dependencies and build output, and split them by folder itself. A path with nothing to count gets a prompt that
   says so and stops.
@@ -124,7 +124,8 @@ outcomes stays a plain row; its card is the earlier one.
 - Walk through in diff, or a finding's row, opens the review panel at that finding.
 - Apply fixes sends the open findings (no outcome, not dismissed) as a prompt with the session's agent and model,
   queued behind a running turn.
-- Re-run review runs `/review` again at the same level.
+- Re-run review runs `/review` again at the same level; an `/audit` card runs `/audit` at its level on the same
+  path, which `report_findings` records as `path`.
 
 ## In the review panel
 

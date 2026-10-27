@@ -541,6 +541,9 @@ export const drift = {
         "Кеш Claude діє годину замість п'яти хвилин. Запис коштує 2x від вхідних замість 1.25x.",
     "drift.providers.options.hourCache.subscription":
         "Вхід через Claude використовує годину, якщо це не додаткове використання.",
+    "drift.providers.route.plan": "План програмування",
+    "drift.providers.route.apiChina": "API (Китай)",
+    "drift.providers.route.planChina": "План програмування (Китай)",
     "drift.model.details": "Налаштування моделі",
     "drift.model.details.window": "Вікно контексту",
     "drift.model.details.output": "Найдовша відповідь",

@@ -52,3 +52,33 @@ test("the phone app is sent the whole saved set once a burst of changes settles 
     expect(sent).toHaveLength(2);
     Reflect.deleteProperty(globalThis, "document");
 });
+
+test("a set too large to outlive the page goes as its changes since the last snapshot the app kept", async () => {
+    const storage = new FakeStorage();
+    storage.setItem("drift.history", "x".repeat(70_000));
+    storage.setItem("drift.theme", "dark");
+    const sent: { body: string; sequence: number; base?: number }[] = [];
+    const page = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    Object.assign(globalThis, { document: page });
+    keepAppStorage(
+        storage as unknown as Storage,
+        (body, sequence, base) => {
+            sent.push({ body, sequence, base });
+            return Promise.resolve(true);
+        },
+        FakeStorage.prototype as unknown as Storage,
+    );
+
+    await Bun.sleep(400);
+    expect(sent[0]?.base).toBeUndefined();
+    storage.removeItem("drift.theme");
+    storage.setItem("drift.wrap", "true");
+    await Bun.sleep(400);
+
+    expect(sent[1]).toEqual({
+        body: JSON.stringify({ set: { "drift.wrap": "true" }, removed: ["drift.theme"] }),
+        sequence: 2,
+        base: 1,
+    });
+    Reflect.deleteProperty(globalThis, "document");
+});
