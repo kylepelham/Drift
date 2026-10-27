@@ -579,19 +579,12 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
 });
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-    const { accumulatedWheelTarget, normalizedWheelDelta } = await import("../src/ui/chat-wheel");
     const { scrollGestureSticks, shouldShowScrollToBottom } = await import("../src/ui/timeline-virtual");
     expect(scrollGestureSticks(1000, 980, 20)).toBeFalse();
     expect(scrollGestureSticks(980, 1000, 20)).toBeTrue();
     expect(scrollGestureSticks(980, 1000, 120)).toBeFalse();
     expect(shouldShowScrollToBottom(79)).toBeFalse();
     expect(shouldShowScrollToBottom(80)).toBeTrue();
-    expect(normalizedWheelDelta(3, 0, 800)).toBe(3);
-    expect(normalizedWheelDelta(3, 1, 800)).toBe(48);
-    expect(normalizedWheelDelta(2, 2, 800)).toBe(1600);
-    expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140);
-    expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180);
-    expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500);
 });
 
 test("transcript follow revision tracks lengths and status without embedding large output", async () => {
@@ -1153,18 +1146,6 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
 
     expect(state).toContain("if (failedAttempt(entry) && next) return false");
     expect(row).toContain("hideError={!!props.retry || !!props.next}");
-});
-
-test("a forwarded wheel animation keeps every notch's distance and lands exactly", async () => {
-    const { accumulatedWheelTarget, wheelStep } = await import("../src/ui/chat-wheel");
-    let target = accumulatedWheelTarget(0, null, 100, 5000);
-    let position = 0;
-    for (let frame = 0; frame < 3; frame++) position = wheelStep(position, target, 16);
-    target = accumulatedWheelTarget(Math.round(position), target, 100, 5000);
-    expect(target, "a second notch adds to the first target, not to where the scroll has got to").toBe(200);
-    for (let frame = 0; frame < 60 && position !== target; frame++) position = wheelStep(position, target, 16);
-    expect(position).toBe(200);
-    expect(wheelStep(0, 100, 16)).toBeGreaterThan(15);
 });
 
 test("a running command's shimmering title keeps to one line however long the command", async () => {

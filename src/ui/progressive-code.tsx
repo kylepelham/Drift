@@ -66,11 +66,13 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
             });
     });
 
+    let disposed = false;
     createEffect(() => {
         const count = chunks().length;
 
         queueMicrotask(() => {
             observer?.disconnect();
+            if (disposed) return;
             if (!("IntersectionObserver" in window))
                 return setActive(new Set(Array.from({ length: count }, (_, index) => index)));
 
@@ -88,7 +90,10 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
             for (const element of root.querySelectorAll("[data-chunk]")) observer.observe(element);
         });
     });
-    onCleanup(() => observer?.disconnect());
+    onCleanup(() => {
+        disposed = true;
+        observer?.disconnect();
+    });
 
     onMount(() => {
         if (!props.line) return;

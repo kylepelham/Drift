@@ -344,8 +344,11 @@ preventing blank space when a tall row collapses.
 jumps. Row height estimates, the virtual range and stick thresholds are in
 `timeline-virtual.ts`; which messages become rows, retry and thinking state are in
 `timeline-state.ts`; one row with its retry banner is `timeline-row.tsx`. Paging older
-history behind a revert is `revert-backfill.ts`, and wheel forwarding from the composer
-dock is `chat-wheel.ts`.
+history behind a revert is `revert-backfill.ts`. The composer dock is the scroller's last child,
+`position: sticky` at its bottom, so a wheel, touchpad or swipe over the composer scrolls the
+conversation as the browser scrolls anything, momentum included; the transcript passes under it.
+`chat-wheel.ts` only keeps a wheel over an inline menu marked `data-wheel-lock` (the composer's
+pickers) from scrolling the conversation behind it.
 
 `src/ui/composer.tsx` owns the draft, keys, history browsing, pickers and send. Around it:
 `composer-attention.tsx` stacks permission, question and ask cards from every thread;

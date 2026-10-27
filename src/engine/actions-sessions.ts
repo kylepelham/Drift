@@ -1,4 +1,4 @@
-import { forgetSession, putSession } from "./store";
+import { forgetLinks, forgetSession, putSession } from "./store";
 import { errorMessage } from "./actions-context";
 import { sessionInWorkspace } from "./sessions";
 import { EngineError } from "./native/client";
@@ -321,6 +321,8 @@ function purge(draft: EngineState, id: string) {
     delete draft.errors[id];
     delete draft.cursors[id];
     delete draft.tasks[id];
+    delete draft.browsers[id];
+    forgetLinks(draft.links, id);
 }
 
 /** A notice names a few files and counts the rest, so an undo across many files stays one short line. */

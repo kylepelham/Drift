@@ -401,6 +401,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [x] Reach from anywhere: OpenTunnel on the PC (loopback PROXY v2 listener, exact host check), tunnel key pinned by the app, network and tunnel raced, addresses refreshed from `/auth/me`; typed codes, discovery and the browser QR removed, browser access behind its own switch
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
+- [x] The composer is pinned (`position: sticky`) inside the transcript's scroller, so the browser scrolls the conversation from over it natively; no forwarded wheel; frosted under a background picture
 - [x] Settings and folded workspaces survive relaunch (the app keeps the page's storage across the proxy's changing port), microphone permission for dictation, word-boundary wrapping in settings, gutter comments in the review panel
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt

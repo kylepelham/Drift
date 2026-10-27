@@ -212,6 +212,21 @@ export function recordLink(link: { child: string; parent: string }) {
     if (links[link.child] === link.parent) return;
 
     links[link.child] = link.parent;
+    saveLinks(links);
+}
+
+/** Drops every link to or from a purged session, from the store's copy and the saved one. */
+export function forgetLinks(live: Record<string, string>, id: string) {
+    const saved = loadLinks();
+    for (const links of [live, saved]) {
+        for (const [child, parent] of Object.entries(links)) {
+            if (child === id || parent === id) delete links[child];
+        }
+    }
+    saveLinks(saved);
+}
+
+function saveLinks(links: Record<string, string>) {
     try {
         localStorage.setItem("drift.links", JSON.stringify(links));
     } catch {

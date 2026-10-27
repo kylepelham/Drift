@@ -3289,7 +3289,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   "always" for `git push` still holds.
   - Policy evaluation is separate from an approval dialog. The defaults are opencode's: everything
     runs without asking except what reaches outside the workspace and files likely to hold
-    secrets. Workspace reads, scratch access, searches, skills, delegation, fetches (`webfetch`)
+    secrets. Workspace reads, scratch access, searches, skills, delegation, fetches of public URLs
+    (`webfetch`; one naming this machine, a private or link-local address or a local name asks)
     and every MCP call (a read-only hint matters only to read-only agents) carry an
     allow-by-default request. Explicit deny/ask rules still apply; an unmatched default request
     produces no dialog.
