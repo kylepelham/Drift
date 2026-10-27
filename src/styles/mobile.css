@@ -96,7 +96,7 @@
 
     .app-shell .composer-dock {
         min-height: 0;
-        max-height: calc(100% - 3.5rem);
+        max-height: calc(100cqh - 3.5rem);
         overflow: visible;
         padding-top: 0.5rem;
         padding-right: max(0.65rem, env(safe-area-inset-right));

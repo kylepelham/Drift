@@ -95,7 +95,6 @@ export function ModelDetails(props: { providerID: string; modelID: string; onClo
     return (
         <Portal>
             <div
-                data-wheel-lock
                 data-modal-layer
                 class="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-2 sm:p-4"
                 onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}

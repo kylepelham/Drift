@@ -575,8 +575,11 @@ textarea {
     display: none;
 }
 
+/* Pinned inside the transcript's scroller, so a wheel or swipe over the composer scrolls the conversation natively. */
 .composer-dock {
-    position: relative;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
     isolation: isolate;
     padding-top: 1rem;
     background: var(--bg);
@@ -592,13 +595,16 @@ textarea {
     background: linear-gradient(to top, color-mix(in srgb, var(--bg) 96%, transparent), transparent);
 }
 
-/* With a picture behind the conversation, the dock lets it run to the bottom and the composer floats on it. */
+/* With a picture behind the conversation, the dock frosts what passes under it, fading in above, and the composer floats on it. */
 .chat-pane:has(.chat-backdrop) .composer-dock {
-    background: transparent;
+    background: color-mix(in srgb, var(--bg) 45%, transparent);
+    backdrop-filter: blur(16px);
 }
 
 .chat-pane:has(.chat-backdrop) .composer-dock::before {
-    display: none;
+    background: color-mix(in srgb, var(--bg) 45%, transparent);
+    backdrop-filter: blur(16px);
+    mask-image: linear-gradient(to top, black, transparent);
 }
 
 .chat-pane:has(.chat-backdrop) .composer-box {
@@ -1597,6 +1603,7 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 .transcript-scroll {
+    container-type: size;
     overflow-anchor: none;
     overscroll-behavior-y: contain;
 }
