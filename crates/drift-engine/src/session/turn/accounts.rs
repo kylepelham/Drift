@@ -73,13 +73,20 @@ impl Engine {
     /// The account this conversation's requests for `model` should go to now: the one the user set it to while that
     /// suits it, else the first in order that does.
     fn preferred_account(&self, provider: &str, session: &str, model: &Model) -> Option<String> {
-        self.pinned_account(provider, session, model).or_else(|| {
-            self.credentials
-                .accounts(provider)
-                .into_iter()
-                .find(|account| self.account_suits(&account.key, session, model))
-                .map(|account| account.key)
-        })
+        self.preferred_accounts(provider, session, model).into_iter().next()
+    }
+
+    /// Every account that suits the request, best first: the one the chat is set to, then the user's order.
+    fn preferred_accounts(&self, provider: &str, session: &str, model: &Model) -> Vec<String> {
+        let pinned = self.pinned_account(provider, session, model);
+        let suitable = self
+            .credentials
+            .accounts(provider)
+            .into_iter()
+            .map(|account| account.key)
+            .filter(|key| Some(key) != pinned.as_ref() && self.account_suits(key, session, model));
+
+        pinned.clone().into_iter().chain(suitable).collect()
     }
 
     /// The account the user set the conversation to use, while it is one of `provider`'s and suits the request now.
@@ -172,22 +179,17 @@ impl Engine {
         }
 
         let provider = plan.model_ref.provider.clone();
-        let Some(preferred) = self
-            .preferred_account(&provider, &plan.session.id, &plan.model)
-            .filter(|preferred| *preferred != current)
+        let pinned = self.pinned_account(&provider, &plan.session.id, &plan.model);
+        let Some((preferred, credential)) = self
+            .first_renewed(&provider, &plan.session.id, &plan.model, &current)
+            .await
         else {
-            return;
-        };
-        let Some(stored) = self.credentials.account(&preferred) else {
-            return;
-        };
-        let Ok(credential) = self.fresh_credential(&provider, Some(&preferred), stored).await else {
             return;
         };
 
         plan.credential = credential;
         plan.account = Some(preferred.clone());
-        if !to_pinned {
+        if pinned.as_ref() != Some(&preferred) {
             self.announce_switch(Switch {
                 session: &plan.session.id,
                 provider: &provider,
@@ -196,6 +198,29 @@ impl Engine {
                 to: preferred,
             });
         }
+    }
+
+    /// The best suitable account ahead of `current` whose credential renews, passing over any that cannot; `None` when
+    /// `current` comes first or none ahead of it renews.
+    async fn first_renewed(
+        &self,
+        provider: &str,
+        session: &str,
+        model: &Model,
+        current: &str,
+    ) -> Option<(String, Credential)> {
+        for account in self.preferred_accounts(provider, session, model) {
+            if account == current {
+                return None;
+            }
+            let Some(stored) = self.credentials.account(&account) else {
+                continue;
+            };
+            if let Ok(credential) = self.fresh_credential(provider, Some(&account), stored).await {
+                return Some((account, credential));
+            }
+        }
+        None
     }
 
     /// After a refusal another account may not have, records it against the account: spent usage, or a model its
@@ -247,6 +272,13 @@ impl Engine {
         else {
             return false;
         };
+        let Some(stored) = self.credentials.account(&next) else {
+            return false;
+        };
+        // An account whose credential cannot renew would only send the request back to the refusing one.
+        if self.fresh_credential(provider, Some(&next), stored).await.is_err() {
+            return false;
+        }
         self.settle_after_refusal(provider, &plan.session.id, account, &next)
     }
 

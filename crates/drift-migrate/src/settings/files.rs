@@ -31,6 +31,11 @@ pub(super) fn copy_home(from: &Path, to: &Path, report: &mut SettingsReport) {
     }
 }
 
+/// Whether `from` is confirmed absent or not a folder, rather than unreadable.
+fn missing(error: &std::io::Error, from: &Path) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || std::fs::metadata(from).is_ok_and(|meta| !meta.is_dir())
+}
+
 fn copy_tree(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
     let unread = |report: &mut SettingsReport, error: std::io::Error| {
         report.left(shown, format!("{shown}: could not be read ({error})"), |left| {
@@ -39,7 +44,7 @@ fn copy_tree(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
     };
     let entries = match std::fs::read_dir(from) {
         Ok(entries) => entries,
-        Err(_) if !from.is_dir() => return,
+        Err(error) if missing(&error, from) => return,
         Err(error) => return unread(report, error),
     };
     for entry in entries {

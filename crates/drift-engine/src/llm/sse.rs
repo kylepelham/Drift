@@ -174,7 +174,7 @@ where
 }
 
 /// The stream through its first error, which ends it.
-fn until_error<T>(stream: impl Stream<Item = Result<T, StreamError>>) -> impl Stream<Item = Result<T, StreamError>> {
+pub(super) fn until_error<T, E>(stream: impl Stream<Item = Result<T, E>>) -> impl Stream<Item = Result<T, E>> {
     stream.scan(false, |failed, item| {
         let next = (!*failed).then(|| {
             *failed = item.is_err();
