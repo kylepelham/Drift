@@ -70,14 +70,8 @@ impl Engine {
         !self.unserved.refused_anywhere(session) || self.credentials.cyber_verified(account)
     }
 
-    /// The account this conversation's requests for `model` should go to now: the one the user set it to while that
-    /// suits it, else the first in order that does.
-    fn preferred_account(&self, provider: &str, session: &str, model: &Model) -> Option<String> {
-        self.preferred_accounts(provider, session, model).into_iter().next()
-    }
-
     /// Every account that suits the request, best first: the one the chat is set to, then the user's order.
-    fn preferred_accounts(&self, provider: &str, session: &str, model: &Model) -> Vec<String> {
+    pub(super) fn preferred_accounts(&self, provider: &str, session: &str, model: &Model) -> Vec<String> {
         let pinned = self.pinned_account(provider, session, model);
         let suitable = self
             .credentials
@@ -232,7 +226,11 @@ impl Engine {
     }
 
     /// The first of `accounts` whose stored credential renews, with that credential.
-    async fn renewed(&self, provider: &str, accounts: impl Iterator<Item = String>) -> Option<(String, Credential)> {
+    pub(super) async fn renewed(
+        &self,
+        provider: &str,
+        accounts: impl Iterator<Item = String>,
+    ) -> Option<(String, Credential)> {
         for account in accounts {
             let Some(stored) = self.credentials.account(&account) else {
                 continue;
@@ -246,7 +244,7 @@ impl Engine {
 
     /// After a refusal another account may not have, records it against the account: spent usage, or a model its
     /// plan does not include. `true` when another account can take the request.
-    pub(super) fn leave_refused_account(&self, plan: &Plan, error: &llm::Error) -> bool {
+    pub(super) async fn leave_refused_account(&self, plan: &Plan, error: &llm::Error) -> bool {
         let Some(account) = &plan.account else {
             return false;
         };
@@ -265,7 +263,10 @@ impl Engine {
             return false;
         }
 
-        self.another_account(plan, account)
+        let provider = &plan.model_ref.provider;
+        self.renewed_other(provider, &plan.session.id, &plan.model, account)
+            .await
+            .is_some()
     }
 
     /// After the safety filter refused the reply, passes the account over for this conversation when an account the
@@ -353,12 +354,6 @@ impl Engine {
             to: to.into(),
         });
         true
-    }
-
-    /// Whether an account other than `account` suits the turn now.
-    fn another_account(&self, plan: &Plan, account: &str) -> bool {
-        self.preferred_account(&plan.model_ref.provider, &plan.session.id, &plan.model)
-            .is_some_and(|preferred| preferred != account)
     }
 
     /// Whether an account other than `refusing`, marked cyber verified and not yet refused the conversation, can serve

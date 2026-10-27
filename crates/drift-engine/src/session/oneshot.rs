@@ -257,7 +257,13 @@ impl Engine {
                 .resolve_account(provider, env, |key| {
                     !failed.iter().any(|gone| gone == key) && self.account_serves(key, model)
                 })
-                .filter(|(account, _)| account.as_ref().is_none_or(|key| !failed.contains(key)));
+                // Once a renewal failed, only another account that serves the model may follow, never the fallback.
+                .filter(|(account, _)| {
+                    failed.is_empty()
+                        || account
+                            .as_ref()
+                            .is_some_and(|key| !failed.contains(key) && self.account_serves(key, model))
+                });
             let Some((account, stored)) = resolved else {
                 return Err(first_error.unwrap_or(TurnError::NoCredentials));
             };

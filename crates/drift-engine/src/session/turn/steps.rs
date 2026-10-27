@@ -256,7 +256,7 @@ impl Engine {
     ) -> Step {
         let mut streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
-            Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error) => {
+            Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error).await => {
                 self.failed_step(&mut message, StreamError::Provider(error));
                 return Step::Switch;
             }
