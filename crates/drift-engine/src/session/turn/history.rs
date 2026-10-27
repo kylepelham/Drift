@@ -163,8 +163,9 @@ impl Engine {
         }
 
         // Language servers read the files after formatting; Stop cancels their report wait.
+        let servers = self.hooks.lsp_config(&config.lsp);
         let found = tokio::select! {
-            found = self.lsp.report(&scope.plan.workspace, &files, &config.lsp) => found,
+            found = self.lsp.report(&scope.plan.workspace, &files, &servers) => found,
             () = scope.abort.cancelled() => Vec::new(),
         };
         if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {

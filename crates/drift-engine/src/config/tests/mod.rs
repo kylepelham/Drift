@@ -303,12 +303,12 @@ fn an_empty_workspace_still_has_the_builtin_agents() {
     assert!(orchestrator.prompt.contains("<orchestrator_status>"));
     assert!(config.agent("plan").unwrap().read_only && config.agent("explore").unwrap().read_only);
     let builtin: Vec<&str> = config.skills.iter().map(|skill| skill.name.as_str()).collect();
-    assert_eq!(builtin, ["review"], "only the engine's own skill");
+    assert_eq!(builtin, ["review", "audit"], "only the engine's own skills");
     assert!(
         config
             .commands
             .iter()
-            .all(|command| command.skill.as_deref() == Some("review"))
+            .all(|command| matches!(command.skill.as_deref(), Some("review" | "audit")))
     );
     assert!(config.instructions.is_empty());
 

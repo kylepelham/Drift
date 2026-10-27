@@ -1,6 +1,6 @@
 //! Secrets a plugin hides from the model. Every request leaves with each secret swapped for its
-//! placeholder, and every tool call the model makes has the placeholders swapped back before it runs,
-//! so tools, files and MCP servers see the real values while the model only ever sees placeholders.
+//! placeholder, and every tool call and reply the model makes has the placeholders swapped back, so
+//! tools, files, MCP servers and the user see the real values while the model only ever sees placeholders.
 
 use std::borrow::Cow;
 
@@ -116,6 +116,13 @@ impl Masks {
 
     pub fn hide<'a>(&self, text: &'a str) -> Cow<'a, str> {
         self.hide.as_ref().map_or(Cow::Borrowed(text), |swap| swap.apply(text))
+    }
+
+    /// Text the model wrote as the user should read it: placeholders become the secrets.
+    pub fn reveal_text<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        self.reveal
+            .as_ref()
+            .map_or(Cow::Borrowed(text), |swap| swap.apply(text))
     }
 
     /// A tool call's input as it should run: placeholders the model wrote become the secrets.

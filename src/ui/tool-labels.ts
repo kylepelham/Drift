@@ -124,7 +124,9 @@ function contextToolInfo(
 
     switch (part.name) {
         case "read": {
-            const lines = output() ? output().split("\n").length : undefined;
+            // The lines the read showed; the output also holds its paging note and reminders.
+            const shown = typeof meta.shown === "number" ? meta.shown : undefined;
+            const lines = shown ?? (output() ? output().split("\n").length : undefined);
             const path = toolFilename(text("filePath")) ?? "";
             const suffix = count(lines, "drift.count.line.one", "drift.count.line.other");
 

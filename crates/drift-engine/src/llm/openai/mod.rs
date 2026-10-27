@@ -35,6 +35,8 @@ pub struct OpenAi {
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
     websockets: std::sync::Arc<websocket::Pool>,
+    /// The host serves Responses over SSE only.
+    sse_only: bool,
 }
 
 impl Default for OpenAi {
@@ -44,6 +46,7 @@ impl Default for OpenAi {
             client: super::http::client(),
             timeouts: super::http::Timeouts::default(),
             websockets: websocket::Pool::shared(),
+            sse_only: false,
         }
     }
 }
@@ -56,10 +59,21 @@ impl OpenAi {
         }
     }
 
+    /// A Responses host without the WebSocket mode (Meta's), so no handshake is tried first.
+    pub fn sse(base_url: &str) -> Self {
+        Self {
+            sse_only: true,
+            ..Self::new(base_url)
+        }
+    }
+
     /// Streams over the conversation's WebSocket, or over SSE where the endpoint does not take one.
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let http = self.http_request(request, credential)?;
+        if self.sse_only {
+            return self.stream_http(http.json(&body(request, subscription))).await;
+        }
 
         // The SSE request's URL and headers also authenticate the WebSocket upgrade.
         let handshake = http

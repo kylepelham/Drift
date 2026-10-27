@@ -1,3 +1,5 @@
+import { pluginFileLanguage } from "./syntax-grammars";
+
 import type { Language } from "linguist-languages";
 import type { BundledLanguage } from "shiki";
 
@@ -73,7 +75,11 @@ async function languageCatalog() {
         }));
 }
 
-export async function fileLanguageCandidates(path: string): Promise<SyntaxLanguage[]> {
+// A plugin's grammar comes first: it was added for its files, and may replace a bundled language.
+export async function fileLanguageCandidates(path: string): Promise<string[]> {
+    const plugin = pluginFileLanguage(path);
+    if (plugin) return [plugin];
+
     const catalog = await languageCatalog();
     const basename = normalized(path.replaceAll("\\", "/").split("/").at(-1) ?? "");
     if (!basename) return ["text"];
@@ -91,7 +97,10 @@ export async function fileLanguageCandidates(path: string): Promise<SyntaxLangua
     return [catalog.shikiNames.get(extension) ?? "text"];
 }
 
-export async function resolveFileLanguage(path: string): Promise<SyntaxLanguage> {
+export async function resolveFileLanguage(path: string): Promise<string> {
+    const plugin = pluginFileLanguage(path);
+    if (plugin) return plugin;
+
     const catalog = await languageCatalog();
     const basename = normalized(path.replaceAll("\\", "/").split("/").at(-1) ?? "");
     if (!basename) return "text";

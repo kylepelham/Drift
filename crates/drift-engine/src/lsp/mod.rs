@@ -21,6 +21,8 @@ use crate::config::LspConfig;
 
 /// How long a writing call waits for errors, after its formatters ran.
 const WAIT: Duration = Duration::from_secs(3);
+/// How long a server may take to initialize from its launch; a write's [`WAIT`] counts from when it did.
+const START: Duration = Duration::from_secs(10);
 /// A server unused this long is stopped; the next write starts it again.
 const IDLE: Duration = Duration::from_secs(10 * 60);
 /// A command that could not start is not tried again for this long.
@@ -144,7 +146,7 @@ pub struct Found {
     pub errors: Vec<Diagnostic>,
 }
 
-/// Running servers by the folder they are rooted at and their name.
+/// Running servers by the folder they are rooted at, their name and the commands they were started from.
 type Running = Arc<Mutex<HashMap<Slot, Arc<Client>>>>;
 
 /// The servers running for each project root; dropping it (the engine stopping) ends them all.
@@ -158,7 +160,7 @@ pub struct Servers {
     reaping: std::sync::atomic::AtomicBool,
 }
 
-type Slot = (PathBuf, String);
+type Slot = (PathBuf, String, Vec<Vec<String>>);
 
 impl Servers {
     /// What the servers that handle `files` report about them within [`WAIT`]; files with no errors are left out.
@@ -184,7 +186,14 @@ impl Servers {
             }
             for (root, handled) in by_root {
                 if let Some(client) = self.client(workspace, &root, spec).await {
-                    checks.push(async move { (spec.name.clone(), client.check(&handled, deadline).await) });
+                    checks.push(async move {
+                        let deadline = if client.ready_by(client.launched() + START).await {
+                            deadline.max(tokio::time::Instant::now() + WAIT)
+                        } else {
+                            deadline
+                        };
+                        (spec.name.clone(), client.check(&handled, deadline).await)
+                    });
                 }
             }
         }
@@ -217,7 +226,7 @@ impl Servers {
 
     /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
     async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
-        let slot: Slot = (root.to_path_buf(), spec.name.clone());
+        let slot: Slot = (root.to_path_buf(), spec.name.clone(), spec.commands.clone());
         let running = || {
             self.running
                 .lock()
@@ -253,7 +262,10 @@ impl Servers {
 
         match started {
             Ok(client) => {
-                self.running.lock().unwrap().insert(slot, client.clone());
+                let replaced = self.replace(slot, client.clone());
+                for old in replaced {
+                    old.shutdown().await;
+                }
                 self.reap_idle();
                 Some(client)
             }
@@ -262,6 +274,19 @@ impl Servers {
                 None
             }
         }
+    }
+
+    /// Keeps `client` in `slot`, handing back any server of that name and root started from commands since changed.
+    fn replace(&self, slot: Slot, client: Arc<Client>) -> Vec<Arc<Client>> {
+        let mut running = self.running.lock().unwrap();
+        let stale: Vec<Slot> = running
+            .keys()
+            .filter(|(root, name, commands)| *root == slot.0 && *name == slot.1 && *commands != slot.2)
+            .cloned()
+            .collect();
+        let replaced = stale.iter().filter_map(|old| running.remove(old)).collect();
+        running.insert(slot, client);
+        replaced
     }
 
     /// Once, a task that stops servers left idle (or dead); it ends when the engine does.

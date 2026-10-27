@@ -290,14 +290,15 @@ test("release notes reject a signature for a different installer", () => {
 test("release stamping updates every package version and is idempotent", () => {
     const temporary = tempFolder("tests", "release-policy-");
     try {
+        const manifests = ["package.json", "src-tauri/tauri.conf.json", "src-android/tauri.conf.json"];
         mkdirSync(path.join(temporary, "src-tauri"));
-        writeFileSync(path.join(temporary, "package.json"), '{"version":"1.0.0"}\n');
-        writeFileSync(path.join(temporary, "src-tauri/tauri.conf.json"), '{"version":"1.0.0"}\n');
+        mkdirSync(path.join(temporary, "src-android"));
+        for (const relative of manifests) writeFileSync(path.join(temporary, relative), '{"version":"1.0.0"}\n');
         writeFileSync(
             path.join(temporary, "Cargo.toml"),
             '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\n',
         );
-        const crates = ["drift", "drift-engine", "drift-engined", "drift-migrate"];
+        const crates = ["drift", "drift-android", "drift-engine", "drift-engined", "drift-migrate", "drift-pairing"];
         writeFileSync(
             path.join(temporary, "Cargo.lock"),
             crates.map((name) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n`).join("\n"),
@@ -305,7 +306,7 @@ test("release stamping updates every package version and is idempotent", () => {
 
         expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4");
         expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4");
-        for (const relative of ["package.json", "src-tauri/tauri.conf.json", "Cargo.toml"]) {
+        for (const relative of [...manifests, "Cargo.toml"]) {
             expect(readFileSync(path.join(temporary, relative), "utf8")).toContain("2.3.4");
         }
         const lock = readFileSync(path.join(temporary, "Cargo.lock"), "utf8");

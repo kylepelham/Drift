@@ -17,7 +17,7 @@ pub(crate) struct Assembler<'a> {
     pub refusal: Option<Refusal>,
     pub calls: Vec<PartRow>,
     generation: super::generation::Generation,
-    /// Placeholders in a finished tool call's input become the secrets they stand for.
+    /// Placeholders in a finished tool call's input, text or reasoning become the secrets they stand for.
     masks: std::sync::Arc<crate::llm::mask::Masks>,
 }
 
@@ -101,6 +101,7 @@ impl<'a> Assembler<'a> {
                 Ok(())
             }
             Chunk::BlockStop => self.stop_block(),
+            Chunk::Generating => Ok(()),
             Chunk::Usage(usage) => {
                 self.usage.merge(usage);
                 Ok(())
@@ -178,9 +179,17 @@ impl<'a> Assembler<'a> {
             return Ok(());
         };
 
-        if let Part::ToolCall { input, .. } = &mut open.row.part {
-            *input = parse_input(&open.tool_json);
-            self.masks.reveal(input);
+        match &mut open.row.part {
+            Part::ToolCall { input, .. } => {
+                *input = parse_input(&open.tool_json);
+                self.masks.reveal(input);
+            }
+            Part::Text { text } | Part::Reasoning { text, .. } => {
+                if let std::borrow::Cow::Owned(revealed) = self.masks.reveal_text(text) {
+                    *text = revealed;
+                }
+            }
+            _ => {}
         }
         self.store.save_part(&open.row)?;
         self.hub.publish(Event::PartUpdated { part: open.row.clone() });
@@ -439,6 +448,38 @@ mod tests {
 
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_finished_reply_shows_the_secrets_its_placeholders_stand_for() {
+        let store = store();
+        let hub = Hub::new(64);
+        let session = session(&store, "w");
+        let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        let masks = crate::llm::mask::Masks::new(vec![("hunter2".into(), "PASSWORD".into())]).0;
+        let mut assembler = Assembler::new(&store, &hub, &message).revealing(std::sync::Arc::new(masks));
+
+        for chunk in [
+            Chunk::ReasoningStart,
+            Chunk::ReasoningDelta("use PASS".into()),
+            Chunk::ReasoningDelta("WORD".into()),
+            Chunk::BlockStop,
+            Chunk::TextStart,
+            Chunk::TextDelta("Your password is PASSWORD.".into()),
+            Chunk::BlockStop,
+        ] {
+            assembler.apply(chunk).unwrap();
+        }
+
+        let parts = store.transcript(&session.id).unwrap().remove(0).parts;
+        let texts: Vec<_> = parts
+            .iter()
+            .map(|row| match &row.part {
+                Part::Reasoning { text, .. } | Part::Text { text } => text.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(texts, ["use hunter2", "Your password is hunter2."]);
     }
 
     #[test]

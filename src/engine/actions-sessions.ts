@@ -1,4 +1,4 @@
-import { forgetSession, putSession } from "./store";
+import { forgetLinks, forgetSession, putSession } from "./store";
 import { errorMessage } from "./actions-context";
 import { sessionInWorkspace } from "./sessions";
 import { EngineError } from "./native/client";
@@ -21,6 +21,17 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
 
     async function rename(id: string, title: string) {
         const updated = await requireClient().updateSession(id, { title });
+        putSession(set, sessionInWorkspace(updated, workspaces()));
+    }
+
+    /** The model the composer shows becomes the session's, as a sent prompt would make it, for a command to run on. */
+    async function useModel(id: string, model: ModelRef | null) {
+        const current = context.state.sessions[id]?.model;
+        if (!model || (current?.provider === model.providerID && current.model === model.modelID)) return;
+
+        const updated = await requireClient().updateSession(id, {
+            model: { provider: model.providerID, model: model.modelID },
+        });
         putSession(set, sessionInWorkspace(updated, workspaces()));
     }
 
@@ -281,6 +292,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
 
     return {
         rename,
+        useModel,
         setArchived,
         purgeSession,
         purgeArchivedSession,
@@ -309,6 +321,8 @@ function purge(draft: EngineState, id: string) {
     delete draft.errors[id];
     delete draft.cursors[id];
     delete draft.tasks[id];
+    delete draft.browsers[id];
+    forgetLinks(draft.links, id);
 }
 
 /** A notice names a few files and counts the rest, so an undo across many files stays one short line. */

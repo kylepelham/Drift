@@ -188,7 +188,10 @@ pub(super) async fn view(
     let driver = engine.browsers.get(&id).ok_or_else(|| ApiError::not_found("browser"))?;
     let lease = lease.map(|axum::Extension(Lease(token))| token).unwrap_or_default();
 
-    Ok(ws.on_upgrade(move |socket| watching(driver, socket, lease)))
+    Ok(ws.on_upgrade(move |socket| async move {
+        let _ended = lease.clone().drop_guard();
+        watching(driver, socket, lease).await;
+    }))
 }
 
 async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: CancellationToken) {

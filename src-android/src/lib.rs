@@ -32,14 +32,15 @@ pub fn run() {
 
 /// Starts the proxy on a free loopback port, then opens the WebView on it with this launch's secret.
 fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let computers = computers::Computers::load(app.path().app_data_dir()?.join("computers.json"));
+    let data = app.path().app_data_dir()?;
+    let computers = computers::Computers::load(data.join("computers.json"));
     let native = app.state::<Arc<native::Native>>().inner().clone();
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let secret = pc::hex(&secret());
 
-    let proxy = proxy::Shared::new(computers, native, secret.clone(), port);
+    let proxy = proxy::Shared::new(computers, native, secret.clone(), port, data.join("ui-storage.json"));
     tauri::async_runtime::spawn(async move {
         if let Ok(listener) = tokio::net::TcpListener::from_std(listener) {
             proxy::serve(listener, proxy).await;

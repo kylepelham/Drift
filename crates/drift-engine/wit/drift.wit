@@ -188,6 +188,30 @@ interface types {
         secret-keys: bool,
         secret-values: bool,
     }
+
+    /// A language server Drift starts over stdio for the errors an edit leaves, as drift.json's `lsp` adds one.
+    record language-server {
+        /// Its name; a drift.json `lsp` entry of the same name replaces it, or turns it off when `false`.
+        id: string,
+        /// The program and its arguments, found on PATH as a built-in server's are.
+        command: list<string>,
+        /// File name endings it handles, such as ".roc".
+        extensions: list<string>,
+        /// The LSP language id it is told; by the file's extension when none.
+        language: option<string>,
+    }
+
+    /// A TextMate grammar that highlights code, in files and in Markdown code fences.
+    record grammar {
+        /// The language's name, which a code fence uses; a bundled language of the same name is replaced.
+        name: string,
+        /// Other fence names for it.
+        aliases: list<string>,
+        /// File name endings it highlights, such as ".roc", or whole names, such as "Rocfile".
+        extensions: list<string>,
+        /// The grammar as `.tmLanguage.json` text, with its `scopeName` and `patterns`.
+        json: string,
+    }
 }
 
 interface host {
@@ -277,4 +301,14 @@ world searching {
     include configurable;
     export search-providers: func() -> list<tuple<string, string>>;
     export search: func(provider: string, query: string, limit: u32) -> result<list<tuple<string, string, string>>, tuple<string, option<u32>>>;
+}
+
+/// A plugin that adds languages: language servers, which Settings lists as its capability since Drift starts
+/// them, and grammars that highlight code. Both are asked once when the plugin loads; a plugin built for
+/// `plugin` alone keeps working.
+world languages {
+    include configurable;
+    use types.{language-server, grammar};
+    export language-servers: func() -> list<language-server>;
+    export grammars: func() -> list<grammar>;
 }

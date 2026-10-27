@@ -1,4 +1,4 @@
-use crate::llm::catalog::Reasoning;
+use crate::llm::catalog::{Reasoning, THINKING_OFF, THINKING_ON};
 use crate::llm::{Block, ChatMessage, Request, Role};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -55,27 +55,37 @@ pub(super) fn body(request: &Request) -> Value {
         }
     }
 
-    match &request.reasoning {
-        Some(Reasoning::Budget { tokens }) => body["thinking"] = json!({ "type": "enabled", "budget_tokens": tokens }),
-        // Adaptive models otherwise return blank thinking instead of a summary.
-        Some(Reasoning::Effort { level }) => {
-            body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
-            body["output_config"] = json!({ "effort": level });
-        }
-        None => {
-            if let Some(temperature) = request.temperature {
-                body["temperature"] = json!(temperature);
-            }
-        }
-    }
+    think(&mut body, request);
     // A thinking block the API no longer accepts (its prefix changed) is dropped instead of failing the turn.
-    if request.claude.drop_stale_thinking && request.reasoning.is_some() {
+    if request.claude.drop_stale_thinking && request.reasoning.is_some() && body["thinking"]["type"] != "disabled" {
         body["thinking"]["block_binding"] = json!({ "prefix_mismatch_behavior": "drop_block" });
     }
 
     crate::llm::apply_mode(&mut body, request);
 
     body
+}
+
+/// The thinking a level asks for; without thinking the request's temperature goes instead.
+fn think(body: &mut Value, request: &Request) {
+    match &request.reasoning {
+        Some(Reasoning::Budget { tokens }) => body["thinking"] = json!({ "type": "enabled", "budget_tokens": tokens }),
+        // A model's thinking switch (MiniMax M3): on is adaptive thinking with no effort.
+        Some(Reasoning::Effort { level }) if level == THINKING_ON => body["thinking"] = json!({ "type": "adaptive" }),
+        // Adaptive models otherwise return blank thinking instead of a summary.
+        Some(Reasoning::Effort { level }) if level != THINKING_OFF => {
+            body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
+            body["output_config"] = json!({ "effort": level });
+        }
+        off => {
+            if off.is_some() {
+                body["thinking"] = json!({ "type": "disabled" });
+            }
+            if let Some(temperature) = request.temperature {
+                body["temperature"] = json!(temperature);
+            }
+        }
+    }
 }
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {

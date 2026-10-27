@@ -100,6 +100,8 @@ async fn a_missing_or_silent_server_never_holds_up_the_call() {
         "not tried again at once"
     );
     assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    // Fresh, since the missing server's failure would keep the mute one from being tried at this root.
+    let servers = Servers::default();
     let started = std::time::Instant::now();
     assert!(
         servers
@@ -108,10 +110,57 @@ async fn a_missing_or_silent_server_never_holds_up_the_call() {
             .is_empty()
     );
     assert!(
-        started.elapsed() < WAIT + Duration::from_secs(2),
-        "a server that never initializes costs the wait and no more: {:?}",
+        started.elapsed() < START + Duration::from_secs(2),
+        "a server that never initializes costs its start allowance and no more: {:?}",
         started.elapsed()
     );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_the_write_starts_is_heard_even_when_it_starts_slower_than_the_wait() {
+    let dir = workspace("slow");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let servers = Servers::default();
+
+    let found = servers
+        .report(&dir, std::slice::from_ref(&file), &fake(&["slow"]))
+        .await;
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].errors[0].line, 1);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_a_read_started_still_initializing_gets_its_start_allowance() {
+    let dir = workspace("warmed");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let servers = Servers::default();
+    let config = fake(&["slow"]);
+
+    servers.warm(&dir, &file, &config).await;
+    let found = servers.report(&dir, std::slice::from_ref(&file), &config).await;
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_that_dies_before_initializing_holds_up_nothing() {
+    let dir = workspace("crash");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR from the start").unwrap();
+    let started = std::time::Instant::now();
+
+    let found = Servers::default()
+        .report(&dir, std::slice::from_ref(&file), &fake(&["crash"]))
+        .await;
+
+    assert!(found.is_empty(), "{found:?}");
+    assert!(started.elapsed() < WAIT, "{:?}", started.elapsed());
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -326,6 +375,29 @@ async fn reading_a_file_starts_its_server_before_the_first_edit() {
     drop(servers);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[tokio::test]
+async fn a_server_whose_command_changed_replaces_the_one_running() {
+    let dir = workspace("changed");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "fine").unwrap();
+    let servers = Servers::default();
+    servers.warm(&dir, &file, &fake(&[])).await;
+    let first = servers.running.lock().unwrap().values().next().cloned().unwrap();
+
+    servers.warm(&dir, &file, &fake(&["pull"])).await;
+    let running = servers.running.lock().unwrap();
+    assert_eq!(running.len(), 1, "the old command's server is not kept");
+    assert!(
+        running
+            .keys()
+            .all(|(_, _, commands)| commands[0].last().is_some_and(|arg| arg == "pull"))
+    );
+    assert!(!first.alive(), "and it was stopped");
+    drop(running);
+    drop(servers);
+    std::fs::remove_dir_all(dir).ok();
+}
 #[tokio::test]
 async fn a_server_that_is_asked_rather_than_publishing_still_reports() {
     let dir = workspace("pull");
@@ -398,9 +470,9 @@ async fn a_server_that_failed_at_one_root_is_still_tried_at_another() {
     assert!(servers.client(&dir, &scripts, spec).await.is_none());
     assert!(servers.client(&dir, &web, spec).await.is_none());
     let failed = servers.failed.lock().unwrap();
+    let slot = |root: &PathBuf| (root.clone(), "fake".to_string(), spec.commands.clone());
     assert!(
-        failed.contains_key(&(scripts.clone(), "fake".to_string()))
-            && failed.contains_key(&(web.clone(), "fake".to_string())),
+        failed.contains_key(&slot(&scripts)) && failed.contains_key(&slot(&web)),
         "each root tried for itself"
     );
     drop(failed);

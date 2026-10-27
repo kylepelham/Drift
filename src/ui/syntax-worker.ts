@@ -1,16 +1,21 @@
 // Tokenizes code off the main thread, so highlighting a large file never stalls scrolling or typing.
-import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki";
+import { shikiTokens } from "../syntax-grammars";
+
+import type { BundledTheme, LanguageRegistration } from "shiki";
 import type * as Shiki from "shiki";
 
-type Request = { id: number; code: string; lang: string; theme: BundledTheme };
+/** A plugin's grammar comes with the first request for it, under its id as `lang`. */
+type Request = { id: number; code: string; lang: string; theme: BundledTheme; grammar?: LanguageRegistration };
 
 let shiki: Promise<typeof Shiki> | undefined;
+const grammars = new Map<string, LanguageRegistration>();
 
 self.onmessage = async (event: MessageEvent<Request>) => {
-    const { id, code, lang, theme } = event.data;
+    const { id, code, lang, theme, grammar } = event.data;
+    if (grammar) grammars.set(lang, grammar);
     try {
         const module = await (shiki ??= import("shiki"));
-        const result = await module.codeToTokens(code, { lang: lang as BundledLanguage | SpecialLanguage, theme });
+        const result = await shikiTokens(module, code, lang, theme, grammars.get(lang));
         const tokens = result.tokens.map((line) =>
             line.map((token) => ({ content: token.content, color: token.color, fontStyle: token.fontStyle })),
         );

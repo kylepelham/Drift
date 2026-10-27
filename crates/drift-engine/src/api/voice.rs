@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::Engine;
-use crate::voice::{Speech, SpokenAudio, Transcription, VoiceError, VoiceProvider};
+use crate::voice::{Speech, SpeechVoice, SpokenAudio, Transcription, VoiceError, VoiceProvider};
 
 /// Settings > Voice: the cloud providers and which have a key, shown by its last characters.
 #[derive(Serialize, ToSchema)]
@@ -94,4 +94,13 @@ pub(super) async fn speak(
     Json(body): Json<Speech>,
 ) -> Result<Json<SpokenAudio>, ApiError> {
     Ok(Json(engine.voice_speak(&body).await?))
+}
+
+/// The voices a speech provider offers the account behind its saved key: its own, saved and premade ones.
+#[utoipa::path(get, path = "/voice/voices", operation_id = "speechVoices", params(ProviderParam), responses((status = 200, body = Vec<SpeechVoice>)))]
+pub(super) async fn voices(
+    State(engine): State<Arc<Engine>>,
+    Query(query): Query<ProviderParam>,
+) -> Result<Json<Vec<SpeechVoice>>, ApiError> {
+    Ok(Json(engine.speech_voices(&query.provider).await?))
 }

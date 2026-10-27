@@ -127,21 +127,24 @@ pub fn import_settings(
     import_credentials(credentials, providers, settings, &mut ledger, &mut report);
     import_servers(store, settings, &mut ledger, &mut report);
 
+    // A part that could not be written stays undone, so the next run tries it again.
     if let Some(config) = &settings.config
         && !ledger.config
     {
+        let failed = report.left_out.failed.len();
         let file = config::convert(config, &settings.config_dir, &mut report);
         report.config_written = files::write_config(home, file, &mut report);
         let drift_dir = home.join(".config").join("drift");
         definitions::write(config, &settings.config_dir, &drift_dir, &mut report);
         config::compaction_switch(store, config, &mut report)?;
-        ledger.config = true;
+        ledger.config = report.left_out.failed.len() == failed;
     }
 
     if !ledger.files && settings.config_dir.is_dir() {
+        let failed = report.left_out.failed.len();
         let destination = home.join(".config").join("drift");
         files::copy_home(&settings.config_dir, &destination, &mut report);
-        ledger.files = true;
+        ledger.files = report.left_out.failed.len() == failed;
     }
 
     store.set_setting(LEDGER, &ledger)?;

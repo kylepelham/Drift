@@ -94,19 +94,27 @@ impl Bedrock {
             return Err(api_error(status.as_u16(), &kind, &text).with_headers(&headers));
         }
 
-        let mut decoder = Decoder::default();
         let frames = super::sse::watched(response.bytes_stream(), self.timeouts.idle);
-        Ok(Box::pin(frames.flat_map(move |bytes| {
-            let items = match bytes {
-                Ok(bytes) => decoder.feed(&bytes).map_or_else(
-                    |error| vec![Err(Error::Malformed(error.to_string()))],
-                    |messages| messages.into_iter().flat_map(message_chunks).collect(),
-                ),
-                Err(error) => vec![Err(Error::Transport(error.to_string()))],
-            };
-            futures_util::stream::iter(items)
-        })))
+        Ok(Box::pin(decoded(frames)))
     }
+}
+
+/// The chunks a framed body carries, ending at its first error: nothing after a bad frame is read or kept.
+fn decoded<E: std::fmt::Display>(
+    frames: impl futures_util::Stream<Item = Result<bytes::Bytes, E>> + Send + 'static,
+) -> impl futures_util::Stream<Item = Result<Chunk, Error>> + Send + 'static {
+    let mut decoder = Decoder::default();
+    let chunks = frames.flat_map(move |bytes| {
+        let items = match bytes {
+            Ok(bytes) => decoder.feed(&bytes).map_or_else(
+                |error| vec![Err(Error::Malformed(error.to_string()))],
+                |messages| messages.into_iter().flat_map(message_chunks).collect(),
+            ),
+            Err(error) => vec![Err(Error::Transport(error.to_string()))],
+        };
+        futures_util::stream::iter(items)
+    });
+    super::sse::until_error(chunks)
 }
 
 /// A `chunk` wraps an Anthropic event; exception and error frames end the stream with their reason;
@@ -244,6 +252,23 @@ mod tests {
         assert_eq!(chunks[1], Chunk::TextStart);
         assert_eq!(chunks[2], Chunk::TextDelta("Hi".into()));
         assert!(chunks.contains(&Chunk::Stop(crate::llm::StopReason::EndTurn)));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_frame_ends_the_stream_and_nothing_after_it_is_read() {
+        let oversized = u32::MAX
+            .to_be_bytes()
+            .iter()
+            .chain(&[0; 8])
+            .copied()
+            .collect::<Vec<u8>>();
+        let after = chunk(r#"{"type":"content_block_stop","index":0}"#);
+        let frames = futures_util::stream::iter(
+            [oversized, after.clone(), after].map(|bytes| Ok::<_, std::convert::Infallible>(bytes::Bytes::from(bytes))),
+        );
+
+        let items: Vec<_> = decoded(frames).collect().await;
+        assert!(matches!(items[..], [Err(Error::Malformed(_))]), "{items:?}");
     }
 
     fn first_error(bytes: &[u8]) -> Error {

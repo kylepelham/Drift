@@ -20,8 +20,15 @@ fn engine_provider_ids_map_to_their_usage_sources() {
         Some(Source::Zai("https://api.z.ai/api/monitor/usage/quota/limit"))
     );
     assert!(matches!(source("zhipuai-coding-plan"), Some(Source::Zai(url)) if url.contains("bigmodel.cn")));
-    assert_eq!(source("kimi-code-plan-global"), Some(Source::Kimi));
     assert_eq!(source("openrouter"), None);
+}
+
+#[test]
+fn coding_plans_are_asked_in_their_own_region() {
+    assert!(matches!(source("kimi-code-plan-global"), Some(Source::Kimi(url)) if url.contains("api.kimi.ai")));
+    assert!(matches!(source("kimi-code-plan-cn"), Some(Source::Kimi(url)) if url.contains("api.kimi.com")));
+    assert!(matches!(source("minimax-cn-coding-plan"), Some(Source::MiniMax(url)) if url.contains("minimaxi.com")));
+    assert_eq!(source("minimax"), None, "pay-as-you-go keys have no plan");
 }
 
 #[test]
@@ -299,13 +306,69 @@ fn kimi_trusts_counters_over_zeroed_ratio_pools() {
         }
     });
     assert_eq!(
-        windows(Source::Kimi, body),
+        windows(Source::Kimi("u"), body),
         vec![
             (WindowKind::Session, None, 1.0, Some(1_789_829_159_000)),
             (WindowKind::Weekly, None, 19.0, Some(1_789_836_359_000)),
             (WindowKind::Monthly, None, 50.0, Some(1_790_812_800_000)),
         ]
     );
+}
+
+#[test]
+fn minimax_reads_what_is_left_of_the_text_lane_only() {
+    let hour = 3_600_000;
+    let body = json!({
+        "base_resp": { "status_code": 0, "status_msg": "success" },
+        "data": {
+            "current_subscribe_title": "Token Plan Plus",
+            "model_remains": [
+                {
+                    "model_name": "general",
+                    "current_interval_remaining_percent": "96",
+                    "start_time": NOW - hour,
+                    "end_time": NOW + 4 * hour,
+                    "current_weekly_remaining_percent": "100",
+                    "current_weekly_status": 3,
+                    "weekly_start_time": NOW - 24 * hour,
+                    "weekly_end_time": NOW + 144 * hour
+                },
+                {
+                    "model_name": "MiniMax-M2",
+                    "current_interval_total_count": 1500,
+                    "current_interval_usage_count": 1200,
+                    "remains_time": 600
+                },
+                {
+                    "model_name": "video",
+                    "current_interval_total_count": 0,
+                    "current_interval_usage_count": 0,
+                    "current_interval_remaining_percent": 100,
+                    "current_interval_status": 3
+                },
+                { "model_name": "speech-hd", "current_interval_remaining_percent": 10 }
+            ]
+        }
+    });
+
+    let usage = parse(Source::MiniMax("u"), &body, NOW);
+    assert_eq!(usage.plan.as_deref(), Some("Token Plan Plus"));
+    let read: Vec<(WindowKind, f64, Option<i64>)> = usage
+        .windows
+        .into_iter()
+        .map(|window| (window.kind, window.used_percent, window.resets_at))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (WindowKind::Session, 4.0, Some(NOW + 4 * hour)),
+            (WindowKind::Session, 20.0, Some(NOW + 600_000)),
+        ],
+        "the unlimited week, the excluded video lane and speech are left out"
+    );
+
+    let refused = json!({ "base_resp": { "status_code": 1004, "status_msg": "cookie is missing, log in again" } });
+    assert_eq!(parse(Source::MiniMax("u"), &refused, NOW).status, UsageStatus::Expired);
 }
 
 #[test]

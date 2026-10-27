@@ -208,9 +208,8 @@ impl Snapshots {
                 .any(|(large, _)| large == path)
         };
 
-        let (unrecordable, changes): (Vec<_>, Vec<_>) = parse_raw_diff(&raw)
-            .into_iter()
-            .partition(|change| oversized(&change.path));
+        let (parsed, unnamed) = parse_raw_diff(&raw);
+        let (unrecordable, changes): (Vec<_>, Vec<_>) = parsed.into_iter().partition(|change| oversized(&change.path));
         let changes = if source.is_some() {
             unconverted_changes(workspace, changes).await
         } else {
@@ -218,6 +217,7 @@ impl Snapshots {
         };
 
         let mut unrecorded: Vec<String> = unrecordable.into_iter().map(|change| change.path).collect();
+        unrecorded.extend(unnamed);
         let untouched = |entry: &(String, Stamp)| before.oversized.contains(entry) && after.oversized.contains(entry);
         unrecorded.extend(
             before
@@ -234,14 +234,19 @@ impl Snapshots {
     }
 }
 
-/// Parses git diff-tree's NUL-delimited raw records; all-zero blob ids mean the file does not exist.
-fn parse_raw_diff(raw: &[u8]) -> Vec<FileChange> {
-    let text = String::from_utf8_lossy(raw);
-    let mut fields = text.split('\0');
+/// Parses git diff-tree's NUL-delimited raw records (all-zero blob ids: no file); non-UTF-8 paths come back apart.
+fn parse_raw_diff(raw: &[u8]) -> (Vec<FileChange>, Vec<String>) {
+    let mut fields = raw.split(|byte| *byte == 0);
     let mut changes = Vec::new();
+    let mut unnamed = Vec::new();
     while let (Some(header), Some(path)) = (fields.next(), fields.next()) {
+        let header = String::from_utf8_lossy(header);
         let parts: Vec<&str> = header.trim_start_matches(':').split(' ').collect();
         let [_, _, before, after, _] = parts[..] else { continue };
+        let Ok(path) = std::str::from_utf8(path) else {
+            unnamed.push(String::from_utf8_lossy(path).into_owned());
+            continue;
+        };
         let blob = |hash: &str| (!hash.chars().all(|character| character == '0')).then(|| hash.to_string());
         changes.push(FileChange {
             path: path.to_string(),
@@ -251,7 +256,7 @@ fn parse_raw_diff(raw: &[u8]) -> Vec<FileChange> {
         });
     }
 
-    changes
+    (changes, unnamed)
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import { hasProviderOptions, ProviderOptionsPanel } from "./settings-provider-options";
-import { ProviderConnect } from "./settings-provider-connect";
+import { ProviderConnect, ProviderTab } from "./settings-provider-connect";
 import { LmStudioConnect } from "./settings-lm-studio";
 import { OllamaConnect } from "./settings-ollama";
 import { ProviderIcon } from "./provider-icon";
@@ -8,9 +8,14 @@ import { useEngine } from "../engine";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
 
+import type { ProviderFamily, ProviderInfo } from "../engine/store";
 import type { ProviderAuthMethod } from "./settings";
+import type { JSX } from "solid-js";
 
 export type ProviderNotice = { tone: "success" | "warning" | "error"; text: string };
+
+/** One row in the list: a provider, or a maker's regions and plans together. */
+type ProviderEntry = { id: string; name: string; routes: ProviderInfo[] };
 
 export function ProvidersSection() {
     const engine = useEngine();
@@ -29,23 +34,72 @@ export function ProvidersSection() {
             .catch(() => {});
     });
 
+    const entries = createMemo(() => {
+        const byFamily = new Map<string, ProviderEntry>();
+        for (const provider of engine.state.providers) {
+            const id = provider.family?.id ?? provider.id;
+            const entry = byFamily.get(id) ?? { id, name: provider.family?.name ?? provider.name, routes: [] };
+            entry.routes.push(provider);
+            byFamily.set(id, entry);
+        }
+
+        return [...byFamily.values()].map((entry) => ({ ...entry, routes: entry.routes.sort(byRoute) }));
+    });
+
     const groups = createMemo(() => {
         const value = query().toLowerCase();
-        const matching = engine.state.providers
-            .filter(
-                (provider) => provider.name.toLowerCase().includes(value) || provider.id.toLowerCase().includes(value),
+        const matching = entries()
+            .filter((entry) =>
+                [entry, ...entry.routes].some(
+                    (item) => item.name.toLowerCase().includes(value) || item.id.toLowerCase().includes(value),
+                ),
             )
             .sort((left, right) => left.name.localeCompare(right.name));
+        const connected = (entry: ProviderEntry) =>
+            entry.routes.some((route) => engine.state.connected.includes(route.id));
 
         return {
-            connected: matching.filter((provider) => engine.state.connected.includes(provider.id)),
-            rest: matching.filter((provider) => !engine.state.connected.includes(provider.id)),
+            connected: matching.filter(connected),
+            rest: matching.filter((entry) => !connected(entry)),
         };
     });
 
-    const row = (provider: (typeof engine.state.providers)[number]) => {
+    const panel = (provider: ProviderInfo, tabs?: JSX.Element) => {
         const connected = () => engine.state.connected.includes(provider.id);
-        const open = () => expanded() === provider.id;
+
+        return (
+            <>
+                <Switch
+                    fallback={
+                        <ProviderConnect
+                            providerId={provider.id}
+                            providerName={provider.name}
+                            connected={connected()}
+                            methods={
+                                methods()[provider.id] ?? [{ type: "api", label: t("provider.connect.method.apiKey") }]
+                            }
+                            tabs={tabs}
+                            onNotice={setNotice}
+                        />
+                    }
+                >
+                    <Match when={provider.id === "lmstudio"}>
+                        <LmStudioConnect providerName={provider.name} onNotice={setNotice} />
+                    </Match>
+                    <Match when={provider.id === "ollama"}>
+                        <OllamaConnect onNotice={setNotice} />
+                    </Match>
+                </Switch>
+                <Show when={connected() && hasProviderOptions(provider.id)}>
+                    <ProviderOptionsPanel providerId={provider.id} />
+                </Show>
+            </>
+        );
+    };
+
+    const row = (entry: ProviderEntry) => {
+        const connected = () => entry.routes.some((route) => engine.state.connected.includes(route.id));
+        const open = () => expanded() === entry.id;
 
         return (
             <div
@@ -56,12 +110,12 @@ export function ProvidersSection() {
                     type="button"
                     class="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-raised/60"
                     aria-expanded={open()}
-                    onClick={() => setExpanded(open() ? null : provider.id)}
+                    onClick={() => setExpanded(open() ? null : entry.id)}
                 >
                     <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-muted shadow-sm shadow-black/10">
-                        <ProviderIcon id={provider.id} class="size-4.5" />
+                        <ProviderIcon id={entry.id} class="size-4.5" />
                     </span>
-                    <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
+                    <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{entry.name}</span>
                     {/* Group headings already identify connection status, so the row needs only a dot. */}
                     <Show when={connected()}>
                         <span
@@ -76,30 +130,8 @@ export function ProvidersSection() {
                     </span>
                 </button>
                 <Show when={open()}>
-                    <Switch
-                        fallback={
-                            <ProviderConnect
-                                providerId={provider.id}
-                                providerName={provider.name}
-                                connected={connected()}
-                                methods={
-                                    methods()[provider.id] ?? [
-                                        { type: "api", label: t("provider.connect.method.apiKey") },
-                                    ]
-                                }
-                                onNotice={setNotice}
-                            />
-                        }
-                    >
-                        <Match when={provider.id === "lmstudio"}>
-                            <LmStudioConnect providerName={provider.name} onNotice={setNotice} />
-                        </Match>
-                        <Match when={provider.id === "ollama"}>
-                            <OllamaConnect onNotice={setNotice} />
-                        </Match>
-                    </Switch>
-                    <Show when={connected() && hasProviderOptions(provider.id)}>
-                        <ProviderOptionsPanel providerId={provider.id} />
+                    <Show when={entry.routes.length > 1} fallback={panel(entry.routes[0]!)}>
+                        <ProviderRoutes routes={entry.routes} panel={panel} />
                     </Show>
                 </Show>
             </div>
@@ -145,4 +177,53 @@ export function ProvidersSection() {
             </Show>
         </div>
     );
+}
+
+/** A maker's routes under its one row, a tab each; the first connected one is shown first. */
+function ProviderRoutes(props: {
+    routes: ProviderInfo[];
+    panel: (provider: ProviderInfo, tabs: JSX.Element) => JSX.Element;
+}) {
+    const engine = useEngine();
+    const connected = (route: ProviderInfo) => engine.state.connected.includes(route.id);
+    const [chosen, setChosen] = createSignal<string>();
+    const route = () =>
+        props.routes.find((item) => item.id === chosen()) ?? props.routes.find(connected) ?? props.routes[0]!;
+
+    return (
+        <Show when={route()} keyed>
+            {(current) =>
+                props.panel(
+                    current,
+                    <For each={props.routes}>
+                        {(item) => (
+                            <ProviderTab
+                                active={item.id === current.id}
+                                title={item.name}
+                                onClick={() => setChosen(item.id)}
+                            >
+                                {routeLabel(item.family)}
+                                <Show when={connected(item)}>
+                                    <span class="size-1.5 rounded-full bg-ok" />
+                                </Show>
+                            </ProviderTab>
+                        )}
+                    </For>,
+                )
+            }
+        </Show>
+    );
+}
+
+function routeLabel(family: ProviderFamily | null | undefined) {
+    if (family?.china) return t(family.plan ? "drift.providers.route.planChina" : "drift.providers.route.apiChina");
+
+    return t(family?.plan ? "drift.providers.route.plan" : "drift.providers.route.api");
+}
+
+/** Pay-as-you-go before the plan, the global endpoint before China's. */
+function byRoute(left: ProviderInfo, right: ProviderInfo) {
+    const rank = (family: ProviderFamily | null | undefined) => (family?.china ? 2 : 0) + (family?.plan ? 1 : 0);
+
+    return rank(left.family) - rank(right.family);
 }

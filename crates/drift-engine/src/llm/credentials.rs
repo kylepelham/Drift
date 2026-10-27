@@ -129,7 +129,7 @@ impl Credentials {
     }
 
     /// As `resolve`, with the key of the account the credential is stored under; none for one found elsewhere.
-    /// The first account `usable` accepts is taken, else the first, so a refusal still says why.
+    /// The first `usable` account whose credential reads is taken, else the first that reads, so a refusal says why.
     pub fn resolve_account(
         &self,
         provider: &str,
@@ -137,17 +137,14 @@ impl Credentials {
         usable: impl Fn(&str) -> bool,
     ) -> Option<(Option<String>, Credential)> {
         let accounts = self.accounts(provider);
-        let preferred = accounts
-            .iter()
-            .find(|account| usable(&account.key))
-            .or(accounts.first());
-        if let Some(account) = preferred
-            && let Some(stored) = self.account(&account.key)
-        {
-            return Some((Some(account.key.clone()), stored));
-        }
+        let stored = |key: &str| self.account(key).map(|credential| (Some(key.to_owned()), credential));
 
-        self.unstored(provider, env).map(|credential| (None, credential))
+        accounts
+            .iter()
+            .filter(|account| usable(&account.key))
+            .find_map(|account| stored(&account.key))
+            .or_else(|| accounts.iter().find_map(|account| stored(&account.key)))
+            .or_else(|| self.unstored(provider, env).map(|credential| (None, credential)))
     }
 
     /// The provider's first stored API key, else one from `env`. Subscription sign-ins are passed over:
@@ -284,15 +281,20 @@ impl Credentials {
                         .map_err(CredentialError::Keyring)
                 };
 
-                if chunks.len() <= 1 {
-                    return put(key.into(), value);
-                }
+                let stale = chunk_count(key);
+                let written = if chunks.len() <= 1 {
+                    put(key.into(), value)?;
+                    0
+                } else {
+                    for (i, chunk) in chunks.iter().enumerate() {
+                        put(format!("{key}#{i}"), chunk)?;
+                    }
+                    put(key.into(), &format!("{CHUNKED}{}", chunks.len()))?;
+                    chunks.len()
+                };
+                remove_chunks(key, written..stale);
 
-                for (i, chunk) in chunks.iter().enumerate() {
-                    put(format!("{key}#{i}"), chunk)?;
-                }
-
-                put(key.into(), &format!("{CHUNKED}{}", chunks.len()))
+                Ok(())
             }
             Backend::Protected(file) => {
                 let mut map = file.read()?;
@@ -312,18 +314,7 @@ impl Credentials {
     fn delete(&self, key: &str) -> Result<(), CredentialError> {
         match &self.backend {
             Backend::Keyring => {
-                let head = keyring::Entry::new(SERVICE, key)
-                    .ok()
-                    .and_then(|e| e.get_password().ok())
-                    .unwrap_or_default();
-                let count = head
-                    .strip_prefix(CHUNKED)
-                    .and_then(|n| n.parse::<usize>().ok())
-                    .unwrap_or(0);
-
-                for i in 0..count {
-                    let _ = keyring::Entry::new(SERVICE, &format!("{key}#{i}")).and_then(|e| e.delete_credential());
-                }
+                remove_chunks(key, 0..chunk_count(key));
 
                 match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
                     Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -343,6 +334,21 @@ impl Credentials {
                 save_file(path, &map)
             }
         }
+    }
+}
+
+/// How many `key#N` chunks the keychain holds for `key`, from its head entry.
+fn chunk_count(key: &str) -> usize {
+    keyring::Entry::new(SERVICE, key)
+        .and_then(|entry| entry.get_password())
+        .ok()
+        .and_then(|head| head.strip_prefix(CHUNKED)?.parse().ok())
+        .unwrap_or(0)
+}
+
+fn remove_chunks(key: &str, chunks: std::ops::Range<usize>) {
+    for i in chunks {
+        let _ = keyring::Entry::new(SERVICE, &format!("{key}#{i}")).and_then(|entry| entry.delete_credential());
     }
 }
 

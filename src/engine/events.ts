@@ -4,6 +4,7 @@ import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
 import {
     bumpRevision,
+    forgetLinks,
     forgetSession,
     messageRevisionKey,
     normalizeDir,
@@ -52,7 +53,12 @@ function reduceSessionEvent(set: SetEngineState, event: Event, workspaces: Works
             putSession(set, sessionInWorkspace(event.session, workspaces));
             return true;
         case "session.deleted":
-            set(produce((draft) => purgeSession(draft, event.sessionId)));
+            set(
+                produce((draft) => {
+                    purgeSession(draft, event.sessionId);
+                    forgetLinks(draft.links, event.sessionId);
+                }),
+            );
             return true;
         case "session.status":
             updateStatus(set, event.sessionId, event.status === "running" ? { type: "busy" } : { type: "idle" });
@@ -139,6 +145,7 @@ function purgeSession(draft: EngineState, id: string) {
     delete draft.errors[id];
     delete draft.sessionModels[id];
     delete draft.cursors[id];
+    delete draft.browsers[id];
     clearLiveTools(draft, id);
     pruneSessionRevisions(draft, id);
     bumpRevision(draft, sessionRevisionKey(id));

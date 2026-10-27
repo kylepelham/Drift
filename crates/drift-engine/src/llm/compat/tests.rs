@@ -117,9 +117,10 @@ pub(super) fn request() -> Request {
 
 #[test]
 fn reasoning_goes_as_each_preset_takes_it() {
-    let reasoned = |reasoning, object| {
+    let reasoned = |reasoning, object: bool| {
         let mut body = json!({});
-        reason(&mut body, Some(&reasoning), object);
+        let thinking = if object { Thinking::Object } else { Thinking::Effort };
+        reason(&mut body, Some(&reasoning), thinking);
         body
     };
     let effort = || Reasoning::Effort { level: "high".into() };
@@ -188,14 +189,14 @@ fn stream_deltas_become_blocks() {
             ] } }] })
             .to_string()
         ),
-        vec![]
+        vec![Chunk::Generating]
     );
     assert_eq!(
         feed(
             &mut state,
             r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"p\":1}"}}]}}]}"#
         ),
-        vec![]
+        vec![Chunk::Generating]
     );
     assert_eq!(
         feed(&mut state, r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#),
@@ -250,7 +251,8 @@ fn interleaved_calls_are_put_together_by_index() {
             state
                 .chunks(&format!(r#"{{"choices":[{{"delta":{{"tool_calls":[{delta}]}}}}]}}"#))
                 .unwrap()
-                .is_empty()
+                == [Chunk::Generating],
+            "a held fragment only times the reply"
         );
     }
     state
@@ -315,6 +317,7 @@ fn errors_and_length_stops_classify() {
 fn an_error_message_is_read_from_whichever_layout_the_server_used() {
     for body in [
         r#"{"detail":"Model not found"}"#,
+        r#"{"detail":{"type":"not_found","message":"Model not found"}}"#,
         r#"{"error":"Model not found"}"#,
         r#"{"errors":[{"message":"Model not found"}]}"#,
     ] {

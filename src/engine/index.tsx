@@ -57,6 +57,7 @@ export async function hydrateFrom(
         | "refreshPermissions"
         | "refreshAgents"
         | "refreshMcp"
+        | "refreshGrammars"
         | "refreshEngineSettings"
     >,
     directory: string | null,
@@ -67,6 +68,7 @@ export async function hydrateFrom(
         directory ? actions.loadSessions(directory) : Promise.resolve(),
         directory ? actions.refreshAgents() : Promise.resolve(),
         actions.refreshMcp(),
+        actions.refreshGrammars(),
     ]);
     if (providers === false) throw new Error("provider catalog unavailable");
     await actions.refreshPermissions();
@@ -121,6 +123,7 @@ export function EngineProvider(props: ParentProps) {
             hydrate: () => hydrate(),
             event: (envelope) => {
                 if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined);
+                if (envelope.type === "grammars.updated") void actions.refreshGrammars();
                 if (envelope.type === "task.updated")
                     putTasks(set, state, envelope.task.parentSessionId, [envelope.task]);
                 if (envelope.type === "process.updated")

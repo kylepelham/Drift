@@ -141,6 +141,19 @@ test("All changes compares with the main line, and a branch comparison reads bas
     expect(matching(["fix/streaming", "feat/splash"], "FIX str", (name) => name)).toEqual(["fix/streaming"]);
 });
 
+test("a codebase review walks through its findings' files as they are", async () => {
+    const { reviewedFiles } = await import("../src/state/review-findings");
+    const files = { kind: "files", target: "src/a.ts\nsrc/b.ts" } as const;
+    expect(sourceTitle(files, undefined)).toEqual({ text: "Reviewed files" });
+    expect(sameSource(files, { ...files })).toBeTrue();
+    expect(sameSource(files, { kind: "files", target: "src/a.ts" })).toBeFalse();
+    expect(sameSource(files, { kind: "branch", target: files.target })).toBeFalse();
+
+    const finding = (file: string) => ({ file, summary: "s", failureScenario: "f" });
+    const named = ["src/a.ts", "src/b.ts", "src/a.ts", "../x.ts", "/etc/x", "C:\\x.ts", "src\\..\\y.ts"].map(finding);
+    expect(reviewedFiles(named)).toEqual(["src/a.ts", "src/b.ts"]);
+});
+
 test("a workspace-relative review path matches the absolute path an edit names", () => {
     expect(samePath("src/a.ts", "C:\\Work\\Repo\\src\\A.ts")).toBeTrue();
     expect(samePath("src/a.ts", "src/a.ts")).toBeTrue();

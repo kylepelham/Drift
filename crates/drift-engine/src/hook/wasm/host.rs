@@ -46,7 +46,19 @@ impl State {
         }
 
         let filename = joined.file_name().ok_or(HostError::NoPath)?;
-        Ok(real_parent.join(filename))
+        let file = real_parent.join(filename);
+        if file.symlink_metadata().is_err() {
+            return Ok(file);
+        }
+        let real = std::fs::canonicalize(&file).map_err(|source| HostError::Path {
+            path: path.to_owned(),
+            source,
+        })?;
+        if !real.starts_with(&workspace) {
+            return Err(HostError::Outside(path.to_owned()));
+        }
+
+        Ok(real)
     }
 
     /// Time a host call took is the plugin's to keep, not charged against its own budget.
@@ -135,15 +147,35 @@ impl files::Host for State {
         if let Some(parent) = self.workspace.join(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        let fresh = self.workspace.join(&path).symlink_metadata().is_err();
         let file = self.inside(&path).map_err(|error| error.to_string())?;
 
         self.clocked(async {
-            tokio::fs::write(&file, content)
+            write_checked(&file, fresh, &content)
                 .await
                 .map_err(|error| format!("{path}: {error}"))
         })
         .await
     }
+}
+
+/// A new file only if nothing (a planted link included) took its name since the check; never through a link on Unix.
+async fn write_checked(file: &Path, fresh: bool, content: &str) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true);
+    if fresh {
+        options.create_new(true);
+    } else {
+        options.truncate(true);
+    }
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut opened = options.open(file).await?;
+    opened.write_all(content.as_bytes()).await?;
+
+    opened.flush().await
 }
 
 impl process::Host for State {
@@ -160,14 +192,13 @@ impl process::Host for State {
                 .current_dir(&workspace)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .kill_on_drop(true);
+                .stderr(std::process::Stdio::piped());
             crate::platform::process::use_current_path(&mut command, &Default::default());
-            crate::platform::process::prepare(&mut command);
-            #[cfg(windows)]
-            command.creation_flags(0x0800_0000);
 
-            let child = command.spawn().map_err(|error| format!("{program}: {error}"))?;
+            // The tree, dropped on return or timeout, takes whatever the program started with it.
+            let (child, _tree) = crate::platform::process::spawn_owned(&mut command)
+                .await
+                .map_err(|error| format!("{program}: {error}"))?;
             let output = tokio::time::timeout(limit, child.wait_with_output())
                 .await
                 .map_err(|_| format!("{program} ran past {} ms", limit.as_millis()))?

@@ -1,6 +1,6 @@
 import { persisted } from "./persist";
 
-import type { EngineState, ModelInfo, ProviderInfo } from "../engine/store";
+import type { EngineState, ModelInfo, ProviderFamily, ProviderInfo } from "../engine/store";
 import type { SetStoreFunction } from "solid-js/store";
 
 /** Persists the last provider catalog so the picker has choices before the engine hydrates. */
@@ -31,6 +31,7 @@ function compactCatalog(catalog: ProviderCatalog): ProviderCatalog {
         providers: catalog.providers.map((provider) => ({
             id: provider.id,
             name: provider.name,
+            ...(provider.family ? { family: provider.family } : {}),
             models: Object.fromEntries(
                 Object.entries(provider.models).map(([key, model]) => [key, compactModel(model)]),
             ),
@@ -77,7 +78,19 @@ function normalizeProvider(entry: unknown): ProviderInfo | undefined {
         const model = normalizeModel(candidate);
         if (model) models[key] = model;
     }
-    if (Object.keys(models).length) return { id: provider.id, name: provider.name, models };
+    if (!Object.keys(models).length) return;
+
+    const family = normalizeFamily(provider.family);
+    return { id: provider.id, name: provider.name, models, ...(family ? { family } : {}) };
+}
+
+function normalizeFamily(value: unknown): ProviderFamily | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+
+    const family = value as Record<string, unknown>;
+    if (typeof family.id !== "string" || typeof family.name !== "string") return;
+
+    return { id: family.id, name: family.name, plan: family.plan === true, china: family.china === true };
 }
 
 function normalizeModel(candidate: unknown) {

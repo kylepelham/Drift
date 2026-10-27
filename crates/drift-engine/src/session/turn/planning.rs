@@ -150,10 +150,19 @@ impl Engine {
             .get(&provider)
             .map(|provider| (provider.env.clone(), provider.api.clone()))
             .unwrap_or_default();
+        let suitable = self.preferred_accounts(&provider, &plan.session.id, &plan.model);
+        if let Some((account, credential)) = self.renewed(&provider, suitable.into_iter()).await {
+            oneshot::refuse_signin_elsewhere(&provider, &credential, api.as_deref())?;
+            plan.credential = credential;
+            plan.account = Some(account);
+            return Ok(());
+        }
+        let pinned = self.pinned_account(&provider, &plan.session.id, &plan.model);
         let (account, stored) = self
             .credentials
-            .resolve_account(&provider, &environment, |key| {
-                self.account_suits(key, &plan.session.id, &plan.model)
+            .resolve_account(&provider, &environment, |key| match &pinned {
+                Some(pinned) => key == pinned,
+                None => self.account_suits(key, &plan.session.id, &plan.model),
             })
             .ok_or(TurnError::NoCredentials)?;
         oneshot::refuse_signin_elsewhere(&provider, &stored, api.as_deref())?;

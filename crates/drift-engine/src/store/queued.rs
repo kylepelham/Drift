@@ -22,10 +22,19 @@ pub struct QueuedPrompt {
 type Row = (String, String, String, i64, Option<String>);
 
 fn queued((id, session_id, prompt, created_at, error): Row) -> QueuedPrompt {
+    let (prompt, error) = match serde_json::from_str(&prompt) {
+        Ok(prompt) => (prompt, error),
+        // Held back so the queue waits instead of sending an empty prompt in its place.
+        Err(why) => (
+            Prompt::default(),
+            Some(format!("this queued prompt could not be read: {why}")),
+        ),
+    };
+
     QueuedPrompt {
         id,
         session_id,
-        prompt: serde_json::from_str(&prompt).unwrap_or_default(),
+        prompt,
         created_at,
         error,
     }

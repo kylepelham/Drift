@@ -271,3 +271,23 @@ fn only_a_public_address_without_credentials_goes_to_a_provider() {
         assert!(!super::public(url), "{url}");
     }
 }
+
+#[test]
+fn a_public_url_fetches_unasked_and_this_machine_or_its_network_asks() {
+    let sandbox = Sandbox::new("webfetch-ask");
+    let ask = |url: &str| WebFetch.ask(&sandbox.ctx, &json!({ "url": url })).unwrap();
+    assert!(ask("https://docs.rs/tokio").default_allow);
+    for url in [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://127.0.0.1:8080/",
+        "http://localhost/",
+    ] {
+        assert!(!ask(url).default_allow, "{url}");
+    }
+}
+
+#[tokio::test]
+async fn a_name_that_resolves_to_a_private_address_stays_on_this_machine() {
+    assert!(!super::resolves_public("http://localhost:3000/").await);
+    assert!(super::resolves_public("https://drift-unresolvable.invalid/").await);
+}

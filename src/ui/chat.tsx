@@ -6,6 +6,7 @@ import { groupAssistantEntries } from "./message-groups";
 import { createRevertBackfill } from "./revert-backfill";
 import { selectedSession } from "../state/selection";
 import { messageProblem } from "../engine/messages";
+import { holdWheelInLock } from "./chat-wheel";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
 import { messageVisible } from "./message";
@@ -18,6 +19,9 @@ import {
     estimatedRow,
     estimatedTimelineRow,
     resizeCompensation,
+    anchorDrift,
+    captureAnchor,
+    type ScrollAnchor,
     scrollGestureSticks,
     shouldShowScrollToBottom,
     snapVirtualViewport,
@@ -34,14 +38,6 @@ import {
     transcriptFindNeedle,
 } from "./transcript-find";
 import {
-    accumulatedWheelTarget,
-    chatWheelEvent,
-    normalizedWheelDelta,
-    wheelNotch,
-    wheelStep,
-    type ForwardedWheel,
-} from "./chat-wheel";
-import {
     copiedCount,
     retryInFlight,
     thinkingState,
@@ -51,6 +47,7 @@ import {
 } from "./timeline-state";
 
 import type { Part } from "../engine/parts";
+import type { JSX } from "solid-js";
 
 const loadOlderAt = 1200;
 // How long after the last wheel event a gesture counts as ongoing, so momentum is not a stop.
@@ -60,7 +57,8 @@ const headerOffset = 56;
 // Breathing room above a message jumped to from search, so it does not sit under the header.
 const findMargin = 24;
 
-export function Chat() {
+/** The transcript, with `dock` (the composer) pinned to the bottom of the same scroller, so the browser scrolls both as one. */
+export function Chat(props: { dock: JSX.Element }) {
     const engine = useEngine();
     const [shownCopies, setShownCopies] = createSignal<ReadonlySet<string>>(new Set());
     const allEntries = createMemo(() => {
@@ -175,6 +173,7 @@ export function Chat() {
     const revertBackfill = createRevertBackfill(engine, entries);
 
     let scroller!: HTMLDivElement;
+    let dock!: HTMLDivElement;
     const [stick, setStick] = createSignal(true);
     const [awayFromBottom, setAwayFromBottom] = createSignal(false);
     const [viewTop, setViewTop] = createSignal(0);
@@ -187,6 +186,8 @@ export function Chat() {
     >();
     const [measured, setMeasured] = createSignal(0);
     let loadingOlder = false;
+    let anchor: ScrollAnchor | undefined;
+    const takeAnchor = () => (anchor = untrack(stick) ? undefined : captureAnchor(scroller, headerOffset + 8));
 
     function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
         const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)];
@@ -263,14 +264,18 @@ export function Chat() {
             deltaAbove += resizeCompensation(previous, next, row.getBoundingClientRect().bottom, viewportTop);
         }
 
-        if (!changed) return;
+        if (changed) setMeasured((value) => value + 1);
+        if (untrack(stick)) return;
 
-        setMeasured((value) => value + 1);
-        if (deltaAbove !== 0 && !untrack(stick)) scroller.scrollTop += deltaAbove;
+        // Keep what the reader was looking at in place, wherever above it the size changed.
+        const drift = anchorDrift(anchor) ?? deltaAbove;
+        if (Math.abs(drift) >= 1) shiftScroll(drift);
     });
     onCleanup(() => observer.disconnect());
 
     const viewportObserver = new ResizeObserver(() => {
+        // A search hit or focused element is never brought into view behind the dock.
+        scroller.style.scrollPaddingBottom = `${dock.offsetHeight}px`;
         // Snap before publishing: browser clamping as the dock grows would otherwise make the range jump.
         if (untrack(stick)) snapViewportToBottom();
         else publishViewport();
@@ -282,7 +287,10 @@ export function Chat() {
         const distance = scroller.scrollHeight - top - scroller.clientHeight;
         setAwayFromBottom(shouldShowScrollToBottom(distance));
     });
-    onMount(() => viewportObserver.observe(scroller));
+    onMount(() => {
+        viewportObserver.observe(scroller);
+        viewportObserver.observe(dock);
+    });
     onCleanup(() => viewportObserver.disconnect());
 
     function measureRow(element: HTMLDivElement) {
@@ -380,6 +388,7 @@ export function Chat() {
 
     createEffect(
         on(selectedSession, () => {
+            anchor = undefined;
             clearReveal();
             heights.clear();
             estimates.clear();
@@ -418,67 +427,27 @@ export function Chat() {
     let dragging = false;
     let scrollLatchReset: ReturnType<typeof setTimeout> | undefined;
     const gesture = () => (gestureAt = Date.now());
-    const nativeWheel = gesture;
     const releaseDrag = () => (dragging = false);
-    // Forwarded ticks run one animation of Drift's own: a browser smooth scroll restarted per tick jitters, and
-    // building on the rounded scrollTop it leaves loses distance.
-    let wheel: { position: number; target: number; written: number; at: number; frame: number } | undefined;
-    const smoothWheel = () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const stopWheel = () => {
-        if (wheel) cancelAnimationFrame(wheel.frame);
-        wheel = undefined;
-    };
-    const wheelFrame = (now: number) => {
-        if (!wheel) return;
-        // Something else moved the transcript (the scrollbar, a snap to the bottom): it owns the position now.
-        if (Math.abs(scroller.scrollTop - wheel.written) > 2) return stopWheel();
-
-        gesture();
-        wheel.position = wheelStep(wheel.position, wheel.target, now - wheel.at);
-        wheel.at = now;
-        scroller.scrollTop = wheel.position;
-        wheel.written = scroller.scrollTop;
-        if (wheel.position === wheel.target) return stopWheel();
-        wheel.frame = requestAnimationFrame(wheelFrame);
-    };
-    const forwardedWheel = (event: Event) => {
-        const detail = (event as CustomEvent<ForwardedWheel>).detail;
-
-        gesture();
-
-        const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight);
-        const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        if (!smoothWheel() || Math.abs(delta) < wheelNotch) {
-            stopWheel();
-            scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max);
-            return;
-        }
-        if (!wheel) {
-            const now = performance.now();
-            wheel = {
-                position: scroller.scrollTop,
-                target: scroller.scrollTop,
-                written: scroller.scrollTop,
-                at: now,
-                frame: 0,
-            };
-            wheel.frame = requestAnimationFrame(wheelFrame);
-        }
-        wheel.target = accumulatedWheelTarget(scroller.scrollTop, wheel.target, delta, max);
-    };
     window.addEventListener("pointerup", releaseDrag);
-    window.addEventListener(chatWheelEvent, forwardedWheel);
     onCleanup(() => {
         clearTimeout(scrollLatchReset);
-        stopWheel();
         window.removeEventListener("pointerup", releaseDrag);
-        window.removeEventListener(chatWheelEvent, forwardedWheel);
     });
 
     function onScroll() {
         const top = scroller.scrollTop;
         const previous = untrack(viewTop);
 
+        if (dragging || Date.now() - gestureAt < gestureWindowMs) {
+            const distance = scroller.scrollHeight - top - scroller.clientHeight;
+            const nextStick = scrollGestureSticks(previous, top, distance);
+            batch(() => {
+                setStick(nextStick);
+                setAwayFromBottom(!nextStick && shouldShowScrollToBottom(distance));
+            });
+        }
+        // Taken before the rows for the new position mount, so their real heights count as drift.
+        takeAnchor();
         setViewTop(top);
         setViewHeight(scroller.clientHeight);
         if (
@@ -490,15 +459,13 @@ export function Chat() {
             clearTimeout(scrollLatchReset);
             scrollLatchReset = setTimeout(() => scroller.classList.remove("transcript-scroll-active"), gestureWindowMs);
         }
-        if (dragging || Date.now() - gestureAt < gestureWindowMs) {
-            const distance = scroller.scrollHeight - top - scroller.clientHeight;
-            const nextStick = scrollGestureSticks(previous, top, distance);
-            batch(() => {
-                setStick(nextStick);
-                setAwayFromBottom(!nextStick && shouldShowScrollToBottom(distance));
-            });
-        }
         maybeLoadOlder(top);
+    }
+
+    /** Moves the view by `delta` without the reader seeing it. */
+    function shiftScroll(delta: number) {
+        scroller.scrollTop += delta;
+        takeAnchor();
     }
 
     function maybeLoadOlder(top: number) {
@@ -511,8 +478,11 @@ export function Chat() {
         const before = scroller.scrollHeight - scroller.scrollTop;
         void engine.actions.loadOlder(id).finally(() => {
             queueMicrotask(() => {
-                scroller.scrollTop = scroller.scrollHeight - before;
                 loadingOlder = false;
+                if (selectedSession() !== id) return;
+                scroller.scrollTop = scroller.scrollHeight - before;
+                publishViewport();
+                takeAnchor();
             });
         });
     }
@@ -531,79 +501,94 @@ export function Chat() {
                 ref={scroller}
                 class="transcript-scroll h-full overflow-x-hidden overflow-y-auto"
                 onScroll={onScroll}
-                onWheel={nativeWheel}
-                onPointerDown={(event) => {
+                onWheel={(event) => {
                     gesture();
+                    holdWheelInLock(event);
+                }}
+                onPointerDown={(event) => {
+                    // A press in the composer is typing, not scrolling; the scrollbar is the scroller itself.
+                    if (!dock.contains(event.target as Node)) gesture();
                     dragging = event.target === scroller;
                 }}
                 onTouchStart={gesture}
             >
-                <Show when={selectedSession()} keyed fallback={<EmptyState />}>
-                    <div class="transcript-column fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-                        <Show
-                            when={
-                                timeline().length === 0 &&
-                                (revertBackfill() ||
-                                    (!engine.state.loaded[selectedSession()!] &&
-                                        engine.state.connection === "online")) &&
-                                !sessionError()
-                            }
-                        >
-                            <div class="flex justify-center pt-8 text-sm select-none" role="status" aria-live="polite">
-                                <TextShimmer text={t("common.loading")} />
-                            </div>
-                        </Show>
-                        <div aria-hidden="true" style={{ height: `${offsets()[range().start]}px` }} />
-                        <For each={slice()}>
-                            {(entry) => (
-                                <Row
-                                    entry={entry}
-                                    next={nextEntries().get(entry.info.id)}
-                                    nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
-                                    groups={assistantGroups().get(entry.info.id)}
-                                    thinking={thinking()?.messageID === entry.info.id && !retry()}
-                                    thinkingCompaction={thinking()?.compaction}
-                                    thinkingHeading={thinking()?.heading}
-                                    retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
-                                    terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
-                                    found={findHighlight() === entry.info.id}
-                                    measure={measureRow}
-                                    copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
-                                    copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}
-                                    instruction={spawnedCopy()?.ownID === entry.info.id}
-                                    toggleCopy={toggleCopy}
-                                />
-                            )}
-                        </For>
-                        <div
-                            aria-hidden="true"
-                            style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
-                        />
-                        <Show when={sessionError()}>
-                            {(error) => (
-                                <div role="alert">
-                                    <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
-                                        {error()}
+                <div class="flex min-h-full flex-col">
+                    <Show when={selectedSession()} keyed fallback={<EmptyState />}>
+                        <div class="flex-1">
+                            <div class="transcript-column fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
+                                <Show
+                                    when={
+                                        timeline().length === 0 &&
+                                        (revertBackfill() ||
+                                            (!engine.state.loaded[selectedSession()!] &&
+                                                engine.state.connection === "online")) &&
+                                        !sessionError()
+                                    }
+                                >
+                                    <div
+                                        class="flex justify-center pt-8 text-sm select-none"
+                                        role="status"
+                                        aria-live="polite"
+                                    >
+                                        <TextShimmer text={t("common.loading")} />
                                     </div>
-                                </div>
-                            )}
-                        </Show>
+                                </Show>
+                                <div aria-hidden="true" style={{ height: `${offsets()[range().start]}px` }} />
+                                <For each={slice()}>
+                                    {(entry) => (
+                                        <Row
+                                            entry={entry}
+                                            next={nextEntries().get(entry.info.id)}
+                                            nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
+                                            groups={assistantGroups().get(entry.info.id)}
+                                            thinking={thinking()?.messageID === entry.info.id && !retry()}
+                                            thinkingCompaction={thinking()?.compaction}
+                                            thinkingHeading={thinking()?.heading}
+                                            retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
+                                            terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
+                                            found={findHighlight() === entry.info.id}
+                                            measure={measureRow}
+                                            copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
+                                            copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}
+                                            instruction={spawnedCopy()?.ownID === entry.info.id}
+                                            toggleCopy={toggleCopy}
+                                        />
+                                    )}
+                                </For>
+                                <div
+                                    aria-hidden="true"
+                                    style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
+                                />
+                                <Show when={sessionError()}>
+                                    {(error) => (
+                                        <div role="alert">
+                                            <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
+                                                {error()}
+                                            </div>
+                                        </div>
+                                    )}
+                                </Show>
+                            </div>
+                        </div>
+                    </Show>
+                    <div ref={dock} class="composer-dock shrink-0 px-4 pb-4">
+                        <button
+                            type="button"
+                            title={t("drift.chat.scrollToLatest")}
+                            aria-label={t("drift.chat.scrollToLatest")}
+                            class="group absolute bottom-full left-1/2 z-10 mb-2 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-edge-strong bg-overlay/95 text-ink-muted shadow-lg shadow-black/25 backdrop-blur transition-[opacity,translate,background-color,border-color,color,scale] duration-200 ease-out hover:border-accent/50 hover:bg-raised hover:text-ink active:scale-95"
+                            classList={{
+                                "pointer-events-auto translate-y-0 opacity-100": awayFromBottom(),
+                                "pointer-events-none translate-y-2 opacity-0": !awayFromBottom(),
+                            }}
+                            onClick={scrollToBottom}
+                        >
+                            <IconArrowDown class="size-4 transition-transform duration-200 group-hover:translate-y-0.5" />
+                        </button>
+                        {props.dock}
                     </div>
-                </Show>
+                </div>
             </div>
-            <button
-                type="button"
-                title={t("drift.chat.scrollToLatest")}
-                aria-label={t("drift.chat.scrollToLatest")}
-                class="group absolute bottom-4 left-1/2 z-10 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-edge-strong bg-overlay/95 text-ink-muted shadow-lg shadow-black/25 backdrop-blur transition-[opacity,translate,background-color,border-color,color,scale] duration-200 ease-out hover:border-accent/50 hover:bg-raised hover:text-ink active:scale-95"
-                classList={{
-                    "pointer-events-auto translate-y-0 opacity-100": awayFromBottom(),
-                    "pointer-events-none translate-y-2 opacity-0": !awayFromBottom(),
-                }}
-                onClick={scrollToBottom}
-            >
-                <IconArrowDown class="size-4 transition-transform duration-200 group-hover:translate-y-0.5" />
-            </button>
         </div>
     );
 }

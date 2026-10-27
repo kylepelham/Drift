@@ -15,6 +15,7 @@ pub mod google;
 pub mod http;
 pub mod limits;
 pub mod local;
+pub mod makers;
 pub mod mask;
 pub(crate) mod multipart;
 mod oauth_error;
@@ -324,6 +325,8 @@ pub enum Chunk {
     },
     ToolInputDelta(String),
     BlockStop,
+    /// The model sent something the adapter holds until it is whole, such as a gathered tool call; it only times the reply.
+    Generating,
     Usage(Usage),
     /// What the account that sent the request has spent of its subscription, from the response's headers or events.
     Limits(limits::Limits),
@@ -619,6 +622,7 @@ pub(crate) fn error_message(text: &str) -> String {
         &body["message"],
         &body["Message"],
         &body["detail"],
+        &body["detail"]["message"],
         &body["errors"][0]["message"],
     ];
 
@@ -803,6 +807,13 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
     let override_url = std::env::var(env_name).ok().or_else(|| catalog_api.map(str::to_string));
     let base = |default: &str| override_url.clone().unwrap_or_else(|| default.to_string());
+    if let Some((maker, default)) = makers::endpoint(id) {
+        return Some(
+            maker
+                .provider(&base(default))
+                .with_timeouts(http::Timeouts::for_route(id)),
+        );
+    }
 
     let provider = match id {
         "anthropic" => Provider::Anthropic(
@@ -821,7 +832,6 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
                 .map_or_else(gemini::Gemini::default, gemini::Gemini::new),
         ),
         "xai" => Provider::Compat(compat::Compat::xai(&base("https://api.x.ai/v1"))),
-        "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Ollama(ollama::Ollama::new(&base(ollama::LOCAL_ROOT))),

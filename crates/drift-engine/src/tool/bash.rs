@@ -265,7 +265,7 @@ impl Bash {
 
 fn timeout_note(limits: Limits) -> &'static str {
     if limits.handoff {
-        "Milliseconds before the command moves to the background. Default: the user's setting. Max 86400000."
+        "Milliseconds before the command moves to the background. Default and most: the user's setting."
     } else {
         "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000."
     }
@@ -276,7 +276,7 @@ fn limits_note(limits: Limits) -> &'static str {
     match (limits.background, limits.handoff) {
         (true, true) => concat!(
             "- Run commands in the foreground, even long builds and tests: one still running after the user's time ",
-            "limit, or after `timeout` milliseconds when you pass one, moves to the background by itself and the ",
+            "limit, or after a shorter `timeout` in milliseconds when you pass one, moves to the background by itself and the ",
             "result says its process id. Use `background: true` only for servers and watchers, or to run several ",
             "commands at once or keep working while one runs; a command you would only wait for costs an extra call ",
             "in the background. Use `process` to wait for a background command, read its output or stop it."
@@ -375,11 +375,18 @@ fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {
     }
 }
 
-/// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it.
+/// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it. When a
+/// command moves to the background at its limit, the user's value is the longest the model may keep it in front.
 fn limit_for(context: &Context, input: &Value) -> Option<Duration> {
-    match input["timeout"].as_u64() {
-        Some(milliseconds) => Some(Duration::from_millis(milliseconds).min(MAX_TIMEOUT)),
-        None => context.engine.shell_timeout(),
+    let setting = context.engine.shell_timeout();
+    let Some(asked) = input["timeout"].as_u64() else {
+        return setting;
+    };
+    let asked = Duration::from_millis(asked).min(MAX_TIMEOUT);
+
+    match setting {
+        Some(setting) if context.engine.shell_handoff() => Some(asked.min(setting)),
+        _ => Some(asked),
     }
 }
 

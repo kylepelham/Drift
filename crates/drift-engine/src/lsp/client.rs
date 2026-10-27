@@ -41,6 +41,7 @@ pub(super) struct Client {
     changed: Notify,
     versions: Mutex<HashMap<String, i32>>,
     ready: watch::Sender<bool>,
+    launched: tokio::time::Instant,
     /// The server answers `textDocument/diagnostic` (pull) rather than, or as well as, publishing.
     pulls: AtomicBool,
     alive: AtomicBool,
@@ -74,6 +75,7 @@ impl Client {
             changed: Notify::new(),
             versions: Mutex::default(),
             ready: watch::channel(false).0,
+            launched: tokio::time::Instant::now(),
             pulls: AtomicBool::new(false),
             alive: AtomicBool::new(true),
             used: Mutex::new(Instant::now()),
@@ -92,6 +94,10 @@ impl Client {
         self.alive.load(Ordering::SeqCst)
     }
 
+    pub(super) fn launched(&self) -> tokio::time::Instant {
+        self.launched
+    }
+
     pub(super) fn idle_for(&self) -> Duration {
         self.used.lock().unwrap().elapsed()
     }
@@ -104,7 +110,7 @@ impl Client {
         deadline: tokio::time::Instant,
     ) -> Vec<(PathBuf, Vec<Diagnostic>)> {
         *self.used.lock().unwrap() = Instant::now();
-        if !self.wait_ready(deadline).await {
+        if !self.ready_by(deadline).await {
             return Vec::new();
         }
 
@@ -146,6 +152,7 @@ impl Client {
             drop(child);
         }
         self.changed.notify_waiters();
+        self.ready.send_modify(|_| {});
     }
 
     async fn initialize(&self, root: &Path) {
@@ -177,9 +184,10 @@ impl Client {
         self.ready.send_replace(true);
     }
 
-    async fn wait_ready(&self, deadline: tokio::time::Instant) -> bool {
+    /// Whether the server has initialized by `deadline`, waiting for it until then or until it dies.
+    pub(super) async fn ready_by(&self, deadline: tokio::time::Instant) -> bool {
         let mut ready = self.ready.subscribe();
-        let became = tokio::time::timeout_at(deadline, ready.wait_for(|ready| *ready)).await;
+        let became = tokio::time::timeout_at(deadline, ready.wait_for(|ready| *ready || !self.alive())).await;
 
         matches!(became, Ok(Ok(_))) && self.alive()
     }

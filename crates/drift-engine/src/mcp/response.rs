@@ -104,6 +104,10 @@ fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn sendable_pdf(mime: &str, base64: &str) -> bool {
+    mime == crate::tool::image::PDF && base64.len() <= crate::tool::image::MAX_PDF_BYTES * 4 / 3 + 4
+}
+
 /// Attaches supported images and PDFs from read or embedded resources.
 /// Other resources become text, matching the content sent to the model.
 pub(super) fn take_resource(
@@ -116,7 +120,7 @@ pub(super) fn take_resource(
             mime_type: Some(mime),
             blob,
             ..
-        } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
+        } if sendable(mime, blob).is_ok() || sendable_pdf(mime, blob) => {
             images.push(Image {
                 mime: mime.clone(),
                 base64: blob.clone(),

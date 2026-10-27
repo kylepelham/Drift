@@ -1,6 +1,9 @@
 // A language server for tests: errors on lines holding ERROR, warnings on WARN. `mute` never initializes;
 // `pull` publishes nothing and answers textDocument/diagnostic instead, registering it after initialize.
+// `slow` answers initialize after 3.5 seconds, longer than a write waits for errors; `crash` exits instead.
 const mute = process.argv[2] === "mute";
+const crash = process.argv[2] === "crash";
+const slow = process.argv[2] === "slow";
 const pull = process.argv[2] === "pull";
 // `--count=<file>` adds a line to that file each time a server starts.
 const count = process.argv.find((arg) => arg.startsWith("--count="))?.slice("--count=".length);
@@ -46,18 +49,24 @@ function changed(uri, text) {
         });
 }
 
+function initialized(message) {
+    send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { textDocumentSync: 1 } } });
+    send({ jsonrpc: "2.0", id: "cfg-1", method: "workspace/configuration", params: { items: [{}, {}] } });
+    if (pull)
+        send({
+            jsonrpc: "2.0",
+            id: "reg-1",
+            method: "client/registerCapability",
+            params: { registrations: [{ id: "d", method: "textDocument/diagnostic" }] },
+        });
+}
+
 function handle(message) {
     if (message.method === "initialize") {
         if (mute) return;
-        send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { textDocumentSync: 1 } } });
-        send({ jsonrpc: "2.0", id: "cfg-1", method: "workspace/configuration", params: { items: [{}, {}] } });
-        if (pull)
-            send({
-                jsonrpc: "2.0",
-                id: "reg-1",
-                method: "client/registerCapability",
-                params: { registrations: [{ id: "d", method: "textDocument/diagnostic" }] },
-            });
+        if (crash) process.exit(1);
+        if (slow) return setTimeout(() => initialized(message), 3500);
+        initialized(message);
     } else if (message.id === "cfg-1") {
         configured = Array.isArray(message.result) && message.result.length === 2;
     } else if (message.method === "textDocument/didOpen") {

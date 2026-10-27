@@ -32,7 +32,7 @@ impl Generation {
 /// Whether the chunk is something the model generated; a signature only extends a response already going.
 fn generated(chunk: &Chunk, started: bool) -> bool {
     match chunk {
-        Chunk::TextStart | Chunk::ReasoningStart | Chunk::ToolUseStart { .. } => true,
+        Chunk::TextStart | Chunk::ReasoningStart | Chunk::ToolUseStart { .. } | Chunk::Generating => true,
         Chunk::TextDelta(text)
         | Chunk::ReasoningDelta(text)
         | Chunk::ToolInputDelta(text)
@@ -93,6 +93,22 @@ mod tests {
         tokio::time::advance(Duration::from_secs(600)).await;
 
         assert_eq!(generation.milliseconds(), Some(3_000));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tool_call_held_until_the_stream_ends_is_timed_from_its_first_fragment() {
+        let mut generation = Generation::default();
+
+        generation.observe(&Chunk::Generating);
+        tokio::time::advance(Duration::from_secs(4)).await;
+        generation.observe(&Chunk::Generating);
+        generation.observe(&Chunk::ToolUseStart {
+            id: "call".into(),
+            name: "read".into(),
+        });
+        generation.observe(&Chunk::ToolInputDelta("{}".into()));
+
+        assert_eq!(generation.milliseconds(), Some(4_000));
     }
 
     #[tokio::test(start_paused = true)]

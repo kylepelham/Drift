@@ -12,6 +12,8 @@ pub(super) struct Message {
 
 const PRELUDE: usize = 12;
 const TRAILER: usize = 4;
+/// The format caps a payload at 16 MiB and headers at 128 KiB.
+const MAX_FRAME: usize = PRELUDE + 128 * 1024 + 16 * 1024 * 1024 + TRAILER;
 /// Header value type 7 is a string; the only kind these services send that matters here.
 const STRING: u8 = 7;
 
@@ -30,6 +32,9 @@ impl Decoder {
             let total = u32::from_be_bytes(self.buffer[0..4].try_into().unwrap()) as usize;
             if total < PRELUDE + TRAILER {
                 return Err(FrameError::TooShort { bytes: total });
+            }
+            if total > MAX_FRAME {
+                return Err(FrameError::TooLong { bytes: total });
             }
             if self.buffer.len() < total {
                 break;
@@ -107,6 +112,8 @@ fn value_size(kind: u8, length: Option<&[u8]>) -> Result<usize, FrameError> {
 pub(super) enum FrameError {
     #[error("event-stream frame of {bytes} bytes is too short")]
     TooShort { bytes: usize },
+    #[error("event-stream frame of {bytes} bytes is larger than the format allows")]
+    TooLong { bytes: usize },
     #[error("event-stream prelude checksum mismatch")]
     PreludeChecksum,
     #[error("event-stream message checksum mismatch")]
@@ -169,6 +176,19 @@ mod tests {
             assert_eq!(messages[1].headers[":exception-type"], "throttlingException");
             assert_eq!(messages[1].payload, br#"{"message":"slow down"}"#);
         }
+    }
+
+    #[test]
+    fn a_frame_claiming_more_than_the_format_allows_is_refused_before_it_is_buffered() {
+        let mut prelude = u32::MAX.to_be_bytes().to_vec();
+        prelude.extend_from_slice(&[0; 8]);
+        let refused = Decoder::default().feed(&prelude);
+        assert_eq!(
+            refused.unwrap_err(),
+            FrameError::TooLong {
+                bytes: u32::MAX as usize
+            }
+        );
     }
 
     #[test]

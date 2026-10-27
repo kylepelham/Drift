@@ -24,14 +24,14 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
 | Phone UI | Android and the companion share the frontend. Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings become a labeled full-screen list, pickers become sheets, and composer controls use separate rows. Touch targets and keyboard behavior adapt to coarse pointers; desktop layout remains unchanged. See `docs/android.md`. |
 | API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
-| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, LM Studio. Model makers' own routes (`llm/makers.rs`): Meta on Responses over SSE, Moonshot (Kimi), DeepSeek, Alibaba (Qwen) and Z.AI (GLM, Zhipu in China) on Chat Completions, MiniMax on Anthropic Messages, each with its regions and coding plans, which settings shows as tabs of one provider. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `websearch` (2.4.0, see Web search), `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | The model-facing `lsp` tool (diagnostics after edits come from language servers instead; see Post-edit), `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
 | Edit | Exact first, on the LF view `read` shows, then two narrow tiers tried only when the one before found nothing (`tool::edit::matching`, after opencode v2's `edit` and its tests): typographic quotes, dashes and spaces read as ASCII, one character for one so offsets map back to the file's bytes, then trailing whitespace ignored per line, matches never overlapping. More than one match is a miss in every tier. A match maps back to the file's own bytes and the replacement takes the line endings of the region it replaces: a line that keeps or takes the place of a region line (longest common subsequence) reuses that line's ending, new lines take the region's dominant ending, so a mixed CRLF and LF file keeps each region's endings instead of being rewritten whole. `old_string` and `new_string` that differ only in `\r` change line endings themselves and apply to the exact bytes; an edit that would write the same bytes back fails and says so. A file keeps its UTF-8 byte order mark through `edit`, and its CRLF endings and mark through `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff), while an update needs no read, since its hunks must match the file, as `edit`'s exact, unique `old_string` must; a match proves only the text it changed, so an edit or hunk does not count the file as read for a later overwrite, delete or move, while a file a patch adds whole does; every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
-| Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. A formatter that changed the file is named in the result ("the file no longer matches what you wrote; read it again"), so the next edit is not built on stale text. Then opt-in checks (`drift.json` `checks`, any linter or type checker) run once per step, their problems added to the step's last writing call. Language servers (`lsp`) report the errors each writing call left, after its formatters: about thirty from opencode's list (`lsp/table.rs`: Rust, TypeScript, Deno, Python, Go, C and C++, C#, F#, Java, Ruby, PHP, Swift, Dart and more), each used only when its command is installed, on PATH or in a `node_modules/.bin` from the project up to the workspace; Drift never downloads one. Each is rooted where opencode roots it: the nearest marker (a lockfile, `go.mod`, `*.csproj`), a Cargo workspace above a crate, the workspace when there is none, and for Deno and jdtls only under their own files; one server runs per root, so a monorepo's packages each get theirs. A server starts when a file it handles is first read (as opencode's `touchFile`), so it has initialized by the first edit, or failing that on the first write (its process tree adopted, stopped after ten idle minutes or with the engine). A server that offers pull diagnostics (`diagnosticProvider`, or `textDocument/diagnostic` registered later, as Roslyn does) is asked for each touched file; the others publish. The call waits up to 3 s for the touched files' errors, at most ten per file and thirty in all, appended to its result and kept in its metadata (`diagnostics`); a server that is missing, crashes, is still initializing or answers late adds nothing and holds nothing up, and one that cannot start is not tried again at that root for five minutes (another root may have it in its own `node_modules`). One lock per root and server is held across a start, so reads in parallel start one server, not one each. The user's `drift.json` `lsp` adds, replaces (`command`, `extensions`, optional `language`) or turns off (`false`) a server; a project's file may only turn one off, since a server starts by itself. |
+| Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. A formatter that changed the file is named in the result ("the file no longer matches what you wrote; read it again"), so the next edit is not built on stale text. Then opt-in checks (`drift.json` `checks`, any linter or type checker) run once per step, their problems added to the step's last writing call. Language servers (`lsp`) report the errors each writing call left, after its formatters: about thirty from opencode's list (`lsp/table.rs`: Rust, TypeScript, Deno, Python, Go, C and C++, C#, F#, Java, Ruby, PHP, Swift, Dart and more), each used only when its command is installed, on PATH or in a `node_modules/.bin` from the project up to the workspace; Drift never downloads one. Each is rooted where opencode roots it: the nearest marker (a lockfile, `go.mod`, `*.csproj`), a Cargo workspace above a crate, the workspace when there is none, and for Deno and jdtls only under their own files; one server runs per root, so a monorepo's packages each get theirs. A server starts when a file it handles is first read (as opencode's `touchFile`), so it has initialized by the first edit, or failing that on the first write (its process tree adopted, stopped after ten idle minutes or with the engine). A server that offers pull diagnostics (`diagnosticProvider`, or `textDocument/diagnostic` registered later, as Roslyn does) is asked for each touched file; the others publish. The call waits up to 3 s for the touched files' errors, at most ten per file and thirty in all, appended to its result and kept in its metadata (`diagnostics`); a server still initializing, whether a read or the call itself started it, gets until 10 s after its launch and its 3 s from when it is ready, so a new file's first write hears even a server slower to start than the wait (slangd on a busy machine); a server that is missing, crashes (even before initializing) or answers late adds nothing and holds nothing up, and one that cannot start is not tried again at that root for five minutes (another root may have it in its own `node_modules`). One lock per root and server is held across a start, so reads in parallel start one server, not one each. The user's `drift.json` `lsp` adds, replaces (`command`, `extensions`, optional `language`) or turns off (`false`) a server; a project's file may only turn one off, since a server starts by itself. A plugin built for the `languages` world adds servers the same way, beneath drift.json's own (`Hooks::lsp_config`), and grammars the app highlights with (`GET /grammars`; see extensibility.md). |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, deprecated HTTP+SSE, OAuth), 2026-07-28 stateless servers found by probing with the handshake as fallback. Reconnect and reload designed in rather than patched on; no approval step. |
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
@@ -1391,7 +1391,9 @@ goal retires them.
     `timeout` and never start servers, and a `background: true` call is refused. Hand-off off, or
     background processes off: a command at its time limit is stopped and the call fails, as before.
     The time limit is the shell timeout; while hand-off is on its row reads "Move to the background
-    after".
+    after", and a model's `timeout` may only shorten it: a command never stays in front past the
+    setting (2.4.2; a merge verify passed `timeout` 60 minutes and held the turn 28 minutes past a
+    5-minute setting). With hand-off off a larger `timeout` still keeps a long build from being stopped.
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
     whole browser check: start the dev server, wait for its URL, look at the page, stop it. Only a
     local server's address counts (localhost, 127.0.0.1, 0.0.0.0 or [::1] with port 80 or 1024 and
@@ -1609,11 +1611,14 @@ listed there.
     is `tool/websearch.rs`, offered only while `web_search_available()` (not off, and some key or
     plugin provider exists). Keys are a JSON list per provider in the credential store under
     `websearch:<id>`, then the environment variable's; Settings shows only their last four
-    characters. Refusals (401 to 403) set a key aside until a key is added; a 429 cools it for its
-    `Retry-After`, 60 s when it names none. Cooldowns are engine-wide rather than per workspace,
-    since a key is the user's whatever the workspace. "Always" on a search grants `websearch *`, as
-    v2 saves it, because an exact query never repeats. API: `GET/PUT /websearch`,
-    `POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
+    characters. Refusals (401 to 403, Tavily's 432 and 433) set a key aside until a key is added; a
+    429 cools it for its `Retry-After`, 60 s when it names none. Only those move to the provider's
+    next key: a timeout, a 5xx or a page it could not read would fail the same way on every key, so
+    that request skips the provider's other keys and goes to the next provider (2.4.2; eleven
+    Firecrawl keys each timing out held one webfetch for 330 s). Cooldowns are engine-wide rather
+    than per workspace, since a key is the user's whatever the workspace. "Always" on a search
+    grants `websearch *`, as v2 saves it, because an exact query never repeats. API:
+    `GET/PUT /websearch`, `POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
   - Decision taken while Kyle slept: no `websearch.provider` in drift.json. The keys live in the
     credential store and Settings manages both, so a second source would only add a precedence
     rule; it can come later if a team wants it set in a file.
@@ -1987,10 +1992,16 @@ code until he picks.
     60). While a turn runs its tools, the idle task answers the server's pings. At most 32
     conversations hold a connection; the least recently used idle one makes room.
   - A response that fails after it began is never re-sent over SSE: the failure goes to the turn,
-    whose retry policy decides. Stopping a turn drops its stream, which closes that socket, so a
-    half-read response never serves the next request.
+    whose retry policy decides. A socket that fails to open, or closes or resets before the response
+    sends its first event, has sent nothing back, so the same request goes over SSE at once and the
+    user sees no failure (2.4.2: one long conversation saw every new socket close within half a
+    second, which showed as a failed attempt and a retry every two minutes). A silent server is not
+    that case and stays a timeout. A close reports its code and reason. Stopping a turn drops its
+    stream, which closes that socket, so a half-read response never serves the next request.
   - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
-    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. So the
+    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. A failure
+    within ten minutes of a rest ending doubles the next rest, up to an hour, so a conversation whose
+    sockets keep failing settles on SSE. So the
     turn's retry does not wait on a socket opened straight after the one that dropped, which was
     seen to stay silent until the user stopped the turn. An API error is the request's own and
     changes nothing; other conversations keep their sockets.
@@ -2055,6 +2066,18 @@ code until he picks.
     the next account at once, without a retry or backoff (`Step::Switch`); an ordinary rate limit
     still waits. Once the first account's window resets, the next step returns to it. Each move
     publishes `provider.switched` with its reason (`limit`, `reset`, `model`, `refusal`), shown as a notice.
+  - A chat can be set to one of the provider's accounts (`Session::account`, `PATCH /sessions/{id}`
+    with `account`, null for the order; `/account <name|number>` or `/account auto` in the chat,
+    offered when the model's provider has more than one account). While that account suits the turn, every request goes to
+    it (`Engine::pinned_account`, read from the store each step so a change applies from the next
+    request): a new turn starts there, a step moves there whatever its cache, and no
+    `provider.switched` is published for the move, since the user chose it. When it stops suiting
+    (usage spent, the model refused, a cyber refusal, signed out, or an account of another
+    provider than the model's) the account order takes over as for any chat, and the chat returns
+    to its account once it suits again. Other chats keep the order, so they still roll onto it when
+    earlier accounts run out. Subagents and spawned threads start with their parent's account
+    (`insert_session`). It lasts until the user picks Auto. Made for keeping one security chat on a
+    Cyber Verified account while the rest use up another account's window.
   - Accounts on different plans see different models. A refusal saying the plan lacks the model
     (Anthropic's 429 "Usage credits are required for this model", Codex's "not supported when using
     Codex with a ChatGPT account"; `Error::plan_lacks_model`) is never retried with backoff: the
@@ -2070,9 +2093,12 @@ code until he picks.
     (`Account::cyber_verified`, `PATCH /providers/anthropic/accounts/{account}`). A reply the filter
     ends (`StopReason::Refused`) whose policy area is cyber, or that names none, is deleted with
     whatever it streamed and the step goes to the first verified account that has usage left
-    (`Engine::leave_refusing_account`). From then on only verified accounts suit that conversation,
-    so a cold cache never moves it back to an account whose filter would refuse it again; other
-    conversations are unaffected. Before choosing, a verified account no response has reported on
+    (`Engine::leave_refusing_account`). The chat is then set to that account as `/account` would set
+    it (`Session::account`, published as `session.updated`), so only that chat moves, `/account`
+    shows where it went, it stays there across restarts, and its subagents and spawned threads start
+    there; every other chat keeps the user's order. In memory, only verified accounts suit that
+    conversation from then on, so neither a cold cache nor `/account auto` moves it back to an
+    account whose filter would refuse it again while the engine runs. Before choosing, a verified account no response has reported on
     since the engine started has its usage read from `/api/oauth/usage`, so a spent one is never
     tried. With no verified account free, the refusal stands on the account that made it and the
     conversation keeps its account and cache. When every verified account refuses, the last refusal
@@ -2183,9 +2209,38 @@ code until he picks.
     Loaded tools go as plain functions, not namespaces, so a replayed call needs no `namespace`. Not
     yet verified against a live account.
   - Other wires get every tool as before. Gemini has no equivalent (googleapis/python-genai#2185).
-- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
+- Model makers' own APIs are catalog providers from models.dev (`llm::makers::ROUTES`, kept by
+  `catalog::listed`), each on the adapter for its wire, after opencode v2's routes:
+  - `meta`: Responses at `api.meta.ai/v1` (`OpenAi::sse`), never offered a WebSocket, which Meta
+    does not take. Its hosted web search and image tools are not used.
+  - `moonshotai`, `moonshotai-cn`, `kimi-code-plan-global` (`api.kimi.ai/coding/v1`) and
+    `kimi-code-plan-cn` (`api.kimi.com/coding/v1`): Chat Completions with `prompt_cache_key` from
+    the conversation, and tool schemas rewritten to what Moonshot's validator takes (an `enum`
+    gets its `type`, tuple `items` and `prefixItems` become one item schema, `$ref` stands alone),
+    as opencode's `moonshot` sanitizer does. Kimi's undocumented `reasoning_details` entries are
+    not read or replayed; `reasoning_content` is.
+  - `deepseek`: Chat Completions at `api.deepseek.com`.
+  - `minimax`, `minimax-cn` and their Token Plans: Anthropic Messages at `/anthropic` (models.dev
+    names it with `/v1`, which the route drops since the adapter adds `/v1/messages`).
+  - `alibaba`, `alibaba-cn` and their coding plans: Chat Completions on DashScope, with the cap as
+    `max_completion_tokens`, and Qwen models marked with `cache_control` on the system prompt and
+    the last turn (opencode's Qwen policy); other models DashScope hosts get no breakpoints.
+  - `zai`, `zai-coding-plan` (`api.z.ai/api/coding/paas/v4`), `zhipuai` and `zhipuai-coding-plan`
+    (`open.bigmodel.cn`): Chat Completions with thinking kept across steps. A plan key bills the plan
+    only on its coding endpoint, so each plan is a route of its own, as in opencode v2. Z.AI's
+    models.dev toggle is not offered as a switch.
+  - A maker with more than one route tags each in `GET /providers` with `family` (its main route's
+    id, the maker's name, `plan`, `china`); settings lists the family as one provider with a tab per
+    route. Each route keeps its own key.
+  - DeepSeek, Kimi and Qwen get `reasoning_content` on every assistant message, empty when the
+    reply kept none, as opencode sends it (`requireReasoning`).
+  - Regions opencode reaches by setting (Alibaba's Hong Kong and US hosts) are a `baseUrl` in
+    drift.json.
+- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Moonshot, DeepSeek, Alibaba) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
-  hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
+  hand them on after the stream ends, in index order, one start each. Each fragment as it arrives is
+  a `Chunk::Generating`, which only the reply's generation clock reads, so tok/s for a reply that is
+  only calls covers the time they streamed, not the burst at the end. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
   that ends without saying why.
   - A turn's `tool` messages go straight after the assistant message that called them; anything
@@ -2486,6 +2541,13 @@ Settled after the first external review of M1; each has a regression test.
     thinking model (its thinking otherwise comes mixed into the answer, or not at all).
     Z.ai also always gets `thinking: {type: enabled, clear_thinking: false}`, so a turn's earlier
     reasoning is kept, as opencode sends it.
+  - A maker's model whose models.dev entry offers a `toggle` gets the levels `none` (thinking off)
+    before its others, and `thinking` (on) when it has no others, as opencode resolves them
+    (`catalog::with_switch`). Moonshot: `thinking: {type}` for a switch, `reasoning_effort` alone for
+    an effort (K3 always reasons). DeepSeek: `thinking: {type}` beside every level, with
+    `reasoning_effort`. Alibaba: `enable_thinking`, with `reasoning_effort` or `thinking_budget`
+    (budgets offered as on Anthropic's routes). MiniMax: `thinking: {type: adaptive}` or
+    `{type: disabled}`, and no effort levels, since opencode offers MiniMax only its switch.
 - With no level picked, the catalog decides what a request still asks for (`catalog::default_reasoning`,
   `verbosity`, `shows_thinking`, `sampling`), as opencode does: an OpenAI reasoning model that
   offers `medium` runs at it (its own default), so summaries come back; GPT reasoning models other
@@ -3227,7 +3289,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   "always" for `git push` still holds.
   - Policy evaluation is separate from an approval dialog. The defaults are opencode's: everything
     runs without asking except what reaches outside the workspace and files likely to hold
-    secrets. Workspace reads, scratch access, searches, skills, delegation, fetches (`webfetch`)
+    secrets. Workspace reads, scratch access, searches, skills, delegation, fetches of public URLs
+    (`webfetch`; one naming this machine, a private or link-local address or a local name asks)
     and every MCP call (a read-only hint matters only to read-only agents) carry an
     allow-by-default request. Explicit deny/ask rules still apply; an unmatched default request
     produces no dialog.

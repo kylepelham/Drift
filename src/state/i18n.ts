@@ -6,6 +6,7 @@ type Dictionary = Record<string, string>;
 const english = { ...dict, ...drift } as Dictionary;
 const reasoningLevels: Record<string, string> = {
     none: "drift.reasoning.level.none",
+    thinking: "drift.reasoning.level.thinking",
     minimal: "drift.reasoning.level.minimal",
     low: "drift.reasoning.level.low",
     medium: "drift.reasoning.level.medium",
@@ -57,7 +58,7 @@ export function t(key: string, variables?: Record<string, string | number>) {
     const value = dictionary()[key] ?? english[key] ?? key;
     if (!variables) return value;
     return Object.entries(variables).reduce(
-        (text, [name, replacement]) => text.replaceAll(`{{${name}}}`, String(replacement)),
+        (text, [name, replacement]) => text.replaceAll(`{{${name}}}`, () => String(replacement)),
         value,
     );
 }

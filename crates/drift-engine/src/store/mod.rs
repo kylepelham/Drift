@@ -124,14 +124,17 @@ impl Store {
     /// Adds a directory, or restores and touches the row that already holds it.
     pub fn add_workspace(&self, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
         let conn = self.lock();
-        let existing: Option<String> = conn
+        let existing = conn
             .prepare_cached(
-                "SELECT id FROM workspace
+                "SELECT id, path FROM workspace
                  WHERE LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))
-                 ORDER BY (removed_at IS NULL) DESC, last_used DESC LIMIT 1",
+                 ORDER BY (removed_at IS NULL) DESC, last_used DESC",
             )?
-            .query_row([path], |row| row.get(0))
-            .optional()?;
+            .query_map([path], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .find(|(_, kept)| same_folder(kept, path))
+            .map(|(id, _)| id);
 
         let id = match existing {
             Some(id) => {
@@ -155,6 +158,21 @@ impl Store {
 
         Ok(workspace)
     }
+}
+
+/// Paths that differ only by case name one folder on Windows, elsewhere only when the disk says they are one folder.
+fn same_folder(kept: &str, path: &str) -> bool {
+    if cfg!(windows) || kept.replace('\\', "/") == path.replace('\\', "/") {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(a), Ok(b)) = (std::fs::metadata(kept), std::fs::metadata(path)) {
+            return (a.dev(), a.ino()) == (b.dev(), b.ino());
+        }
+    }
+    false
 }
 
 impl Store {
@@ -237,9 +255,14 @@ pub(crate) mod tests {
     fn same_directory_with_different_casing_or_slashes_is_one_workspace() {
         let store = store();
         let first = store.add_workspace("C:/Repo", "repo", "").unwrap();
-        let second = store.add_workspace("c:\\repo", "other", "").unwrap();
+        let second = store.add_workspace("C:\\Repo", "other", "").unwrap();
+        let cased = store.add_workspace("c:/repo", "cased", "").unwrap();
         assert_eq!(first.id, second.id);
-        assert_eq!(store.workspaces().unwrap().len(), 1);
+        assert_eq!(
+            first.id == cased.id,
+            cfg!(windows),
+            "casing folds on Windows, and elsewhere only for one folder on disk"
+        );
     }
 
     #[test]

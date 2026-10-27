@@ -20,10 +20,11 @@ async fn proxy() -> (Proxy, SocketAddr, reqwest::Client) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy = Shared::new(
-        Computers::load(path),
+        Computers::load(path.clone()),
         Arc::new(Native {}),
         SECRET.into(),
         address.port(),
+        path.with_extension("storage.json"),
     );
     tokio::spawn(serve(listener, proxy.clone()));
     let client = reqwest::Client::builder()
@@ -279,4 +280,111 @@ async fn a_pc_without_a_tunnel_that_does_not_answer_says_how_to_reach_it_from_an
     let computer = proxy.computers.lock().unwrap().get(&id).cloned().unwrap();
     let error = proxy.connect(&computer).await.unwrap_err().to_string();
     assert!(error.contains("Reach from anywhere"), "{error}");
+}
+
+#[tokio::test]
+async fn the_pages_saved_values_outlive_the_launch_and_come_back_before_its_scripts() {
+    let (proxy, address, client) = proxy().await;
+    let url = |path: &str| format!("http://{address}{path}");
+    let values = json!({ "drift.workspace.collapsed": "[\"w1\"]", "drift.diff.wrap": "true" });
+    let put = |sequence: u64, body: &serde_json::Value| {
+        client
+            .put(url(&format!("/app/api/storage?page=p1&sequence={sequence}")))
+            .header("cookie", signed_in())
+            .json(body)
+            .send()
+    };
+
+    assert_eq!(put(2, &values).await.unwrap().status(), StatusCode::NO_CONTENT);
+    let stale = put(1, &json!({ "drift.diff.wrap": "false" })).await.unwrap();
+    assert_eq!(
+        stale.status(),
+        StatusCode::NO_CONTENT,
+        "a slow earlier snapshot is answered"
+    );
+    let refused = client
+        .put(url("/app/api/storage?page=p1&sequence=3"))
+        .json(&values)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        refused.status(),
+        StatusCode::UNAUTHORIZED,
+        "another app cannot plant values"
+    );
+
+    let script = next_launch_restores(&proxy).await;
+    assert!(script.contains(r#""drift.workspace.collapsed":"[\"w1\"]""#), "{script}");
+    assert!(
+        script.contains(r#""drift.diff.wrap":"true""#),
+        "a slow earlier snapshot is not kept: {script}"
+    );
+    assert!(script.contains("localStorage.setItem"), "{script}");
+
+    let reloaded = client
+        .put(url("/app/api/storage?page=p2&sequence=1"))
+        .header("cookie", signed_in())
+        .json(&json!({ "drift.diff.wrap": "reloaded" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reloaded.status(), StatusCode::NO_CONTENT);
+    put(9, &json!({ "drift.diff.wrap": "late" })).await.unwrap();
+    let script = next_launch_restores(&proxy).await;
+    assert!(
+        script.contains(r#""drift.diff.wrap":"reloaded""#),
+        "a page load that was replaced cannot overwrite the new one: {script}"
+    );
+
+    let changes = |sequence: u64, base: u64| {
+        client
+            .put(url(&format!(
+                "/app/api/storage?page=p2&sequence={sequence}&base={base}"
+            )))
+            .header("cookie", signed_in())
+            .json(&json!({ "set": { "drift.theme": "dim" }, "removed": ["drift.diff.wrap"] }))
+            .send()
+    };
+    assert_eq!(
+        changes(2, 7).await.unwrap().status(),
+        StatusCode::CONFLICT,
+        "changes from a snapshot not kept"
+    );
+    assert_eq!(changes(2, 1).await.unwrap().status(), StatusCode::NO_CONTENT);
+    let script = next_launch_restores(&proxy).await;
+    assert!(
+        script.contains(r#""drift.theme":"dim""#) && !script.contains("drift.diff.wrap"),
+        "changes apply to what was kept: {script}"
+    );
+
+    let page = storage::with_restore("<html><head><script>reads()</script></head></html>");
+    assert!(
+        page.starts_with(r#"<html><head><script src="/app/api/storage.js"></script><script>reads()"#),
+        "{page}"
+    );
+}
+
+/// The script the next launch, a new proxy on another port reading the same file, restores the page with.
+async fn next_launch_restores(proxy: &Proxy) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let proxy = Shared::new(
+        Computers::load(crate::test_dir().join("unused.json")),
+        Arc::new(Native {}),
+        SECRET.into(),
+        address.port(),
+        proxy.storage.clone(),
+    );
+    tokio::spawn(serve(listener, proxy));
+
+    reqwest::Client::new()
+        .get(format!("http://{address}/app/api/storage.js"))
+        .header("cookie", signed_in())
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
 }

@@ -51,7 +51,14 @@ pub fn canonical(path: &Path) -> PathBuf {
     for component in path.components() {
         match component {
             std::path::Component::ParentDir => {
-                lexical.pop();
+                if matches!(
+                    lexical.components().next_back(),
+                    None | Some(std::path::Component::ParentDir)
+                ) {
+                    lexical.push("..");
+                } else {
+                    lexical.pop();
+                }
             }
             std::path::Component::CurDir => {}
             other => lexical.push(other.as_os_str()),
@@ -98,4 +105,20 @@ pub fn display(path: &Path, workspace: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_leading_parent_step_stays_a_step_out_of_the_current_directory() {
+        let here = std::env::current_dir().unwrap();
+        let parent = canonical(here.parent().unwrap());
+        assert_eq!(canonical(Path::new("../drift-missing")), parent.join("drift-missing"));
+        assert_eq!(
+            canonical(Path::new("a/../../drift-missing")),
+            parent.join("drift-missing")
+        );
+    }
 }

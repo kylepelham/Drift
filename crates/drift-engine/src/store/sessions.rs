@@ -10,7 +10,7 @@ pub(super) use super::parts::save_part_in;
 #[path = "tests/sessions.rs"]
 mod tests;
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree, account";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -152,6 +152,16 @@ impl Store {
         session_in(&connection, id)
     }
 
+    /// Sets the provider account the chat uses, or with `None` leaves the choice to the account order.
+    pub fn set_session_account(&self, id: &str, account: Option<&str>) -> rusqlite::Result<Option<Session>> {
+        let connection = self.lock();
+        connection
+            .prepare_cached("UPDATE session SET account = ?2 WHERE id = ?1")?
+            .execute(params![id, account])?;
+
+        session_in(&connection, id)
+    }
+
     /// Records a variant chosen outside a prompt, as when a retry is switched to another model.
     pub fn set_session_variant(&self, id: &str, variant: Option<&str>) -> rusqlite::Result<Option<Session>> {
         let connection = self.lock();
@@ -253,6 +263,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
             .and_then(|json| serde_json::from_str(&json).ok()),
         auto_accept: row.get(14)?,
         worktree: row.get(15)?,
+        account: row.get(16)?,
         running: false,
     })
 }
@@ -283,25 +294,26 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         revert: None,
         auto_accept: false,
         worktree: None,
+        account: None,
         running: false,
     }
 }
 
-/// A session with a parent works where its parent does, in the same worktree.
+/// A session with a parent works where its parent does, in the same worktree, on the account its parent is set to.
 pub(super) fn insert_session(connection: &Connection, session: &mut Session) -> rusqlite::Result<()> {
     if let Some(parent) = &session.parent_id {
-        session.worktree = connection
-            .prepare_cached("SELECT worktree FROM session WHERE id = ?1")?
-            .query_row([parent], |row| row.get(0))
+        (session.worktree, session.account) = connection
+            .prepare_cached("SELECT worktree, account FROM session WHERE id = ?1")?
+            .query_row([parent], |row| Ok((row.get(0)?, row.get(1)?)))
             .optional()?
-            .flatten();
+            .unwrap_or_default();
     }
     connection.prepare_cached(
-        "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff, worktree)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+        "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff, worktree, account)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
     )?.execute(params![session.id, session.workspace_id, session.parent_id, visibility_str(session.visibility), session.title,
         session.agent, session.model.as_ref().map(|model| &model.provider), session.model.as_ref().map(|model| &model.model),
-        session.created_at, session.updated_at, session.branch_cutoff, session.worktree])?;
+        session.created_at, session.updated_at, session.branch_cutoff, session.worktree, session.account])?;
 
     Ok(())
 }
@@ -313,11 +325,8 @@ pub(super) fn transaction<T>(
 ) -> rusqlite::Result<T> {
     connection.execute_batch("BEGIN")?;
 
-    match f(connection) {
-        Ok(value) => {
-            connection.execute_batch("COMMIT")?;
-            Ok(value)
-        }
+    match f(connection).and_then(|value| connection.execute_batch("COMMIT").map(|()| value)) {
+        Ok(value) => Ok(value),
         Err(error) => {
             let _ = connection.execute_batch("ROLLBACK");
             Err(error)

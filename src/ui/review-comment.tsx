@@ -120,7 +120,7 @@ export function CommentButton(props: { onClick: () => void }) {
         <button
             title={t("drift.review.comment.add")}
             aria-label={t("drift.review.comment.add")}
-            class="touch-reveal absolute top-1/2 left-0.5 z-[1] flex size-4 -translate-y-1/2 items-center justify-center rounded bg-accent text-accent-ink opacity-0 transition-opacity select-none group-hover/line:opacity-100 focus-visible:opacity-100"
+            class="review-comment-button absolute top-1/2 left-0.5 z-[1] flex size-4 -translate-y-1/2 items-center justify-center rounded bg-accent text-accent-ink opacity-0 transition-opacity select-none group-hover/line:opacity-100 focus-visible:opacity-100"
             onClick={() => props.onClick()}
         >
             <IconPlus class="size-3" />

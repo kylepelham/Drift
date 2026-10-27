@@ -89,6 +89,18 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   `/engine` on the same origin, so the WebView needs nothing the browser companion does not. A
   signed-out device goes to `/app/computers` instead of the companion's sign-in page, and the
   device settings offer **Switch computer**.
+- The page's saved values (settings, folded workspaces, prompt history) live in `ui-storage.json` in the app's
+  private storage. The WebView keeps `localStorage` per origin, and the proxy's port, part of that
+  origin, changes every launch, so on its own every launch started from defaults. `/app` is served
+  with `/app/api/storage.js` first in `<head>`, which puts the saved values back before any script
+  reads them, and `src/app-storage.ts` sends the whole set to `PUT /app/api/storage` after each
+  burst of changes and when the app is left, numbered per page so a slow earlier snapshot never
+  replaces a later one, and once a reloaded page has written, the page it replaced is refused. A set
+  past the 64 KB a request may carry while the page closes goes as its changes since the last
+  snapshot the app kept (`base`), refused with 409 unless that is still the one kept. Both need the
+  launch cookie, like every route.
+- The manifest declares `RECORD_AUDIO`: the WebView's microphone prompt is only granted for a
+  permission the app itself has, so dictation could not start without it.
 - `/app/computers` is `app.html`, a second Vite entry (`src/app/`): linked PCs (open, forget), each
   marked when it can be reached from anywhere, and **Scan pairing code**.
 - Each request to a PC goes through `tls::client`, which trusts one thing. On a network that is the
@@ -127,7 +139,10 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   than requiring hover or long-press.
 - Dialogs and picker sheets consume Android Back before the conversation route changes. File
   previews fill the phone screen, image controls wrap, transcript search fits the header, and
-  notices stay above the composer. These layout changes do not apply to the desktop breakpoint.
+  notices stay above the composer. In the review panel a line's number is its comment target on
+  touch, instead of a "+" over every line. Settings wrap text at word boundaries (only a word
+  longer than its line, such as a path, breaks inside), tab labels never wrap, and an installed
+  plugin's actions sit under its name. These layout changes do not apply to the desktop breakpoint.
 - The computers page scrolls with the keyboard open, shows loading and retry states, and confirms
   Forget before unlinking a PC.
 - `DriftPlugin.kt` is the only other Kotlin: Google's code scanner (`play-services-code-scanner`), which
@@ -147,3 +162,12 @@ adb install -r gen/android/app/build/outputs/apk/universal/debug/app-universal-d
 ```
 
 The build runs `bun run build` first; the proxy embeds `dist/` in debug builds too.
+
+`bun run phone` installs that APK on a phone over wireless debugging, opens it and exits (`--build`
+builds it first; `--replace` uninstalls an app signed with another key first, which loses its data).
+A phone already connected is used; the last phone's address is kept, and its wireless debugging port
+is found by trying its ports, since phones rarely answer mDNS for it. Otherwise the script writes a
+QR code page for the phone's Wireless debugging > Pair device with QR code and pairs with the phone
+that scans it, finding it over mDNS on every network adapter: `adb`'s own discovery sends only out
+of the lowest-metric adapter, which on a PC with a VPN or a Hyper-V switch is not the LAN, so pairing
+hangs on "Pairing device".

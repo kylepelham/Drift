@@ -579,19 +579,12 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
 });
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-    const { accumulatedWheelTarget, normalizedWheelDelta } = await import("../src/ui/chat-wheel");
     const { scrollGestureSticks, shouldShowScrollToBottom } = await import("../src/ui/timeline-virtual");
     expect(scrollGestureSticks(1000, 980, 20)).toBeFalse();
     expect(scrollGestureSticks(980, 1000, 20)).toBeTrue();
     expect(scrollGestureSticks(980, 1000, 120)).toBeFalse();
     expect(shouldShowScrollToBottom(79)).toBeFalse();
     expect(shouldShowScrollToBottom(80)).toBeTrue();
-    expect(normalizedWheelDelta(3, 0, 800)).toBe(3);
-    expect(normalizedWheelDelta(3, 1, 800)).toBe(48);
-    expect(normalizedWheelDelta(2, 2, 800)).toBe(1600);
-    expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140);
-    expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180);
-    expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500);
 });
 
 test("transcript follow revision tracks lengths and status without embedding large output", async () => {
@@ -641,10 +634,11 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
     expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}");
 });
 
-test("tall row measurement only compensates rows actually above the viewport", async () => {
+test("a row that was above the viewport before it grew is compensated, one already in view is not", async () => {
     const { resizeCompensation } = await import("../src/ui/timeline-virtual");
-    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0);
+    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(1904);
     expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904);
+    expect(resizeCompensation(500, 800, 1500, 1000)).toBe(0);
 });
 
 test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
@@ -1154,18 +1148,6 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
     expect(row).toContain("hideError={!!props.retry || !!props.next}");
 });
 
-test("a forwarded wheel animation keeps every notch's distance and lands exactly", async () => {
-    const { accumulatedWheelTarget, wheelStep } = await import("../src/ui/chat-wheel");
-    let target = accumulatedWheelTarget(0, null, 100, 5000);
-    let position = 0;
-    for (let frame = 0; frame < 3; frame++) position = wheelStep(position, target, 16);
-    target = accumulatedWheelTarget(Math.round(position), target, 100, 5000);
-    expect(target, "a second notch adds to the first target, not to where the scroll has got to").toBe(200);
-    for (let frame = 0; frame < 60 && position !== target; frame++) position = wheelStep(position, target, 16);
-    expect(position).toBe(200);
-    expect(wheelStep(0, 100, 16)).toBeGreaterThan(15);
-});
-
 test("a running command's shimmering title keeps to one line however long the command", async () => {
     const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
     expect(view).toContainCode('props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"');
@@ -1223,6 +1205,18 @@ test("a run that read one file names it instead of counting it", async () => {
     const namesakes = [read("p1", "a/x.ts"), read("p2", "b/x.ts")];
     expect(exploredSingle(namesakes, false)).toBeUndefined();
     expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
+});
+
+test("a lone read is its own row, never a group holding one row that opens a second time", async () => {
+    const source = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    const group = source.slice(
+        source.indexOf("export function ExploredGroup"),
+        source.indexOf("function ExploredCalls"),
+    );
+
+    expect(group).toContain("props.parts.length === 1 && props.parts[0]");
+    expect(group).toContain("{(part) => <ToolView part={part()} />}");
+    expect(group).toContain("fallback={<ExploredCalls parts={props.parts} />}");
 });
 
 test("an instruction update names its sources in the user's language, an MCP server or file by its own name", async () => {

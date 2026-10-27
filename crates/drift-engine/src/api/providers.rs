@@ -14,6 +14,7 @@ use crate::llm::Credential;
 use crate::llm::anthropic::oauth;
 use crate::llm::catalog::{Model, ProviderInfo};
 use crate::llm::credentials::Profile;
+use crate::llm::makers::{self, ProviderFamily};
 use crate::llm::openai::oauth as codex;
 
 /// A catalog provider plus whether the engine can currently talk to it.
@@ -29,6 +30,9 @@ pub(super) struct ProviderStatus {
     /// Stored credentials in the order they are used; sign-ins take turns as each reaches its limit.
     pub accounts: Vec<ProviderAccount>,
     pub models: BTreeMap<String, Model>,
+    /// Its maker's other routes share this, so settings shows them as one provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family: Option<ProviderFamily>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -65,6 +69,7 @@ fn status(engine: &Engine, info: &ProviderInfo) -> ProviderStatus {
             .map(|account| ProviderAccount::of(engine, account))
             .collect(),
         models: info.models.clone(),
+        family: makers::family(&info.id),
     }
 }
 

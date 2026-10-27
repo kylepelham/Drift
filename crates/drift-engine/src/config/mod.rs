@@ -68,6 +68,8 @@ pub struct Skill {
 pub enum Builtin {
     /// `/review`, rendered by [`crate::code_review`].
     Review,
+    /// `/audit`, rendered by [`crate::code_review::audit`].
+    Audit,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -198,11 +200,12 @@ impl Config {
 
     /// The engine's skills, each unless a skill or command of the user's, the project's or a bundle's has its name.
     fn add_builtin_skills(&mut self) {
-        let review = crate::code_review::skill();
-        let taken = self.skills.iter().any(|skill| skill.name == review.name)
-            || self.commands.iter().any(|command| command.name == review.name);
-        if !taken {
-            self.skills.push(review);
+        for builtin in [crate::code_review::skill(), crate::code_review::audit::skill()] {
+            let taken = self.skills.iter().any(|skill| skill.name == builtin.name)
+                || self.commands.iter().any(|command| command.name == builtin.name);
+            if !taken {
+                self.skills.push(builtin);
+            }
         }
     }
 
@@ -281,23 +284,14 @@ impl Config {
 
     fn apply_file(&mut self, root: &Path, project: bool, home: Option<&Path>) {
         let path = root.join(FILE);
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => return self.unreadable(&path, &error.to_string()),
         };
         let file = match serde_json::from_str::<File>(&jsonc::strip(&text)) {
             Ok(file) => file,
-            Err(error) => {
-                let problem = format!(
-                    concat!(
-                        "{} could not be read ({}), so none of its settings or permission rules apply; ",
-                        "fix it to carry on"
-                    ),
-                    path.display(),
-                    error,
-                );
-                self.problems.push(problem);
-                return;
-            }
+            Err(error) => return self.unreadable(&path, &error.to_string()),
         };
 
         if file.model.is_some() {
@@ -343,6 +337,13 @@ impl Config {
             }
         }
         self.skill_paths.extend(file.skill_paths.iter().map(resolve));
+    }
+
+    fn unreadable(&mut self, path: &Path, error: &str) {
+        self.problems.push(format!(
+            "{} could not be read ({error}), so none of its settings or permission rules apply; fix it to carry on",
+            path.display()
+        ));
     }
 
     /// A language server starts on its own when a file it handles is written, so a project's file

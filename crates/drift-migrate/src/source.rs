@@ -297,19 +297,23 @@ impl Source {
 
     /// Returns conversations containing queued prompts that opencode never ran: v1's `session_input`, v2's `session_inbox`.
     /// Databases without either table have no pending prompts.
-    pub(crate) fn pending_inputs(&self) -> std::collections::HashSet<String> {
-        let queued = |sql: &str| {
-            self.conn
-                .prepare(sql)
-                .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
-                .unwrap_or_else(|_| std::collections::HashSet::new())
+    pub(crate) fn pending_inputs(&self) -> rusqlite::Result<std::collections::HashSet<String>> {
+        let queued = |table: &str, sql: &str| -> rusqlite::Result<std::collections::HashSet<String>> {
+            if !self.has(table) {
+                return Ok(Default::default());
+            }
+            self.conn.prepare(sql)?.query_map([], |row| row.get(0))?.collect()
         };
 
-        let mut ids = queued("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL");
+        let mut ids = queued(
+            "session_input",
+            "SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL",
+        )?;
         ids.extend(queued(
+            "session_inbox",
             "SELECT DISTINCT session_id FROM session_inbox WHERE type = 'user'",
-        ));
-        ids
+        )?);
+        Ok(ids)
     }
 
     pub(crate) fn todos(&self, session_id: &str) -> rusqlite::Result<Vec<OcTodo>> {

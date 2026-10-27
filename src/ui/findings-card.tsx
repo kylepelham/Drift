@@ -10,6 +10,7 @@ import {
     findingOutcomes,
     findingReports,
     fixPrompt,
+    reviewedFiles,
     type FindingReport,
 } from "../state/review-findings";
 
@@ -31,14 +32,17 @@ const tallyLabels: Record<FindingOutcome, string> = {
     no_change_needed: "drift.findings.tally.noChangeNeeded",
 };
 
-/** Opens the review panel on the branch's changes against the default base, with the findings as notes. */
-async function walkFindings(engine: Engine, sessionId: string, partId: string, current?: string) {
+/** Opens the review panel at the findings: on the files as they are for a codebase review, else on the branch's changes. */
+async function walkFindings(engine: Engine, sessionId: string, partId: string, current?: string, files?: string[]) {
+    const findings = { sessionId, partId, current };
+    if (files) return openReview({ source: { kind: "files", target: files.join("\n") }, findings });
+
     const directory = engine.state.sessions[sessionId]?.directory;
     const refs = await engine.actions.reviewRefs(directory).catch(() => undefined);
     const base = defaultBase(refs);
     const source = base ? { kind: "branch" as const, target: base } : { kind: "uncommitted" as const };
 
-    openReview({ source, findings: { sessionId, partId, current } });
+    openReview({ source, findings });
 }
 
 /** Sends the findings as a prompt to fix them, after the running turn when there is one. */
@@ -110,6 +114,7 @@ export function FindingsCard(props: { part: ToolPart }) {
     const open = () => findings().filter((finding, at) => !outcomes()[at] && !dismissedFindings().has(finding.id));
     const busy = () => sessionBusy(engine.state, sessionId());
     const [sending, setSending] = createSignal(false);
+    const codebase = () => props.part.metadata?.scope === "codebase";
 
     const heading = () => {
         const count = findings().length;
@@ -117,7 +122,8 @@ export function FindingsCard(props: { part: ToolPart }) {
             ? t(count === 1 ? "drift.findings.count.one" : "drift.findings.count.other", { count })
             : t("drift.findings.none");
         const level = props.part.metadata?.level;
-        return [t("drift.findings.title"), level, counted].filter(Boolean).join(" · ");
+        const title = t(codebase() ? "drift.findings.titleCodebase" : "drift.findings.title");
+        return [title, level, counted].filter(Boolean).join(" · ");
     };
     const tally = () =>
         (Object.keys(tallyLabels) as FindingOutcome[])
@@ -126,13 +132,24 @@ export function FindingsCard(props: { part: ToolPart }) {
             .map((entry) => t(tallyLabels[entry.outcome], { count: entry.count }))
             .join(" · ");
 
-    const walk = (current?: string) => void walkFindings(engine, sessionId(), props.part.id, current);
+    const walk = (current?: string) =>
+        void walkFindings(
+            engine,
+            sessionId(),
+            props.part.id,
+            current,
+            codebase() ? reviewedFiles(findings()) : undefined,
+        );
     const apply = async () => {
         setSending(true);
         await applyFindingFixes(engine, sessionId(), open());
         setSending(false);
     };
-    const rerun = () => void engine.actions.runCommand(sessionId(), "review", props.part.metadata?.level ?? "");
+    const rerun = () => {
+        const scoped = codebase() ? props.part.metadata?.path : undefined;
+        const args = [props.part.metadata?.level, scoped].filter(Boolean).join(" ");
+        void engine.actions.runCommand(sessionId(), codebase() ? "audit" : "review", args);
+    };
 
     return (
         <div class="findings-card rounded-lg border border-edge/70 p-1.5 text-sm">

@@ -120,11 +120,13 @@ fn media_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(voice::set_key, voice::remove_key))
         .routes(routes!(voice::transcribe))
         .routes(routes!(voice::speak))
+        .routes(routes!(voice::voices))
 }
 
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
         .routes(routes!(settings::plugins))
+        .routes(routes!(settings::grammars))
         .routes(routes!(settings::reload_plugins))
         .routes(routes!(settings::set_plugin_enabled))
         .routes(routes!(settings::install_plugin))

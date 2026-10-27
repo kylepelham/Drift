@@ -218,10 +218,16 @@ impl Plan {
 
     async fn prepare_add(&mut self, ctx: &Context, path: &Path, content: &str) -> Result<(), ToolError> {
         let existing = existing(ctx, path, true).await?;
-        let before_text = existing
-            .as_ref()
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-            .unwrap_or_default();
+        let before_text = match existing.as_deref().map(std::str::from_utf8) {
+            Some(Err(_)) => {
+                return Err(ToolError(format!(
+                    "{} already exists and is not UTF-8 text, so Add File would overwrite it",
+                    display(path, &ctx.workspace)
+                )));
+            }
+            Some(Ok(text)) => text.to_owned(),
+            None => String::new(),
+        };
         let format = TextFormat::detect(&before_text);
         let kind = if existing.is_some() { "update" } else { "add" };
 

@@ -32,14 +32,21 @@ impl Engine {
             .flatten()
             .unwrap_or_default();
 
-        self.hooks
+        let grammars = self.hooks.grammars();
+        let loaded = self
+            .hooks
             .load(
                 &self.data_dir.join("plugin-cache"),
                 super::user_plugins(),
                 &disabled,
                 self.me.clone(),
             )
-            .await
+            .await;
+        if self.hooks.grammars() != grammars {
+            self.hub.publish(crate::event::Event::GrammarsUpdated {});
+        }
+
+        loaded
     }
 
     pub fn registry_sources(&self) -> Vec<sources::RegistrySource> {

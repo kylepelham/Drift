@@ -11,6 +11,7 @@ use crate::websearch::{Hit, SearchError};
 
 mod error;
 mod events;
+mod languages;
 pub mod settings;
 #[cfg(feature = "wasm-plugins")]
 pub mod wasm;
@@ -18,6 +19,7 @@ pub mod wasm;
 pub use error::Error;
 pub use events::relay_session_events;
 pub(crate) use events::session_event;
+pub use languages::{Grammar, LanguageServer};
 pub use settings::Setting;
 
 /// Where a plugin lives and what it may reach: its drift.json entry, its config, and the engine for host calls.
@@ -225,6 +227,16 @@ pub trait Hook: Send + Sync {
         Vec::new()
     }
 
+    /// Language servers Drift starts for it, as drift.json `lsp` entries.
+    fn language_servers(&self) -> Vec<LanguageServer> {
+        Vec::new()
+    }
+
+    /// Grammars the app highlights code with.
+    fn grammars(&self) -> Vec<Grammar> {
+        Vec::new()
+    }
+
     async fn search(&self, provider: &str, _query: &str, _limit: u32) -> Result<Vec<Hit>, SearchError> {
         Err(SearchError::Failed(format!(
             "{} does not search for {provider}",
@@ -278,7 +290,7 @@ pub struct PluginInfo {
     /// Its config object from drift.json, so Settings can show and edit it.
     #[serde(default)]
     pub config: Value,
-    /// The host interfaces it imports: `store`, `files`, `process`, `http`.
+    /// The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers.
     #[serde(default)]
     pub capabilities: Vec<String>,
     /// What it declares through the `configurable` world; Settings shows a form for them.

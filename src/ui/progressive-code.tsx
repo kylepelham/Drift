@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { pluginGrammarsRevision } from "../syntax-grammars";
 import { resolveFileLanguage } from "../syntax-language";
 import { highlightedCode } from "./markdown-syntax";
 import { syntaxTheme } from "../state/code";
@@ -52,6 +53,7 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
 
     createEffect(() => {
         const filename = props.filename;
+        pluginGrammarsRevision();
         const current = ++languageRequest;
 
         setLanguage(undefined);
@@ -64,11 +66,13 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
             });
     });
 
+    let disposed = false;
     createEffect(() => {
         const count = chunks().length;
 
         queueMicrotask(() => {
             observer?.disconnect();
+            if (disposed) return;
             if (!("IntersectionObserver" in window))
                 return setActive(new Set(Array.from({ length: count }, (_, index) => index)));
 
@@ -86,7 +90,10 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
             for (const element of root.querySelectorAll("[data-chunk]")) observer.observe(element);
         });
     });
-    onCleanup(() => observer?.disconnect());
+    onCleanup(() => {
+        disposed = true;
+        observer?.disconnect();
+    });
 
     onMount(() => {
         if (!props.line) return;

@@ -7,6 +7,7 @@ import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
 import { ReadImage, readImage } from "./tool-image";
 import { ShellProcessStatus } from "./process-row";
+import { ReadPanel, readPage } from "./tool-read";
 import { toolDisplay } from "./tool-presentation";
 import { Markdown } from "./markdown";
 import { useEngine } from "../engine";
@@ -117,6 +118,9 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                 <Match when={readImage(props.part)}>
                     {(image) => <ReadImage hash={image().hash} path={image().path} />}
                 </Match>
+                <Match when={readPage(props.part)}>
+                    {(page) => <ReadPanel path={page().path} lines={page().lines} rest={page().rest} />}
+                </Match>
                 <Match when={props.diff ?? written()}>
                     {(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}
                 </Match>
@@ -152,7 +156,7 @@ function GenericBody(props: { part: ToolPart }) {
     const showInput = () => !!toolInfo(props.part).called;
 
     return (
-        <div class="space-y-1.5 border-l-2 border-edge pl-3">
+        <div class="tool-card space-y-1.5">
             <Show when={showInput()}>
                 <div class="font-mono text-xs break-all whitespace-pre-wrap text-ink-faint">
                     {JSON.stringify(state().input, null, 1)}

@@ -1,4 +1,4 @@
-//! OpenAI Chat Completions over SSE: the dialect xAI, Z.ai, OpenRouter and LM Studio speak.
+//! OpenAI Chat Completions over SSE: the dialect xAI, Z.ai, OpenRouter, LM Studio, Moonshot, DeepSeek and Alibaba speak.
 
 use std::collections::BTreeMap;
 
@@ -13,27 +13,55 @@ use super::{Block, ChatMessage, Role};
 use super::{Chunk, ChunkStream, Credential, Error, Request, StopReason};
 use crate::session::types::Usage;
 
+mod dialect;
+#[cfg(test)]
+mod dialect_tests;
 #[cfg(test)]
 mod gateway_tests;
 mod request;
 
 #[cfg(test)]
+use dialect::reason;
+use dialect::{Thinking, moonshot_schemas, reasoning_on_every_reply};
+#[cfg(test)]
 use request::message;
-use request::{body, claude_call_ids, mark_breakpoints, reason, takes_breakpoints};
+use request::{body, claude_call_ids, mark_breakpoints, takes_breakpoints};
 
 #[derive(Clone, Debug)]
 pub struct Compat {
     base_url: String,
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
-    /// The gateway passes Anthropic's per-block `cache_control` through to Claude and Qwen (OpenRouter does).
-    claude_breakpoints: bool,
-    /// Reasoning goes as OpenRouter's `reasoning` object, which takes a budget too, rather than `reasoning_effort`.
-    reasoning_object: bool,
-    /// Z.ai drops earlier reasoning unless told `clear_thinking: false`, as opencode sends.
-    keep_thinking: bool,
+    /// Which models get Anthropic's per-block `cache_control`, and on how many of the latest turns.
+    breakpoints: Breakpoints,
+    thinking: Thinking,
     /// How the route keeps one conversation on the server that holds its cache.
     affinity: Affinity,
+    /// The output cap goes as `max_completion_tokens` (Alibaba) rather than `max_tokens`.
+    completion_tokens: bool,
+    /// Every assistant message carries `reasoning_content` (DeepSeek, Kimi, Qwen).
+    every_reply_reasons: bool,
+    /// Tool schemas rewritten to what Moonshot's validator takes.
+    moonshot_schemas: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Breakpoints {
+    None,
+    /// OpenRouter passes them through to Claude and Qwen, on the last two turns.
+    Gateway,
+    /// Alibaba caches Qwen at them, on the system prompt and the last turn, as opencode marks it.
+    Qwen,
+}
+
+impl Breakpoints {
+    fn turns(self, model: &str) -> Option<usize> {
+        match self {
+            Self::Gateway if takes_breakpoints(model) => Some(2),
+            Self::Qwen if model.starts_with("qwen") => Some(1),
+            _ => None,
+        }
+    }
 }
 
 /// Where a conversation's cache key goes so the provider routes it to its warm cache.
@@ -42,8 +70,8 @@ enum Affinity {
     None,
     /// xAI's `x-grok-conv-id` header.
     Header(&'static str),
-    /// OpenRouter's `session_id` body field, which pins the upstream provider.
-    Session,
+    /// A body field: OpenRouter's `session_id`, which pins the upstream provider, or Moonshot's `prompt_cache_key`.
+    Body(&'static str),
 }
 
 impl Compat {
@@ -52,10 +80,12 @@ impl Compat {
             base_url: base_url.trim_end_matches('/').to_string(),
             client: super::http::client(),
             timeouts: super::http::Timeouts::default(),
-            claude_breakpoints: false,
-            reasoning_object: false,
-            keep_thinking: false,
+            breakpoints: Breakpoints::None,
+            thinking: Thinking::Effort,
             affinity: Affinity::None,
+            completion_tokens: false,
+            every_reply_reasons: false,
+            moonshot_schemas: false,
         }
     }
 
@@ -63,9 +93,9 @@ impl Compat {
     /// session on one upstream provider.
     pub fn openrouter(base_url: &str) -> Self {
         Self {
-            claude_breakpoints: true,
-            reasoning_object: true,
-            affinity: Affinity::Session,
+            breakpoints: Breakpoints::Gateway,
+            thinking: Thinking::Object,
+            affinity: Affinity::Body("session_id"),
             ..Self::new(base_url)
         }
     }
@@ -73,7 +103,7 @@ impl Compat {
     /// Z.ai: thinking on, with the reasoning of the turn's earlier steps kept.
     pub fn zai(base_url: &str) -> Self {
         Self {
-            keep_thinking: true,
+            thinking: Thinking::Kept,
             ..Self::new(base_url)
         }
     }
@@ -86,30 +116,78 @@ impl Compat {
         }
     }
 
+    /// Moonshot's Kimi, on its platform and its coding plans: a cache key, and schemas its validator takes.
+    pub fn moonshot(base_url: &str) -> Self {
+        Self {
+            thinking: Thinking::Moonshot,
+            affinity: Affinity::Body("prompt_cache_key"),
+            every_reply_reasons: true,
+            moonshot_schemas: true,
+            ..Self::new(base_url)
+        }
+    }
+
+    pub fn deepseek(base_url: &str) -> Self {
+        Self {
+            thinking: Thinking::DeepSeek,
+            every_reply_reasons: true,
+            ..Self::new(base_url)
+        }
+    }
+
+    /// Alibaba's DashScope and coding plans: Qwen caches at breakpoints.
+    pub fn alibaba(base_url: &str) -> Self {
+        Self {
+            breakpoints: Breakpoints::Qwen,
+            thinking: Thinking::Alibaba,
+            completion_tokens: true,
+            every_reply_reasons: true,
+            ..Self::new(base_url)
+        }
+    }
+
     /// The request body as this route takes it.
     fn shaped(&self, request: &Request) -> Value {
         let mut body = body(request);
-        reason(&mut body, request.reasoning.as_ref(), self.reasoning_object);
-        if self.keep_thinking {
-            body["thinking"] = json!({ "type": "enabled", "clear_thinking": false });
-        }
-        if self.claude_breakpoints && request.cache_conversation && takes_breakpoints(&request.model) {
-            mark_breakpoints(&mut body, request.cache_hour);
+        dialect::reason(&mut body, request.reasoning.as_ref(), self.thinking);
+        if let Some(turns) = self
+            .breakpoints
+            .turns(&request.model)
+            .filter(|_| request.cache_conversation)
+        {
+            mark_breakpoints(&mut body, request.cache_hour, turns);
         }
         if request.model.contains("claude") {
             claude_call_ids(&mut body);
         }
         // Explicit mode with no breakpoints writes nothing to the cache, which a one-off request would pay for unread.
-        if !request.cache_conversation && request.cache_writes_billed {
+        if !request.cache_conversation && request.cache_writes_billed && self.breakpoints != Breakpoints::Qwen {
             body["prompt_cache_options"] = json!({ "mode": "explicit" });
         }
-        if let (Affinity::Session, Some(key)) = (self.affinity, &request.cache_key) {
-            body["session_id"] = json!(key);
+        if let (Affinity::Body(field), Some(key)) = (self.affinity, &request.cache_key) {
+            body[field] = json!(key);
         }
+        self.dialect(&mut body);
 
         super::apply_mode(&mut body, request);
 
         body
+    }
+
+    /// What the route's own validator needs of a body already built.
+    fn dialect(&self, body: &mut Value) {
+        if self.completion_tokens
+            && let Some(fields) = body.as_object_mut()
+            && let Some(cap) = fields.remove("max_tokens")
+        {
+            fields.insert("max_completion_tokens".into(), cap);
+        }
+        if self.every_reply_reasons {
+            reasoning_on_every_reply(body);
+        }
+        if self.moonshot_schemas {
+            moonshot_schemas(body);
+        }
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
@@ -240,6 +318,7 @@ impl StreamState {
 
         for call in delta["tool_calls"].as_array().into_iter().flatten() {
             self.tool_delta(call);
+            out.push(Chunk::Generating);
         }
 
         if let Some(reason) = choice["finish_reason"].as_str() {

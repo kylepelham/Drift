@@ -256,14 +256,18 @@ impl Engine {
     ) -> Step {
         let mut streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
-            Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error) => {
+            Err(StreamError::Provider(error))
+                if unless_stopped(abort, self.leave_refused_account(plan, &error)).await =>
+            {
                 self.failed_step(&mut message, StreamError::Provider(error));
                 return Step::Switch;
             }
             Err(error) => return self.failed_step(&mut message, error),
         };
         // A safety refusal a verified account may not make sends the request again from it; the refused reply goes.
-        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()).await {
+        if streamed.stop == StopReason::Refused
+            && unless_stopped(abort, self.leave_refusing_account(plan, streamed.refusal.as_ref())).await
+        {
             self.discard_reply(&plan.session.id, message.id);
             return Step::Switch;
         }
@@ -476,4 +480,12 @@ fn record_usage(plan: &Plan, message: &mut Message, streamed: &mut Streamed) {
     message.account = plan.account.clone();
     message.cost = cost(&plan.model, streamed.usage);
     message.status = MessageStatus::Done;
+}
+
+/// Whether `switch` found another account, given up as `false` once Stop is pressed: renewing one can take a while.
+async fn unless_stopped(abort: &CancellationToken, switch: impl std::future::Future<Output = bool>) -> bool {
+    tokio::select! {
+        switched = switch => switched,
+        () = abort.cancelled() => false,
+    }
 }

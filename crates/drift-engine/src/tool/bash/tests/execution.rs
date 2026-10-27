@@ -199,6 +199,16 @@ async fn a_command_at_its_limit_moves_to_the_background() {
         by_setting.metadata.process_id.is_some(),
         "without a `timeout` the Settings limit applies"
     );
+    let asked_longer = json!({ "command": sleep, "timeout": 3_600_000 });
+    assert_eq!(
+        bash.running_metadata(&sandbox.ctx, &asked_longer)
+            .unwrap()
+            .shell_timeout_ms,
+        Some(Some(300)),
+        "a longer `timeout` cannot hold a command in front past the Settings limit"
+    );
+    let capped = bash.run(&sandbox.ctx, asked_longer).await.unwrap();
+    assert!(capped.metadata.process_id.is_some());
     sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
 
     sandbox.ctx.engine.set_shell_timeout(None);

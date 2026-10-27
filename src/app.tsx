@@ -11,8 +11,8 @@ import { initDevtoolsShortcut } from "./state/devtools";
 import { ImportSummaryHost } from "./ui/import-summary";
 import { bindShellTimeoutPolicy } from "./state/prefs";
 import { listenMirrorLiveError } from "./state/mirror";
+import { setPluginGrammars } from "./syntax-grammars";
 import { EngineProvider, useEngine } from "./engine";
-import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
 import { ReviewPanelHost } from "./ui/review-panel";
@@ -78,13 +78,7 @@ export function App() {
                             <ChatBackdrop />
                             <div class="relative flex min-h-0 flex-1 flex-col">
                                 <ChatHeader />
-                                <Chat />
-                            </div>
-                            <div
-                                class="composer-dock relative shrink-0 px-4 pb-4"
-                                onWheel={(event) => forwardWheelToChat(event, event.currentTarget)}
-                            >
-                                <Composer />
+                                <Chat dock={<Composer />} />
                             </div>
                         </div>
                         <BrowserPaneHost />
@@ -197,6 +191,7 @@ function WorkspaceBinding() {
         void initWorkspaces();
     });
     createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null));
+    createEffect(() => setPluginGrammars(engine.state.grammars));
     createEffect(() => {
         if (engine.state.connection !== "online") return;
 

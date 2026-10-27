@@ -11,11 +11,12 @@ use serde_json::{Value, json};
 use super::{Hit, Query, WebSearch};
 use crate::Engine;
 
-/// What the stand-in providers do: refuse a key, rate limit Firecrawl, and count who was asked.
+/// What the stand-in providers do: refuse a key, rate limit or break Firecrawl, and count who was asked.
 #[derive(Default)]
 struct Behaviour {
     refused_key: Mutex<String>,
     firecrawl_busy: AtomicBool,
+    firecrawl_broken: AtomicBool,
     asked: Mutex<Vec<String>>,
     /// The body of Firecrawl's last search.
     last_search: Mutex<Value>,
@@ -45,6 +46,9 @@ async fn firecrawl(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap, 
     }
     if behaviour.firecrawl_busy.load(Ordering::SeqCst) {
         return (StatusCode::TOO_MANY_REQUESTS, [("retry-after", "1")], "slow down").into_response();
+    }
+    if behaviour.firecrawl_broken.load(Ordering::SeqCst) {
+        return (StatusCode::BAD_GATEWAY, "upstream timed out").into_response();
     }
     let mut page = json!({ "url": "https://fire.example", "title": "Fire", "description": body["query"] });
     if body["scrapeOptions"].is_object() {
@@ -254,6 +258,28 @@ async fn a_cooling_provider_hands_over_and_comes_back() {
     assert_eq!(provider, "firecrawl", "back after its Retry-After");
     let (provider, _) = engine.web_search("s1", query("rust")).await.unwrap();
     assert_eq!(provider, "exa", "a session keeps the provider that last answered it");
+}
+
+#[tokio::test]
+async fn a_failure_that_is_not_the_key_skips_the_providers_other_keys() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_broken.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    for key in ["f1", "f2", "f3"] {
+        engine.add_search_key("firecrawl", key).unwrap();
+    }
+    engine.add_search_key("exa", "e1").unwrap();
+    choose(&engine, "auto", &["firecrawl", "exa"]);
+
+    let (provider, _) = engine.web_search("s1", query("rust")).await.unwrap();
+    assert_eq!(provider, "exa");
+    assert_eq!(asked(&behaviour, "firecrawl:f1"), 1);
+    assert_eq!(asked(&behaviour, "firecrawl:f2") + asked(&behaviour, "firecrawl:f3"), 0);
+
+    behaviour.firecrawl_broken.store(false, Ordering::SeqCst);
+    let (provider, _) = engine.web_search("s2", query("rust")).await.unwrap();
+    assert_eq!(provider, "firecrawl", "the key was not set aside");
+    assert_eq!(asked(&behaviour, "firecrawl:f1"), 2);
 }
 
 #[tokio::test]

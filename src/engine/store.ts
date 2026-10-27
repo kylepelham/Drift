@@ -13,20 +13,21 @@ import type { BrowserRecord } from "./browsers";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
 import type {
+    Grammar,
     McpServerConfig,
     McpServerConfigView,
     McpServerStatus,
     PermissionRule,
     TaskRecord,
 } from "./native/client";
-export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord };
+export type { Grammar, McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord };
 export type { QuestionInfo, QuestionRequest } from "./questions";
 export type Permission = components["schemas"]["PermissionRequest"] & { directory?: string };
 type Todo = components["schemas"]["Todo"];
 export type QueuedPrompt = components["schemas"]["QueuedPrompt"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
-export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
+export type { ModelInfo, ProviderAccount, ProviderFamily, ProviderInfo } from "./catalog";
 export type ModelRef = { providerID: string; modelID: string };
 /** An agent as the engine resolved it for the workspace, Settings overrides applied. */
 export type AgentInfo = {
@@ -168,6 +169,8 @@ export type EngineState = {
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
+    /** Grammars plugins add, which highlighting loads beside the bundled languages. */
+    grammars: Grammar[];
     connected: string[];
     /** Each provider's stored accounts, first used first. */
     providerAccounts: Record<string, ProviderAccount[]>;
@@ -209,6 +212,21 @@ export function recordLink(link: { child: string; parent: string }) {
     if (links[link.child] === link.parent) return;
 
     links[link.child] = link.parent;
+    saveLinks(links);
+}
+
+/** Drops every link to or from a purged session, from the store's copy and the saved one. */
+export function forgetLinks(live: Record<string, string>, id: string) {
+    const saved = loadLinks();
+    for (const links of [live, saved]) {
+        for (const [child, parent] of Object.entries(links)) {
+            if (child === id || parent === id) delete links[child];
+        }
+    }
+    saveLinks(saved);
+}
+
+function saveLinks(links: Record<string, string>) {
     try {
         localStorage.setItem("drift.links", JSON.stringify(links));
     } catch {
@@ -241,6 +259,7 @@ export function createEngineState() {
         browsers: {},
         providers: [],
         mcpServers: {},
+        grammars: [],
         connected: [],
         providerAccounts: {},
         defaultModels: {},

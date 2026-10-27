@@ -1,7 +1,8 @@
+import { pluginGrammarsRevision, pluginLanguage, shikiHtml, shikiTokens } from "../syntax-grammars";
 import { syntaxTheme } from "../state/code";
 import DOMPurify from "dompurify";
 
-import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki";
+import type { BundledTheme, LanguageRegistration } from "shiki";
 import type * as Shiki from "shiki";
 
 export type SyntaxToken = { content: string; color?: string; fontStyle?: number };
@@ -103,13 +104,18 @@ function tokenOutputSize(lines: SyntaxToken[][]) {
     return size;
 }
 
+// The plugin grammars' revision is part of the key, so a grammar added or removed is used at once.
+function cacheKey(theme: string, lang: string, code: string) {
+    return `${pluginGrammarsRevision()}\0${theme}\0${lang}\0${code}`;
+}
+
 function shikiSourceSize(key: string, code: string) {
     return key.length + code.length + perSourceEntryOverhead;
 }
 
 export async function codeTokens(code: string, lang: string): Promise<SyntaxToken[][]> {
     const theme = syntaxTheme() as BundledTheme;
-    const key = `${theme}\0${lang}\0${code}`;
+    const key = cacheKey(theme, lang, code);
     const cached = tokenCache.get(key);
     if (cached) return cached.catch(() => []);
 
@@ -119,8 +125,10 @@ export async function codeTokens(code: string, lang: string): Promise<SyntaxToke
 }
 
 function mainThreadTokens(code: string, lang: string, theme: BundledTheme) {
+    const grammar = pluginLanguage(lang)?.registration;
+
     return (shikiModule ??= import("shiki"))
-        .then((shiki) => shiki.codeToTokens(code, { lang: lang as BundledLanguage | SpecialLanguage, theme }))
+        .then((shiki) => shikiTokens(shiki, code, lang, theme, grammar))
         .then((value) =>
             value.tokens.map((line) =>
                 line.map((token) => ({ content: token.content, color: token.color, fontStyle: token.fontStyle })),
@@ -140,6 +148,9 @@ type Waiting = {
     theme: BundledTheme;
 };
 const waiting = new Map<number, Waiting>();
+// The plugin grammars the worker holds; each goes over once per revision, with the first request that needs it.
+const sentGrammars = new Set<string>();
+let sentRevision = 0;
 
 /** Tokens from the syntax worker; none where workers are unavailable (the test runner), so the main thread does it. */
 function workerTokens(code: string, lang: string, theme: BundledTheme): Promise<SyntaxToken[][]> | undefined {
@@ -148,9 +159,19 @@ function workerTokens(code: string, lang: string, theme: BundledTheme): Promise<
     if (!worker) return undefined;
 
     const id = ++nextRequest;
+    if (sentRevision !== pluginGrammarsRevision()) {
+        sentRevision = pluginGrammarsRevision();
+        sentGrammars.clear();
+    }
+    const plugin = pluginLanguage(lang);
+    let grammar: LanguageRegistration | undefined;
+    if (plugin && !sentGrammars.has(plugin.id)) {
+        sentGrammars.add(plugin.id);
+        grammar = plugin.registration;
+    }
     return new Promise((resolve, reject) => {
         waiting.set(id, { resolve, reject, code, lang, theme });
-        worker!.postMessage({ id, code, lang, theme });
+        worker!.postMessage({ id, code, lang: plugin?.id ?? lang, theme, grammar });
     });
 }
 
@@ -179,12 +200,13 @@ function startWorker() {
 }
 
 export function highlightedCode(code: string, lang: string, theme: BundledTheme) {
-    const key = `${theme}\0${lang}\0${code}`;
+    const key = cacheKey(theme, lang, code);
     const cached = highlightCache.get(key);
     if (cached) return cached;
 
+    const grammar = pluginLanguage(lang)?.registration;
     const result = (shikiModule ??= import("shiki"))
-        .then((shiki) => shiki.codeToHtml(code, { lang, theme }))
+        .then((shiki) => shikiHtml(shiki, code, lang, theme, grammar))
         .then((html) => DOMPurify.sanitize(html));
 
     return highlightCache.set(key, shikiSourceSize(key, code), result);

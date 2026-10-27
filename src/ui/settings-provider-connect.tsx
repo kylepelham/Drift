@@ -7,12 +7,15 @@ import { t } from "../state/i18n";
 
 import type { ProviderNotice } from "./settings-providers";
 import type { ProviderAuthMethod } from "./settings";
+import type { JSX } from "solid-js";
 
 export function ProviderConnect(props: {
     providerId: string;
     providerName: string;
     connected: boolean;
     methods: ProviderAuthMethod[];
+    /** The family's other routes, shown before the sign-in methods. */
+    tabs?: JSX.Element;
     onNotice: (notice: ProviderNotice) => void;
 }) {
     const engine = useEngine();
@@ -124,19 +127,15 @@ export function ProviderConnect(props: {
 
     return (
         <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
-            <Show when={props.methods.length > 1 || props.connected}>
+            <Show when={props.tabs || props.methods.length > 1 || props.connected}>
                 <div class="flex items-center gap-2">
-                    <Show when={props.methods.length > 1} fallback={<div class="flex-1" />}>
-                        <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                    <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                        {props.tabs}
+                        <Show when={props.methods.length > 1}>
                             <For each={props.methods}>
                                 {(item, index) => (
-                                    <button
-                                        class="rounded-full border px-3 py-1 text-xs transition-colors"
-                                        classList={{
-                                            "border-accent/50 bg-accent/10 text-ink": index() === methodIndex(),
-                                            "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted":
-                                                index() !== methodIndex(),
-                                        }}
+                                    <ProviderTab
+                                        active={index() === methodIndex()}
                                         onClick={() => {
                                             setMethodIndex(index());
                                             setAuthorization(null);
@@ -144,11 +143,11 @@ export function ProviderConnect(props: {
                                         }}
                                     >
                                         {item.label}
-                                    </button>
+                                    </ProviderTab>
                                 )}
                             </For>
-                        </div>
-                    </Show>
+                        </Show>
+                    </div>
                     <Show when={props.connected}>
                         <button
                             class="h-8 shrink-0 rounded-md border border-danger/40 px-3 text-xs font-medium text-danger transition-colors hover:border-danger/60 hover:bg-danger/10 disabled:opacity-40"
@@ -238,6 +237,24 @@ export function ProviderConnect(props: {
                 </div>
             </Show>
         </div>
+    );
+}
+
+export function ProviderTab(props: { active: boolean; title?: string; onClick: () => void; children: JSX.Element }) {
+    return (
+        <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
+            classList={{
+                "border-accent/50 bg-accent/10 text-ink": props.active,
+                "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": !props.active,
+            }}
+            title={props.title}
+            aria-pressed={props.active}
+            onClick={() => props.onClick()}
+        >
+            {props.children}
+        </button>
     );
 }
 

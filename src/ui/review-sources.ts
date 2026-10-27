@@ -15,6 +15,7 @@ export function defaultBase(refs: ReviewRefs | undefined) {
 export function sourceTitle(source: ReviewSource, refs: ReviewRefs | undefined) {
     if (source.kind === "turn") return { text: t("drift.review.source.turn") };
     if (source.kind === "uncommitted") return { text: t("drift.review.source.uncommitted") };
+    if (source.kind === "files") return { text: t("drift.review.source.files") };
     if (source.kind === "branch") return { text: source.target, to: refs?.branch ?? "HEAD" };
 
     const commit = refs?.commits.find((item) => item.id === source.target);
