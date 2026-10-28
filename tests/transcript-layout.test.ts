@@ -251,3 +251,19 @@ test("the code view paints its background on the scroller, not on the inner bloc
     expect(css).not.toContain(".code-view pre.shiki");
     expect(css).toContain('data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view, .diff-view');
 });
+
+test("a step whose calls all joined the group above draws nothing of its own, so it only carries the indicator", async () => {
+    const { groupAssistantEntries } = await import("../src/ui/message-groups");
+    const { rowContent } = await import("../src/ui/timeline-state");
+    const step = (id: string, parts: unknown[]) =>
+        ({ info: { id, sessionId: "s1", role: "assistant", createdAt: 1 }, parts }) as unknown as MessageEntry;
+    const first = step("a1", [tool("r1", "a1")]);
+    const second = step("a2", [{ ...tool("r2", "a2"), status: "running" }]);
+    const kinds = { commands: true, edits: false, fetches: false, mcp: false, other: false };
+    const groups = groupAssistantEntries([first, second], kinds);
+
+    expect(groups.get("a2")).toEqual([]);
+    expect(rowContent(second, groups.get("a2"))).toBe(false);
+    expect(rowContent(first, groups.get("a1"))).toBe(true);
+    expect(rowContent(step("a3", [text("t1", "a3")]), undefined)).toBe(false);
+});

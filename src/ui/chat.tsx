@@ -42,6 +42,7 @@ import {
     copiedCount,
     entryResults,
     retryInFlight,
+    rowContent,
     thinkingState,
     timelineEntries,
     timelineParts,
@@ -171,7 +172,7 @@ export function Chat(props: { dock: JSX.Element }) {
         return new Map(list.map((entry, index) => [entry.info.id, list[index + 1]]));
     });
     const thinkingOnly = (entry?: MessageEntry) =>
-        !!entry && thinking()?.messageID === entry.info.id && !messageVisible(entry);
+        !!entry && thinking()?.messageID === entry.info.id && !rowContent(entry, assistantGroups().get(entry.info.id));
     const collapsedSummary = (entry: MessageEntry) =>
         entry.info.role === "assistant" && !!entry.info.summary && collapseCompaction() && compactionCollapsed();
 

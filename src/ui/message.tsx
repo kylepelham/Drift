@@ -369,7 +369,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
 
-    const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
+    const visible = () => groups().length > 0 || !!problem() || footer();
     createAutoRead(
         () => props.entry,
         () => !!props.footer,
@@ -393,6 +393,8 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const turnOver = () =>
         !sessionBusy(engine.state, info().sessionId) ||
         engine.state.transcripts[info().sessionId]?.at(-1)?.info.id !== info().id;
+    // Shown mid-turn, a step's footer took space only until the next step began, pushing the transcript and back.
+    const footer = () => !!props.footer && !!info().finishedAt && turnOver();
 
     return (
         <Show when={visible()}>
@@ -451,10 +453,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         </Show>
                     )}
                 </Show>
-                <Show when={props.footer && info().finishedAt && turnOver() && editedFilesCard()}>
+                <Show when={footer() && editedFilesCard()}>
                     <EditedFilesCard entry={props.entry} />
                 </Show>
-                <Show when={props.footer && info().finishedAt}>
+                <Show when={footer()}>
                     <div class="message-actions touch-reveal flex items-center gap-3 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
                         <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>

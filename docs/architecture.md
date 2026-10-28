@@ -353,6 +353,11 @@ lands in. Neighbouring replies still merge their groups on every pass, from copi
 reply's own groups never grow. The transcript skips its sort when it is already in order, and a row
 with a measured height is never estimated.
 
+A running turn only grows the transcript. The thinking indicator sits tight under the row above
+when the step it belongs to draws nothing of its own (`rowContent`): hidden reasoning, or calls that
+all joined the group above. A finished step's footer waits for the turn to end. Both used to show
+for the moment between one step finishing and the next starting, pushing the view and pulling it back.
+
 `src/ui/chat.tsx` owns the transcript scroller: stickiness, gestures, paging and search
 jumps. Row height estimates, the virtual range and stick thresholds are in
 `timeline-virtual.ts`; which messages become rows, retry and thinking state are in

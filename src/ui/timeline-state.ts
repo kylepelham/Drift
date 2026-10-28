@@ -50,6 +50,13 @@ export function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
     return groups.flatMap((group) => groupMembers(group) ?? ("part" in group ? [group.part] : []));
 }
 
+/** Whether a row draws anything of its own: a step whose calls all joined the group above draws nothing. */
+export function rowContent(entry: MessageEntry, groups: PartGroup[] | undefined) {
+    if (entry.info.role !== "assistant") return messageVisible(entry);
+
+    return !!groups?.length || !!entry.info.summary || !!messageProblem(entry.info);
+}
+
 export function timelineRowVisible(
     entry: MessageEntry,
     groups: PartGroup[] | undefined,
