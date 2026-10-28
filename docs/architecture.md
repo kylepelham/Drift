@@ -163,7 +163,9 @@ click navigates or expands. Attachments and `@` mentions render from `file-part.
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed
-file. Write output renders every line immediately, then lazily highlights 160-line
+file. Each patch file builds and highlights its diff only once it comes within 600px of the
+view, holding roughly its height until then, so expanding a large patch costs only the files
+on screen. Write output renders every line immediately, then lazily highlights 160-line
 chunks near its own scroll viewport; large files stay complete and cheap to open.
 Assistant Markdown code blocks keep their original source beside the rendered DOM and
 add a top-right icon copy control, so Shiki token markup never changes copied text.
@@ -323,8 +325,10 @@ notices and errors the frontend writes itself all go through `t()`; error text t
 sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
 The About section shows the app version, the live engine version, whether this copy can
-update itself, a link to driftagent.dev, and credit to OpenCode. Update capability loads
-once with the settings host and its row always occupies space. The jellyfish uses the
+update itself, a link to driftagent.dev, and credit to OpenCode. Settings and the MCP manager
+are lazy chunks: `src/state/settings.ts` holds the open state and `openSettings`, and the dialog's
+code loads the first time it opens. Update capability loads once when the dialog first mounts,
+and its row always occupies space. The jellyfish uses the
 same model and shaders as driftagent.dev and imports them with three.js only on mount, as
 a lazy chunk outside the startup bundle. A static logo occupies the frame until the first
 WebGL frame has rendered off-DOM. Reduced motion keeps that logo. Leaving About removes
@@ -375,7 +379,8 @@ DOM. The latest appended rendered text is split into bounded inline segments and
 CSS opacity animation at the chosen typing speed. Small updates reveal per character, while large
 updates group characters into at most 240 segments. Delayed segments stay out of layout until their
 fade begins, so invisible backlog cannot expand the message. JavaScript never mutates text or reparses
-Markdown from an animation frame. Initial, mounted buffered, and historical renders stay instant. A
+Markdown from an animation frame, and an update queued behind a reveal is not parsed until the reveal
+ends and it redraws. Initial, mounted buffered, and historical renders stay instant. A
 live reveal drains normally after provider completion; reduced motion, loss of live status, or Stop
 completes it immediately. Transcript scrolling never changes reveal progress.
 

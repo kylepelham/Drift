@@ -1844,6 +1844,8 @@ export interface components {
             permissions: components["schemas"]["Rule"][];
             /** @description Config files that could not be read; a turn refuses to start rather than run without their rules. */
             problems?: string[];
+            /** @description The project drift.json's allow rules, which rank below every rule of the user's. */
+            projectAllows?: components["schemas"]["Rule"][];
             /** @description Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`. */
             projectCommands?: string[];
             /** @description Named folders and repositories outside the workspace, the user's before the project's. */

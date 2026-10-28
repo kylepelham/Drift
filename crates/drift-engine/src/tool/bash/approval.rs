@@ -28,9 +28,11 @@ pub(super) fn why_it_asks(context: &Context, directory: &Path, ask: &Ask) -> Opt
         .filter_map(|(index, command)| command_reason(context, directory, command, ask.canonical.get(index)));
 
     reasons.next().or_else(|| {
+        // The tokenizer left out only the sinks of the line's own shell; PowerShell writes /dev/null as a file.
         ask.writes
             .iter()
-            .find_map(|target| target_reason(context, directory, target))
+            .filter(|target| !target.is_empty())
+            .find_map(|target| path_reason(context, directory, target))
     })
 }
 

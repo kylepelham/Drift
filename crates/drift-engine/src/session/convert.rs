@@ -75,31 +75,31 @@ pub(crate) fn append<'a>(
 }
 
 /// Older sessions may repeat ids that providers reject, such as Gemini's call_1 in every step.
-/// Repeated ids are suffixed on the call and its corresponding result.
+/// Repeated ids are suffixed on the call and its corresponding result, the nth result going to the nth call.
 fn unique_ids(used: &mut std::collections::HashSet<String>, calls: &mut [Block], results: &mut [Block]) {
-    let mut renamed = Vec::new();
+    let mut sent = Vec::new();
     for block in calls.iter_mut() {
         let Block::ToolUse { id, .. } = unsigned_mut(block) else {
             continue;
         };
-        if used.insert(id.clone()) {
-            continue;
+        if !used.insert(id.clone()) {
+            let fresh = (2..)
+                .map(|index| format!("{id}_{index}"))
+                .find(|candidate| !used.contains(candidate))
+                .unwrap_or_default();
+            used.insert(fresh.clone());
+            sent.push((std::mem::replace(id, fresh.clone()), fresh));
+        } else {
+            sent.push((id.clone(), id.clone()));
         }
-
-        let fresh = (2..)
-            .map(|index| format!("{id}_{index}"))
-            .find(|candidate| !used.contains(candidate))
-            .unwrap_or_default();
-        used.insert(fresh.clone());
-        renamed.push((std::mem::replace(id, fresh.clone()), fresh));
     }
 
     for block in results.iter_mut() {
         let Block::ToolResult { call_id, .. } = block else {
             continue;
         };
-        if let Some(index) = renamed.iter().position(|(old, _)| old == call_id) {
-            *call_id = renamed.remove(index).1;
+        if let Some(index) = sent.iter().position(|(old, _)| old == call_id) {
+            *call_id = sent.remove(index).1;
         }
     }
 }

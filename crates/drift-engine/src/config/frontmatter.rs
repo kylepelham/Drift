@@ -333,7 +333,10 @@ mod tests {
             "---\npermission:\n  read:\n    \"*\": allow\n    \"private*\": deny\n  bash: ask\nvariant: high\n---\nbody",
         );
         let rules = doc.permissions().unwrap().into_iter().rev().collect();
-        let policy = crate::permission::Policy { rules };
+        let policy = crate::permission::Policy {
+            rules,
+            ..Default::default()
+        };
         assert_eq!(
             policy.explicit(&crate::tool::Ask::new("read", "private.txt", "")),
             Some(crate::permission::Decision::Deny)
@@ -364,7 +367,11 @@ mod tests {
                 .into_iter()
                 .rev()
                 .collect();
-            crate::permission::Policy { rules }.explicit(&crate::tool::Ask::new(kind, target, ""))
+            crate::permission::Policy {
+                rules,
+                ..Default::default()
+            }
+            .explicit(&crate::tool::Ask::new(kind, target, ""))
         };
         let flow = "permission: { edit: deny, bash: { \"*\": ask, 'git *': allow } }";
         assert_eq!(decide(flow, "edit", "a.rs"), Some(Decision::Deny));

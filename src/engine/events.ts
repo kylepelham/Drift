@@ -3,6 +3,7 @@ import { hiddenParent, sessionInWorkspace } from "./sessions";
 import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
 import {
+    asksRevisionKey,
     bumpRevision,
     forgetLinks,
     forgetSession,
@@ -351,6 +352,7 @@ function addQuestion(set: SetEngineState, question: QuestionRequest) {
             const list = draft.questions[question.sessionId] ?? [];
             if (!list.some((existing) => existing.id === question.id)) list.push(question);
             draft.questions[question.sessionId] = list;
+            bumpRevision(draft, asksRevisionKey);
         }),
     );
 }
@@ -361,6 +363,7 @@ function dropQuestion(set: SetEngineState, sessionID: string, requestID: string)
         produce((draft) => {
             const list = draft.questions[sessionID];
             if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID);
+            bumpRevision(draft, asksRevisionKey);
         }),
     );
 }
@@ -371,6 +374,7 @@ function addPermission(set: SetEngineState, permission: Permission) {
             const list = draft.permissions[permission.sessionId] ?? [];
             if (!list.some((existing) => existing.id === permission.id)) list.push(permission);
             draft.permissions[permission.sessionId] = list;
+            bumpRevision(draft, asksRevisionKey);
         }),
     );
 }
@@ -380,6 +384,7 @@ function dropPermission(set: SetEngineState, sessionID: string, permissionID: st
         produce((draft) => {
             const list = draft.permissions[sessionID];
             if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID);
+            bumpRevision(draft, asksRevisionKey);
         }),
     );
 }

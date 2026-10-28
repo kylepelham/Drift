@@ -147,7 +147,10 @@ impl Editor {
             pattern: "*".into(),
             decision: Decision::Ask,
         };
-        self.engine.permissions.set_policy(Policy { rules: vec![rule] });
+        self.engine.permissions.set_policy(Policy {
+            rules: vec![rule],
+            ..Default::default()
+        });
     }
 }
 

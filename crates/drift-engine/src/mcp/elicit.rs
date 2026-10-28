@@ -24,7 +24,7 @@ struct Caller {
     abort: CancellationToken,
 }
 
-/// The calls in flight on one connection; a server's question goes to the newest.
+/// The calls in flight on one connection; a server's question goes to the newest, when all are one session's.
 #[derive(Default)]
 pub(super) struct Callers {
     next: AtomicU64,
@@ -62,15 +62,22 @@ impl Callers {
         }
     }
 
-    fn newest(&self) -> Option<Caller> {
-        self.list.lock().unwrap().last().cloned()
+    /// The newest call, unless calls from more than one session are in flight: the protocol does not say
+    /// which call asked, and a question must never reach, or be answered from, another conversation.
+    fn asker(&self) -> Option<Caller> {
+        let list = self.list.lock().unwrap();
+        let newest = list.last()?;
+
+        list.iter()
+            .all(|caller| caller.session_id == newest.session_id)
+            .then(|| newest.clone())
     }
 }
 
 /// Asks the user and answers the server: accept with the content, decline on a dismissed card, cancel on Stop.
-/// A question with no call to belong to is declined.
+/// A question with no call to belong to, or with calls from several sessions to choose between, is declined.
 pub(super) async fn answer(callers: &Callers, request: ElicitRequestParams) -> ElicitResult {
-    let Some(caller) = callers.newest() else {
+    let Some(caller) = callers.asker() else {
         return ElicitResult::new(ElicitationAction::Decline);
     };
 
@@ -139,4 +146,28 @@ async fn ask(caller: &Caller, questions: Vec<Question>) -> Result<Vec<Vec<String
     }
 
     answers.ok_or(ElicitationAction::Decline)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::tests::Sandbox;
+
+    #[test]
+    fn a_question_is_asked_only_where_every_call_in_flight_belongs() {
+        let callers = Arc::new(Callers::default());
+        let mut first = Sandbox::new("elicit-first");
+        first.ctx.session_id = "ses_a".into();
+        let mut second = Sandbox::new("elicit-second");
+        second.ctx.session_id = "ses_b".into();
+
+        let one = callers.enter(&first.ctx, "srv");
+        assert_eq!(callers.asker().map(|caller| caller.session_id), Some("ses_a".into()));
+        let other = callers.enter(&second.ctx, "srv");
+        assert!(callers.asker().is_none(), "two sessions in flight: nobody is asked");
+        drop(one);
+        assert_eq!(callers.asker().map(|caller| caller.session_id), Some("ses_b".into()));
+        drop(other);
+        assert!(callers.asker().is_none());
+    }
 }

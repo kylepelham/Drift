@@ -31,7 +31,8 @@ uses it.
 - The user's own config is `~/.config/drift`: `drift.json` (model, permission rules,
   providers, formatters, checks, language servers, skill paths), `AGENTS.md`, and `agents/`,
   `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
-  and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers.
+  and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers, and its
+  allow rules rank below every rule of the user's, so it can tighten permissions but not loosen them.
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
   servers and config once, in the background, from opencode v1 and v2 alike ("Importing opencode
   conversations" in engine-rewrite.md).

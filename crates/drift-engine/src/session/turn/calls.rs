@@ -43,15 +43,21 @@ impl Engine {
 
         let mut reads = Vec::new();
 
-        for row in rows {
-            if !call_mutates(plan, &row) {
-                reads.push(row);
+        for mut row in rows {
+            let call = match self.prepare_call(&scope, &mut row).await {
+                Ok(call) => call,
+                Err(Outcome::Aborted) => return Outcome::Aborted,
+                Err(_) => continue,
+            };
+            // Judged on the input that runs, so a plugin's rewrite into a write is never run beside reads.
+            if !call.tool.call_mutates(&call.input) {
+                reads.push((row, call));
                 continue;
             }
             if self.run_reads(&scope, std::mem::take(&mut reads)).await == Outcome::Aborted {
                 return Outcome::Aborted;
             }
-            if self.run_call(&scope, row).await == Outcome::Aborted {
+            if self.run_call(&scope, row, call).await == Outcome::Aborted {
                 return Outcome::Aborted;
             }
         }
@@ -64,8 +70,9 @@ impl Engine {
         outcome
     }
 
-    async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<PartRow>) -> Outcome {
-        let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(scope, row))).await;
+    async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<(PartRow, PreparedCall)>) -> Outcome {
+        let outcomes =
+            futures_util::future::join_all(reads.into_iter().map(|(row, call)| self.run_call(scope, row, call))).await;
 
         if outcomes.contains(&Outcome::Aborted) {
             Outcome::Aborted
@@ -74,11 +81,7 @@ impl Engine {
         }
     }
 
-    pub(super) async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
-        let mut call = match self.prepare_call(scope, &mut row).await {
-            Ok(call) => call,
-            Err(outcome) => return outcome,
-        };
+    async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow, mut call: PreparedCall) -> Outcome {
         let hooked = (!self.hooks.is_empty()).then(|| call.input.clone());
         let writes = call.tool.call_mutates(&call.input);
         let touches = writes.then(|| call.tool.touches(&call.context, &call.input));
@@ -314,7 +317,7 @@ impl Engine {
             .data_dir
             .join("tool-output")
             .join(&scope.plan.session.id)
-            .join(format!("{call_id}.result.log"));
+            .join(format!("{}.result.log", crate::tool::call_file_name(call_id)));
         let (text, spilled) = crate::tool::spool::bound(text, spill);
         if let Some(file) = spilled {
             let spill_metadata = ToolMetadata {
@@ -363,16 +366,6 @@ fn invalid_input(tool: &dyn Tool, input: &Value) -> Option<String> {
         "The call did not run: {}. Send it again with arguments that fit the tool's schema.",
         problems.join("; ")
     ))
-}
-
-fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
-    match &row.part {
-        Part::ToolCall { name, input, .. } => plan
-            .offer
-            .tool_named(name)
-            .is_some_and(|(_, tool)| tool.call_mutates(input)),
-        _ => false,
-    }
 }
 
 /// What the model hears for arguments that never parsed: the parser's own complaint, so it can fix the call.

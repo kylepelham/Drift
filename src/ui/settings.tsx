@@ -1,14 +1,14 @@
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { afterOverlayBack, bindOverlayBack, overlayBackPending, popOverlayBack } from "../state/overlay-back";
-import { sections, sectionLabels, sectionGroups, settingsSearchResults } from "./settings-search";
+import { sectionLabels, sectionGroups, settingsSearchResults } from "./settings-search";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
-import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation";
 import { AboutSection, preloadUpdateSupport } from "./settings-about";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { NotificationsSection } from "./settings-notifications";
 import { RemoteAccessSection } from "./settings-remote-access";
 import { IconChevronLeft, IconSearch, IconX } from "./icons";
 import { PermissionsSection } from "./settings-permissions";
+import { parseNavigationHash } from "../state/navigation";
 import { AppearanceSection } from "./settings-appearance";
 import { ToolExecutionSection } from "./settings-tools";
 import { ProvidersSection } from "./settings-providers";
@@ -25,27 +25,23 @@ import { VoiceSection } from "./settings-voice";
 import { preloadJellyfish } from "./jellyfish";
 import { SectionIcon } from "./settings-icons";
 import { CodeSection } from "./settings-code";
+import { McpManagement } from "./mcp/manager";
 import { isRemoteRuntime } from "../runtime";
 import { Portal } from "solid-js/web";
-import { McpManagement } from "./mcp";
 import { t } from "../state/i18n";
+import {
+    setSettingsDetail,
+    setSettingsOpen,
+    setSettingsSection,
+    settingsDetail,
+    settingsSection,
+} from "../state/settings";
 
-import type { Section, SettingsSearchItem } from "./settings-search";
 import type { ProviderAuthMethod } from "../engine/provider-auth";
+import type { SettingsSearchItem } from "./settings-search";
+import type { Section } from "../state/settings";
 
 export type { ProviderAuthMethod };
-
-const [settingsOpen, setSettingsOpen] = createSignal(false);
-const [settingsSection, setSettingsSection] = createSignal<Section>("General");
-const [settingsDetail, setSettingsDetail] = createSignal(false);
-
-export function openSettings(section?: Section) {
-    setSettingsSection(section && sections.includes(section) ? section : "General");
-    setSettingsDetail(!!section);
-    if (!settingsOpen()) pushRemoteOverlay("settings");
-
-    setSettingsOpen(true);
-}
 
 /** Another page's link to a bundle: Plugins, on that bundle's screen. */
 function showBundle(id: string) {
@@ -53,7 +49,8 @@ function showBundle(id: string) {
     setSettingsSection("Plugins");
 }
 
-export function SettingsHost() {
+/** The open dialog; `src/app.tsx` loads this module only once Settings first opens. */
+export function SettingsDialog() {
     onMount(preloadUpdateSupport);
     onMount(() => {
         const sync = () => {
@@ -74,11 +71,9 @@ export function SettingsHost() {
     };
 
     return (
-        <Show when={settingsOpen()}>
-            <Portal>
-                <SettingsModal onClose={close} />
-            </Portal>
-        </Show>
+        <Portal>
+            <SettingsModal onClose={close} />
+        </Portal>
     );
 }
 

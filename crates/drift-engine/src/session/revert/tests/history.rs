@@ -242,6 +242,7 @@ async fn a_shell_commands_changes_are_reported_but_never_undone() {
             pattern: "echo made > made.txt".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
 
     std::fs::write(h._dir.join("ws/existing.txt"), "before\n").unwrap();
@@ -307,6 +308,7 @@ async fn a_file_the_session_wrote_and_a_command_then_touched_is_left_alone() {
                 decision: Decision::Allow,
             },
         ],
+        ..Default::default()
     });
     h.provider
         .push(write("a.txt", "one"))

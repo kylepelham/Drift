@@ -97,7 +97,14 @@ export function EngineProvider(props: ParentProps) {
         untrack(() => set(produce((draft) => rehomeSessions(draft, index))));
     });
 
-    async function hydrate() {
+    // One hydrate at a time: one started after an engine restart lands after any still in flight.
+    let hydration: Promise<void> = Promise.resolve();
+    function hydrate() {
+        hydration = hydration.catch(() => undefined).then(hydrateNow);
+        return hydration;
+    }
+
+    async function hydrateNow() {
         if (!client || disposed) return;
         incoming.flush();
 

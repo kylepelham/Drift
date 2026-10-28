@@ -156,7 +156,7 @@ impl Engine {
             .map(|program| program.path)
             .collect();
 
-        let formatted = self.format_written(scope.plan, &metadata, &overrides, &local).await;
+        let formatted = self.format_written(scope, &metadata, &overrides, &local).await;
         let mut metadata = metadata;
         if !formatted.is_empty() {
             crate::tool::add_note(&mut text, &mut metadata, &reformatted_note(&formatted));
@@ -185,15 +185,17 @@ impl Engine {
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
     async fn format_written(
         &self,
-        plan: &Plan,
+        scope: &CallScope<'_>,
         metadata: &ToolMetadata,
         overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>,
         local: &[PathBuf],
     ) -> Vec<String> {
+        let (plan, files) = (scope.plan, scope.files);
         let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
         for file in metadata.file_paths() {
             let before = tokio::fs::read(file).await.ok();
+            let seen = !files.changed_since_seen(Path::new(file));
             let Some(name) =
                 crate::edit::format::format(Path::new(file), &plan.workspace, &formatters, &self.store, local).await
             else {
@@ -202,6 +204,9 @@ impl Engine {
             if tokio::fs::read(file).await.ok() != before {
                 let display = crate::tool::display(Path::new(file), &plan.workspace);
                 formatted.push(format!("{name}: {display}"));
+            } else if seen {
+                // A formatter that rewrote nothing may still have touched the file's time.
+                files.restamp(Path::new(file));
             }
         }
 

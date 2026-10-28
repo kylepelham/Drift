@@ -275,6 +275,16 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_schema_this_build_does_not_know_is_refused() {
+        for version in [migrations::LATEST + 1, -1] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.pragma_update(None, "user_version", version).unwrap();
+            let refused = migrations::apply(&conn).unwrap_err().to_string();
+            assert!(refused.contains("does not know"), "{version}: {refused}");
+        }
+    }
+
+    #[test]
     fn widening_the_ending_check_keeps_the_endings_already_stored() {
         let conn = Connection::open_in_memory().unwrap();
         let widening = migrations::MIGRATIONS

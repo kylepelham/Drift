@@ -95,6 +95,8 @@ fn scope_flags_and_targets_change_the_instructions() {
     );
     assert!(clean.contains("nothing to review") && !clean.contains("report_findings` once"));
     assert!(render(&parse("high"), Some(&Scope::NotRepo)).contains("not in a git repository"));
+    let failed = render(&parse(""), Some(&Scope::Unlisted("git diff")));
+    assert!(failed.contains("`git diff` failed") && !failed.contains("nothing to review"));
 }
 
 #[test]

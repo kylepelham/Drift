@@ -120,6 +120,11 @@ async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<O
             "{name} exists and has not been read this session; read it before overwriting"
         )));
     }
+    if existing.is_some() && ctx.files.changed_since_seen(path) {
+        return Err(ToolError(format!(
+            "{name} changed on disk since it was last read; read it again before overwriting"
+        )));
+    }
     Ok(existing)
 }
 
@@ -204,6 +209,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"c\r\nd\r\n");
+    }
+
+    #[tokio::test]
+    async fn a_file_changed_since_it_was_read_is_not_overwritten() {
+        let sandbox = Sandbox::new("write-stale");
+        let path = sandbox.file("x.txt", "read\n");
+        sandbox.ctx.files.mark_read(&path);
+        let write = |content: &str| Write.run(&sandbox.ctx, json!({ "path": "x.txt", "content": content }));
+        write("mine\n").await.unwrap();
+        write("mine again\n").await.unwrap();
+
+        std::fs::write(&path, "the user's own edit\n").unwrap();
+        let err = write("stale\n").await.unwrap_err();
+        assert!(err.0.contains("changed on disk"), "{}", err.0);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "the user's own edit\n");
+
+        sandbox.ctx.files.mark_read(&path);
+        write("fresh\n").await.unwrap();
     }
 
     #[tokio::test]

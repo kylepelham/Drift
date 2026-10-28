@@ -72,6 +72,7 @@ async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
             pattern: "cargo publish*".into(),
             decision: crate::permission::Decision::Ask,
         }],
+        ..Default::default()
     });
     std::fs::write(h._dir.join("ws/NOTES.md"), "NOTE BODY").unwrap();
     command(
@@ -337,6 +338,7 @@ async fn skill_commands_are_exposed_and_authorized_before_instructions_reach_the
             pattern: "private".into(),
             decision: crate::permission::Decision::Deny,
         }],
+        ..Default::default()
     });
     h.provider.push(text("not loaded"));
     h.engine

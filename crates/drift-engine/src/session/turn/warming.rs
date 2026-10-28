@@ -109,6 +109,11 @@ impl Engine {
         Ok(())
     }
 
+    /// Ends a conversation's warming, as when it is archived or deleted.
+    pub(crate) fn stop_warming(&self, session_id: &str) {
+        self.turns.warmers.replace(session_id, None);
+    }
+
     /// Starts the session's timers again after a real request; workers and a switched-off setting never warm.
     pub(super) fn warm_after(self: &Arc<Self>, plan: &Plan) {
         let settings = self.prompt_cache();

@@ -29,11 +29,11 @@ import { Picker, type PickerItem } from "./picker";
 import { DictationStatus } from "./composer-voice";
 import { ComposerQueue } from "./composer-queue";
 import { variantNames } from "../engine/catalog";
+import { openSettings } from "../state/settings";
 import { ComposerSend } from "./composer-send";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
-import { openSettings } from "./settings";
 import { shellInvoke } from "../shell";
 import { useEngine } from "../engine";
 import {

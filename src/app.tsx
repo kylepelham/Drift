@@ -1,5 +1,5 @@
+import { createEffect, createSignal, lazy, onCleanup, onMount, Show, untrack } from "solid-js";
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces";
-import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
@@ -25,8 +25,8 @@ import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
 import { rightPanelOpen } from "./state/panels";
+import { settingsOpen } from "./state/settings";
 import { bindPathCopy } from "./ui/path-copy";
-import { SettingsHost } from "./ui/settings";
 import { StartupSplash } from "./ui/startup";
 import { McpServersModal } from "./ui/mcp";
 import { PaletteHost } from "./ui/palette";
@@ -40,6 +40,9 @@ import { PluginHost } from "./plugins";
 import { Sidebar } from "./ui/sidebar";
 import { Chat } from "./ui/chat";
 import { t } from "./state/i18n";
+
+// Settings and its pages load the first time it opens, not before the app first renders.
+const SettingsDialog = lazy(() => import("./ui/settings").then((module) => ({ default: module.SettingsDialog })));
 
 export function App() {
     bindTheme();
@@ -89,7 +92,9 @@ export function App() {
                 <Lightbox />
                 <FilePreviewHost />
                 <McpServersModal />
-                <SettingsHost />
+                <Show when={settingsOpen()}>
+                    <SettingsDialog />
+                </Show>
                 <PaletteHost />
                 <ToolContextMenuHost />
                 <ImportSummaryHost />

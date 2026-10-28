@@ -98,7 +98,9 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   replaces a later one, and once a reloaded page has written, the page it replaced is refused. A set
   past the 64 KB a request may carry while the page closes goes as its changes since the last
   snapshot the app kept (`base`), refused with 409 unless that is still the one kept. Both need the
-  launch cookie, like every route.
+  launch cookie, like every route. The page keeps its own copy of the set, updated by each write it
+  makes and by `storage` events from other pages, so a send never reads every value back out of
+  `localStorage`, and a set whose raw text is already past the limit is never encoded just to size it.
 - The manifest declares `RECORD_AUDIO`: the WebView's microphone prompt is only granted for a
   permission the app itself has, so dictation could not start without it.
 - `/app/computers` is `app.html`, a second Vite entry (`src/app/`): linked PCs (open, forget), each

@@ -85,7 +85,11 @@ pub(super) async fn audit(
         );
     }
 
-    let out = output_folder(context)?.join(format!("{}-{}", context.call_id, crate::random_hex(3)));
+    let out = output_folder(context)?.join(format!(
+        "{}-{}",
+        crate::tool::call_file_name(&context.call_id),
+        crate::random_hex(3)
+    ));
     std::fs::create_dir_all(&out).map_err(|error| error.to_string())?;
     let user_agent = driver.desktop_agent();
     let audit = Audit {
@@ -211,7 +215,11 @@ fn output_folder(context: &Context) -> Result<PathBuf, String> {
 }
 
 fn saved(context: &Context, gzipped: &[u8]) -> Result<PathBuf, String> {
-    let path = output_folder(context)?.join(format!("{}-{}.trace.json.gz", context.call_id, crate::random_hex(3)));
+    let path = output_folder(context)?.join(format!(
+        "{}-{}.trace.json.gz",
+        crate::tool::call_file_name(&context.call_id),
+        crate::random_hex(3)
+    ));
     std::fs::write(&path, gzipped).map_err(|error| format!("the trace could not be saved: {error}"))?;
 
     Ok(path)

@@ -67,6 +67,7 @@ fn assert_workspace_grants_survive_restart(h: &Harness) {
             pattern: "cargo *".into(),
             decision: Decision::Deny,
         }],
+        ..Default::default()
     };
     assert_eq!(
         reopened.permissions.decide_now("ses_later", &deny, &ask),

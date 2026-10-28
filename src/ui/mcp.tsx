@@ -1,11 +1,11 @@
+import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { McpManagement } from "./mcp/manager";
 import { Portal } from "solid-js/web";
 import { t } from "../state/i18n";
 import { IconX } from "./icons";
 
-export { McpManagement } from "./mcp/manager";
+// The manager loads on first open, not with the app.
+const McpManagement = lazy(() => import("./mcp/manager").then((module) => ({ default: module.McpManagement })));
 
 const [open, setOpen] = createSignal(false);
 

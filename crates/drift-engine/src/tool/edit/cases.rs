@@ -78,6 +78,15 @@ async fn trailing_whitespace_is_ignored_and_untouched_lines_keep_theirs() {
 }
 
 #[tokio::test]
+async fn typography_and_trailing_whitespace_together_are_a_miss() {
+    let sandbox = Sandbox::new("edit-combined");
+    sandbox.file("both.txt", "a\u{2014}b  \nnext\n");
+
+    assert!(edit(&sandbox, call("both.txt", "a-b\nnext", "changed")).await.is_err());
+    assert_eq!(read(&sandbox, "both.txt"), "a\u{2014}b  \nnext\n");
+}
+
+#[tokio::test]
 async fn trailing_whitespace_matches_never_overlap_and_crlf_is_kept() {
     let sandbox = Sandbox::new("edit-overlap");
     sandbox.file("overlap.txt", "a  \na  \na  \n");

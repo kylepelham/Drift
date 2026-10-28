@@ -64,10 +64,14 @@ pub(super) async fn collect(
     }
 }
 
-/// Spools what a read returned; `false` once the pipe is closed or broken.
+/// Spools what a read returned; `false` once the pipe is closed or broken, a break said in the output.
 fn take(read: std::io::Result<usize>, buffer: &[u8], spool: &mut Spool) -> bool {
     match read {
-        Ok(0) | Err(_) => false,
+        Ok(0) => false,
+        Err(error) => {
+            spool.push(format!("\n[the rest of this output could not be read: {error}]\n").as_bytes());
+            false
+        }
         Ok(bytes) => {
             spool.push(&buffer[..bytes]);
             true

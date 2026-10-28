@@ -23,6 +23,8 @@ export type EventStream = {
 const initialBackoffMs = 500;
 const maxBackoffMs = 10_000;
 const hydrateRetryMs = 1_000;
+/** Events held while a hydrate keeps failing; past this they are dropped for a hydrate at the newest one. */
+const maxHeld = 5_000;
 
 export function connectEvents(target: Target, handlers: EventHandlers): EventStream {
     let cursor: number | undefined;
@@ -112,8 +114,13 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
         // Replies go over HTTP, which reports their outcome; a socket reply's result carries no seq.
         if (frame.type === "question.result") return;
 
-        if (held) held.push(frame);
-        else applyEvent(frame);
+        if (!held) applyEvent(frame);
+        else if (held.length < maxHeld) held.push(frame);
+        else {
+            // The hydrate fetched after this event covers everything held, so none of it is needed.
+            held = [];
+            wanted = frame.seq;
+        }
     };
 
     const open = () => {

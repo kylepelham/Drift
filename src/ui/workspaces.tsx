@@ -357,11 +357,12 @@ function ThreadItem(props: {
 
 /** The engine refused to archive or restore; the thread stays where it was. */
 export function archiveFailed(engine: Engine, cause: unknown) {
-    engine.actions.notice({
-        title: t("command.session.archive"),
-        message: cause instanceof Error ? cause.message : String(cause),
-        variant: "error",
-    });
+    actionFailed(engine, t("command.session.archive"), cause);
+}
+
+/** Shows why a user's action failed instead of leaving its rejection unhandled. */
+export function actionFailed(engine: Engine, title: string, cause: unknown) {
+    engine.actions.notice({ title, message: cause instanceof Error ? cause.message : String(cause), variant: "error" });
 }
 
 function StatusDot(props: { sessionId: string }) {

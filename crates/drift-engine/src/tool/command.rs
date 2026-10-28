@@ -184,6 +184,21 @@ const WRITING_ARGS: [(&str, &[&str]); 3] = [
 ];
 /// Programs that print a file they are given, so a run that succeeded has shown the model that file.
 const PRINTERS: [&str; 6] = ["cat", "type", "get-content", "head", "tail", "sed"];
+/// The printers' options whose value is the next word, so `head -n 20` never takes `20` for a file.
+const VALUE_OPTIONS: [&str; 12] = [
+    "-n",
+    "-c",
+    "--lines",
+    "--bytes",
+    "-totalcount",
+    "-head",
+    "-first",
+    "-tail",
+    "-last",
+    "-readcount",
+    "-encoding",
+    "-delimiter",
+];
 /// Commands that change the directory later words are read against.
 const MOVES: [&str; 7] = [
     "cd",
@@ -401,7 +416,7 @@ fn printed_range(arguments: &[String]) -> bool {
 /// The files a line that only reads prints (`cat a.rs`, `sed -n '1,80p' a.rs`, `Get-Content a.rs`),
 /// as written, so a model that reads through the shell may then edit them. Empty for a line that
 /// does anything else, or moves directory first, since its paths would no longer resolve from the
-/// workspace. Words that are not files (flag values such as `-n 20`) are for the caller to drop.
+/// workspace. Option values (`-n 20`) are never files; words naming no file are for the caller to drop.
 pub fn files_read(dialect: Dialect, line: &str) -> Vec<String> {
     let Some(segments) = Tokenizer::new(dialect).run(line).filter(|_| reads_only(dialect, line)) else {
         return Vec::new();
@@ -432,7 +447,22 @@ pub fn files_read(dialect: Dialect, line: &str) -> Vec<String> {
         } else {
             &words[1..]
         };
-        files.extend(rest.iter().filter(|word| !word.starts_with('-')).cloned());
+        files.extend(printed(rest));
+    }
+
+    files
+}
+
+/// A printer's arguments that name files: neither options nor the values they take.
+fn printed(arguments: &[String]) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut arguments = arguments.iter();
+    while let Some(word) = arguments.next() {
+        if VALUE_OPTIONS.iter().any(|option| option.eq_ignore_ascii_case(word)) {
+            arguments.next();
+        } else if !word.starts_with('-') {
+            files.push(word.clone());
+        }
     }
 
     files

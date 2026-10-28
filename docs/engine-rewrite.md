@@ -289,7 +289,8 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   workspace. The file is `drift-<name>-<date>.json`: the desktop asks where to save it (the shell's
   `save_json_file`, never offered to remote devices) and says where it went; a browser downloads it.
   Undo history (shadow blobs) is not in
-  a backup, so a restored conversation cannot undo file changes.
+  a backup, so a restored conversation cannot undo file changes; its undo records keep only paths
+  inside the workspace, so a crafted file can never make undo delete or overwrite a file elsewhere.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.
@@ -1663,7 +1664,8 @@ listed there.
     `docs/mcp.md`. rmcp drives both eras' requests through `ClientHandler::create_elicitation`,
     so one handler answers both. Each connection's client keeps the calls in flight on it, and a
     question goes to the newest. The protocol has no field naming which call a 2025-era request
-    belongs to, and two of Drift's calls on one connection at once are rare. A rejected answer
+    belongs to, and two of Drift's calls on one connection at once are rare; when those calls come
+    from different sessions the question is declined, so it never reaches another conversation. A rejected answer
     asks the card again with the problem shown, rather than sending it and letting the server
     refuse. The tests use the stateless HTTP stand-in; the 2025 stdio path goes through the same
     handler and is not tested separately.
@@ -2337,7 +2339,9 @@ code until he picks.
   drops them all, and what an early read read counts as read only once its result is used (it ran
   against a copy of the session's read record). So reads overlap the rest of the reply without a
   broken reply's calls ever reaching the model.
-  `edit`, `write` and `apply_patch` refuse existing files the session has not `read`; every
+  `edit`, `write` and `apply_patch` refuse existing files the session has not `read`, and `write`
+  refuses one whose size or modification time changed since this run last read or wrote it (the
+  model's own edits, patches and a formatter that rewrote nothing keep it current); every
   mutating call records what it changed in its part's metadata. A shell line that only reads and
   exits 0 counts too for each file it printed (`cat`, `type`, `head`, `tail`, `Get-Content`, and
   `sed -n '<range>p'`, which now also counts as reading; `command::files_read`), since GPT and
@@ -3060,7 +3064,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   straight after each reconnect is retried at 500 ms, 1 s, 2 s and so on up to 30 s. Only a
   connection that held for a minute starts its next reconnects from 500 ms again.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
-  (project rules first, so they win), plus agents and commands from `~/.config/drift/agents`,
+  (project deny and ask rules first, so they win; project allow rules last, below the user's and
+  Settings' rules), plus agents and commands from `~/.config/drift/agents`,
   `~/.config/drift/commands`, then the workspace's `.drift/agents/*.md`, `.drift/commands/*.md`, and
   skills (`config::skill_folders`, nearest first so a nearer skill shadows a farther one of its
   name): `.drift/skills`, `.agents/skills` and `.claude/skills` in the workspace and each parent up
@@ -3299,7 +3304,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - Policy evaluation is separate from an approval dialog. The defaults are opencode's: everything
     runs without asking except what reaches outside the workspace and files likely to hold
     secrets. Workspace reads, scratch access, searches, skills, delegation, fetches of public URLs
-    (`webfetch`; one naming this machine, a private or link-local address or a local name asks)
+    (`webfetch`; one naming this machine, a private or link-local address or a local name asks, and
+    a public name fetched unasked connects only to public addresses: one resolving to this machine or
+    its network fails, telling the model to fetch again with `private: true`, which asks)
     and every MCP call (a read-only hint matters only to read-only agents) carry an
     allow-by-default request. Explicit deny/ask rules still apply; an unmatched default request
     produces no dialog.
@@ -3356,7 +3363,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - Rules for every workspace are kept in Settings > Permissions: an ordered list (kind, glob,
     allow/ask/deny) in the `permissionRules` setting, loaded into the engine's global policy at
     startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after
-    the rules in drift.json and the first match wins, so a project's file still decides first. A
+    the rules in drift.json and the first match wins, so a project's deny and ask rules still decide
+    first; a project's allow rules are checked last, after these, so a committed file never loosens
+    a rule of the user's. A
     rule whose kind names no operation or whose pattern is no glob is refused with the reason, and
     the list holds at most 200. Below them, under "Always allowed in one workspace", a workspace
     picker (the active workspace first) shows that workspace's "always" grants, since a grant holds

@@ -4,6 +4,7 @@ use super::*;
 fn a_redirection_that_writes_a_file_needs_the_line_itself_approved() {
     let git = Policy {
         rules: vec![rule("bash", "git *", Decision::Allow)],
+        ..Default::default()
     };
     let permissions = Permissions::new(Policy::default());
 
@@ -67,6 +68,7 @@ fn redirection_grants_are_exact_and_explicit_rules_still_decide() {
     );
     let exact = Policy {
         rules: vec![rule("bash", "git status > out.txt", Decision::Allow)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &exact, &shell("git status > out.txt")),
@@ -74,6 +76,7 @@ fn redirection_grants_are_exact_and_explicit_rules_still_decide() {
     );
     let deny = Policy {
         rules: vec![rule("bash", "rm *", Decision::Deny)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &deny, &shell("rm -rf x > log.txt")),

@@ -51,6 +51,7 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
             pattern: "*".into(),
             decision: crate::permission::Decision::Ask,
         }],
+        ..Default::default()
     });
     assert_eq!(
         response_status(

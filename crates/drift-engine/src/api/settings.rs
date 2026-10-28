@@ -135,6 +135,13 @@ pub(super) async fn put(
     State(engine): State<Arc<Engine>>,
     Json(body): Json<EngineSettingsInput>,
 ) -> Result<Json<EngineSettings>, ApiError> {
+    // Everything is checked before anything is saved, so a refused request changes nothing.
+    refusal(&body)?;
+    if let Some(sources) = body.registry_sources.clone() {
+        engine
+            .set_registry_sources(sources)
+            .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error.to_string()))?;
+    }
     put_compaction(&engine, &body)?;
     if let Some(on) = body.tool_search {
         engine.store.set_setting(crate::tool::tool_search::SETTINGS_KEY, &on)?;
@@ -166,20 +173,28 @@ pub(super) async fn put(
         engine.store.set_setting(RESUME_KEY, &on)?;
     }
     if let Some(cache) = body.prompt_cache {
-        if let Some(problem) = cache.problem() {
-            return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
-        }
         engine.set_prompt_cache(&cache)?;
     }
     if let Some(options) = body.provider_options {
         engine.set_provider_options(options)?;
     }
-    if let Some(sources) = body.registry_sources {
-        engine
-            .set_registry_sources(sources)
-            .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error.to_string()))?;
-    }
     Ok(Json(current(&engine)))
+}
+
+/// Why the request is refused, checked before any of it is saved; registry sources check themselves first.
+fn refusal(body: &EngineSettingsInput) -> Result<(), ApiError> {
+    if body
+        .background_task_limit
+        .is_some_and(|limit| !(1..=crate::session::tasks::MAX_BACKGROUND_LIMIT).contains(&limit))
+    {
+        let why = LimitError::OutOfRange.to_string();
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "background_task_limit", why));
+    }
+    if let Some(problem) = body.prompt_cache.as_ref().and_then(PromptCache::problem) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
+    }
+
+    Ok(())
 }
 
 fn put_compaction(engine: &Engine, body: &EngineSettingsInput) -> Result<(), ApiError> {

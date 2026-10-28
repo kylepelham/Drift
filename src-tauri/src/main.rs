@@ -55,10 +55,9 @@ fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
 
 fn reveal_main_window(window: &tauri::WebviewWindow) {
     let first = !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst);
-    if first && position_main_window(window).is_err() {
-        return;
-    }
     if first {
+        // A window that could not be placed still shows, wherever the system put it.
+        let _ = position_main_window(window);
         placement::maximize_if_saved(window);
     }
     if window.show().is_err() {

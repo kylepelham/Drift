@@ -1,5 +1,5 @@
 use super::{Ask, ToolMetadata, canonical, display, scratch_dir, sensitive};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -9,6 +9,8 @@ use tokio_util::sync::CancellationToken;
 #[derive(Default)]
 pub struct SessionFiles {
     read: Mutex<HashSet<PathBuf>>,
+    /// Each file's size and modification time when this run last read or wrote it, to notice a change since.
+    stamps: Mutex<HashMap<PathBuf, Stamp>>,
     shown: Mutex<HashSet<PathBuf>>,
     /// Where the reads are kept, so they outlast a restart; none in a bare test context.
     kept: Option<(Arc<crate::store::Store>, String)>,
@@ -30,6 +32,14 @@ pub struct Context {
     pub progress: Progress,
     /// The model a user's command chose, set only on the call the engine makes for that command.
     pub command_model: Option<crate::session::types::ModelRef>,
+}
+
+type Stamp = (u64, Option<std::time::SystemTime>);
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    std::fs::metadata(path)
+        .ok()
+        .map(|metadata| (metadata.len(), metadata.modified().ok()))
 }
 
 /// Metadata a running call publishes as it goes (a command's output so far). It is shown, never
@@ -65,6 +75,7 @@ impl SessionFiles {
     }
 
     pub fn mark_read(&self, path: &Path) {
+        self.restamp(path);
         let new = self.read.lock().unwrap().insert(path.to_path_buf());
         if let (true, Some((store, session_id))) = (new, &self.kept) {
             let _ = store.mark_read(session_id, &path.to_string_lossy());
@@ -75,13 +86,29 @@ impl SessionFiles {
         self.read.lock().unwrap().contains(path)
     }
 
+    /// Takes the file as it is now for the version last seen: after the model's own write, or a formatter's.
+    pub fn restamp(&self, path: &Path) {
+        if let Some(now) = stamp(path) {
+            self.stamps.lock().unwrap().insert(path.to_path_buf(), now);
+        }
+    }
+
+    /// Whether something else changed the file since this run last read or wrote it; unknown is unchanged.
+    pub fn changed_since_seen(&self, path: &Path) -> bool {
+        let seen = self.stamps.lock().unwrap().get(path).copied();
+
+        seen.is_some_and(|seen| stamp(path) != Some(seen))
+    }
+
     /// Isolates speculative reads until their result is accepted via [`Self::absorb`].
     pub fn scratch(&self) -> Self {
         let read = self.read.lock().unwrap().clone();
+        let stamps = self.stamps.lock().unwrap().clone();
         let shown = self.shown.lock().unwrap().clone();
 
         Self {
             read: Mutex::new(read),
+            stamps: Mutex::new(stamps),
             shown: Mutex::new(shown),
             kept: None,
         }
@@ -91,6 +118,14 @@ impl SessionFiles {
         for path in scratch.read.lock().unwrap().iter() {
             self.mark_read(path);
         }
+        self.stamps.lock().unwrap().extend(
+            scratch
+                .stamps
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(path, stamp)| (path.clone(), *stamp)),
+        );
 
         self.shown
             .lock()

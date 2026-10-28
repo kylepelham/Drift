@@ -207,6 +207,7 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
                 decision: Decision::Allow,
             },
         ],
+        ..Default::default()
     });
     h.engine
         .store
@@ -285,6 +286,7 @@ async fn a_read_only_subagent_runs_any_shell_command_but_still_cannot_use_a_writ
                 decision: Decision::Allow,
             },
         ],
+        ..Default::default()
     });
     let explore = r#"{"description": "Look", "prompt": "analyse it", "subagent_type": "explore"}"#;
     h.provider

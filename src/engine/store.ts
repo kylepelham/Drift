@@ -358,6 +358,9 @@ export function messageRevisionKey(sessionID: string, messageID: string) {
     return `message\0${sessionID}\0${messageID}`;
 }
 
+/** Every pending permission and question together; a poll begun before a change to them is not applied. */
+export const asksRevisionKey = "asks";
+
 export function bumpRevision(draft: EngineState, key: string) {
     draft.revisions[key] = (draft.revisions[key] ?? 0) + 1;
 }

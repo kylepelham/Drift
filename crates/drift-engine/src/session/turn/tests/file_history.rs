@@ -72,6 +72,7 @@ async fn a_file_read_before_a_restart_may_be_edited_after_it() {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
     h.provider
         .push(tool_call(
@@ -294,6 +295,7 @@ async fn whole_tree_calls_in_a_step_chain_their_captures_and_a_file_tool_write_b
                 decision: Decision::Allow,
             },
         ],
+        ..Default::default()
     });
     let call = |id, name, input: serde_json::Value| call_block(id, name, &input.to_string());
     h.provider

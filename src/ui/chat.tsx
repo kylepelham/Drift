@@ -48,7 +48,7 @@ import {
     timelineRowVisible,
 } from "./timeline-state";
 
-import type { Part } from "../engine/parts";
+import type { PartGroup } from "./message-groups";
 import type { JSX } from "solid-js";
 
 const loadOlderAt = 1200;
@@ -206,7 +206,13 @@ export function Chat(props: { dock: JSX.Element }) {
     let anchor: ScrollAnchor | undefined;
     const takeAnchor = () => (anchor = untrack(stick) ? undefined : captureAnchor(scroller, headerOffset + 8));
 
-    function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
+    function rowEstimate(
+        entry: MessageEntry,
+        groups: PartGroup[] | undefined,
+        fontSize: number,
+        thinking: boolean,
+        collapsed: boolean,
+    ) {
         const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)];
         const cached = estimates.get(entry.info.id);
         if (
@@ -218,7 +224,7 @@ export function Chat(props: { dock: JSX.Element }) {
         )
             return cached.value;
 
-        const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed);
+        const value = estimatedTimelineRow(entry, fontSize, timelineParts(entry, groups), thinking, collapsed);
         estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value });
 
         return value;
@@ -237,13 +243,7 @@ export function Chat(props: { dock: JSX.Element }) {
             const entry = list[index];
             const height =
                 heights.get(entry.info.id) ??
-                rowEstimate(
-                    entry,
-                    timelineParts(entry, groups.get(entry.info.id)),
-                    fontSize,
-                    thinkingOnly(entry),
-                    collapsedSummary(entry),
-                );
+                rowEstimate(entry, groups.get(entry.info.id), fontSize, thinkingOnly(entry), collapsedSummary(entry));
             result[index + 1] = result[index] + height;
         }
 
@@ -320,8 +320,10 @@ export function Chat(props: { dock: JSX.Element }) {
     });
     onCleanup(() => viewportObserver.disconnect());
 
+    // Runs under the row's owner, so the row stops being observed (and retained) when it unmounts.
     function measureRow(element: HTMLDivElement) {
         observer.observe(element);
+        onCleanup(() => observer.unobserve(element));
     }
 
     function publishViewport() {
@@ -503,15 +505,23 @@ export function Chat(props: { dock: JSX.Element }) {
         loadingOlder = true;
 
         const before = scroller.scrollHeight - scroller.scrollTop;
-        void engine.actions.loadOlder(id).finally(() => {
-            queueMicrotask(() => {
-                loadingOlder = false;
-                if (selectedSession() !== id) return;
-                scroller.scrollTop = scroller.scrollHeight - before;
-                publishViewport();
-                takeAnchor();
+        void engine.actions
+            .loadOlder(id)
+            .catch((cause: unknown) =>
+                engine.actions.notice({
+                    message: cause instanceof Error ? cause.message : String(cause),
+                    variant: "error",
+                }),
+            )
+            .finally(() => {
+                queueMicrotask(() => {
+                    loadingOlder = false;
+                    if (selectedSession() !== id) return;
+                    scroller.scrollTop = scroller.scrollHeight - before;
+                    publishViewport();
+                    takeAnchor();
+                });
             });
-        });
     }
 
     function scrollToBottom() {

@@ -132,6 +132,8 @@ struct Found {
     /// Files skipped because they may hold secrets.
     withheld: usize,
     restricted: usize,
+    /// Files or folders the search could not read, so their matches are missing.
+    unreadable: usize,
 }
 
 impl Found {
@@ -161,6 +163,15 @@ impl Found {
                 output,
                 "\n({} files were excluded by read policy or need read approval; use read on an allowed file)",
                 self.restricted
+            )
+            .expect("writing to a String cannot fail");
+        }
+        if self.unreadable > 0 {
+            write!(
+                output,
+                "
+({} files or folders could not be read, so any matches in them are missing)",
+                self.unreadable
             )
             .expect("writing to a String cannot fail");
         }
@@ -203,15 +214,12 @@ impl First {
     }
 }
 
-/// Searches files on several threads, as ripgrep does, and lists the first matches by file then
-/// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
-/// their search at the first NUL; files that may hold secrets are skipped unless the search names
-/// one directly, which has already asked. A Stop ends the walk and every file search in it.
-fn search(search: Search<'_>) -> Result<Found, ToolError> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let (root, pattern, include) = (search.root, search.pattern, search.include);
-    let (workspace, stop, allowed) = (search.workspace, search.stop, search.allowed);
-
+/// The search's regex and its include glob, read relative to the folder searched.
+fn compile(
+    root: &Path,
+    pattern: &str,
+    include: Option<&str>,
+) -> Result<(grep::regex::RegexMatcher, Option<FileGlob>), ToolError> {
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)
@@ -225,17 +233,30 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
         .map(|glob| FileGlob::new(base, glob))
         .transpose()
         .map_err(|error| ToolError(format!("invalid include glob: {error}")))?;
+    Ok((matcher, include))
+}
+
+/// Searches files on several threads, as ripgrep does, and lists the first matches by file then
+/// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
+/// their search at the first NUL; files that may hold secrets are skipped unless the search names
+/// one directly, which has already asked. A Stop ends the walk and every file search in it.
+fn search(search: Search<'_>) -> Result<Found, ToolError> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (root, pattern, include) = (search.root, search.pattern, search.include);
+    let (workspace, stop, allowed) = (search.workspace, search.stop, search.allowed);
+
+    let (matcher, include) = compile(root, pattern, include)?;
 
     let first = First::default();
     let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
-    let restricted = AtomicUsize::new(0);
+    let (restricted, unreadable) = (AtomicUsize::new(0), AtomicUsize::new(0));
     super::walker(root).build_parallel().run(|| {
         let mut searcher = SearcherBuilder::new()
             .line_number(true)
             .binary_detection(BinaryDetection::quit(0))
             .build();
-        let (matcher, include, first, total, withheld, restricted) =
-            (&matcher, &include, &first, &total, &withheld, &restricted);
+        let (matcher, include, first, total) = (&matcher, &include, &first, &total);
+        let (withheld, restricted, unreadable) = (&withheld, &restricted, &unreadable);
         Box::new(move |entry| {
             use ignore::WalkState;
 
@@ -243,7 +264,10 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
             if stop.is_cancelled() || total.load(Ordering::Relaxed) > MAX_COUNTED {
                 return WalkState::Quit;
             }
-            let Ok(entry) = entry else { return WalkState::Continue };
+            let Ok(entry) = entry else {
+                unreadable.fetch_add(1, Ordering::Relaxed);
+                return WalkState::Continue;
+            };
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 return WalkState::Continue;
             }
@@ -261,7 +285,7 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
 
             let name = display(entry.path(), workspace);
             let mut found = Vec::new();
-            let _ = searcher.search_path(
+            let searched = searcher.search_path(
                 matcher,
                 entry.path(),
                 UTF8(|line_number, line| {
@@ -273,6 +297,9 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
                     Ok(counted <= MAX_COUNTED && !stop.is_cancelled())
                 }),
             );
+            if searched.is_err() {
+                unreadable.fetch_add(1, Ordering::Relaxed);
+            }
             first.add(found);
             WalkState::Continue
         })
@@ -291,6 +318,7 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
         total: total.into_inner(),
         withheld: withheld.into_inner(),
         restricted: restricted.into_inner(),
+        unreadable: unreadable.into_inner(),
     })
 }
 

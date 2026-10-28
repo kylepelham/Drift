@@ -41,7 +41,10 @@ fn import(config: Value, prepare: impl FnOnce(&Fixture)) -> Imported {
 }
 
 fn decide(rules: &[Rule], kind: &str, target: &str) -> Option<Decision> {
-    let policy = Policy { rules: rules.to_vec() };
+    let policy = Policy {
+        rules: rules.to_vec(),
+        ..Default::default()
+    };
     policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""))
 }
 

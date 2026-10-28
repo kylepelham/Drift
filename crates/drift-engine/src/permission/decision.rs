@@ -153,6 +153,7 @@ impl Permissions {
             .rules
             .iter()
             .chain(global.iter())
+            .chain(&workspace.after_global)
             .find(|rule| targets.iter().any(|target| rule.matches_target(kind, target)))
             .cloned();
         if rule.as_ref().is_some_and(|rule| rule.decision == Decision::Deny) {
@@ -204,14 +205,26 @@ impl Permissions {
         }
 
         let rules = agent.rules.iter().chain(&workspace.rules).cloned().collect();
-        self.decide(session_id, &Policy { rules }, ask)
+        let policy = Policy {
+            rules,
+            after_global: workspace.after_global.clone(),
+        };
+        self.decide(session_id, &policy, ask)
     }
 
     /// The agent's, workspace's and global rules in that order, compiled once for checking many files.
     pub fn compiled(&self, workspace: &Policy, agent: &Policy) -> Compiled {
         let global = self.policy.lock().unwrap().rules.clone();
 
-        Compiled::new(agent.rules.iter().chain(&workspace.rules).cloned().chain(global))
+        Compiled::new(
+            agent
+                .rules
+                .iter()
+                .chain(&workspace.rules)
+                .cloned()
+                .chain(global)
+                .chain(workspace.after_global.iter().cloned()),
+        )
     }
 
     /// A file inside a search already approved: only an explicit rule can exclude it, and an ask rule yields to a session grant.

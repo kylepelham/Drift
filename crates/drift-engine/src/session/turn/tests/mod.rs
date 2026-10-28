@@ -226,7 +226,10 @@ fn rule(h: &Harness, kind: &str, pattern: &str, decision: Decision) {
         pattern: pattern.into(),
         decision,
     };
-    h.engine.permissions.set_policy(Policy { rules: vec![rule] });
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![rule],
+        ..Default::default()
+    });
 }
 
 /// Default permissions need no approval; tests of the approval flow explicitly request one.
@@ -429,6 +432,7 @@ fn allow_edits_and_project_commands(h: &Harness) {
     };
     h.engine.permissions.set_policy(Policy {
         rules: vec![allow("edit"), allow("project-commands")],
+        ..Default::default()
     });
 }
 

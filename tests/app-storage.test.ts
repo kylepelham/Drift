@@ -82,3 +82,23 @@ test("a set too large to outlive the page goes as its changes since the last sna
     });
     Reflect.deleteProperty(globalThis, "document");
 });
+
+test("another page's writes reach the phone app through storage events, without reading storage on each flush", async () => {
+    const storage = new FakeStorage();
+    const sent: string[] = [];
+    const page = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    Object.assign(globalThis, { document: page });
+    keepAppStorage(
+        storage as unknown as Storage,
+        (body) => sent.push(body),
+        FakeStorage.prototype as unknown as Storage,
+    );
+    await Bun.sleep(400);
+
+    storage.values.set("drift.other", "1");
+    dispatchEvent(Object.assign(new Event("storage"), { storageArea: storage }));
+    await Bun.sleep(400);
+
+    expect(sent.at(-1)).toBe(JSON.stringify({ "drift.other": "1" }));
+    Reflect.deleteProperty(globalThis, "document");
+});

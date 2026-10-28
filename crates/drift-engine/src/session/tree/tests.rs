@@ -21,6 +21,7 @@ async fn a_move_is_refused_while_a_turn_is_still_planning() {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
     h.provider
         .push(tool_call("write", r#"{"path": "out.txt", "content": "x"}"#))
@@ -106,6 +107,7 @@ fn long_bash(h: &Harness) {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
 
     let sleep = if cfg!(windows) {

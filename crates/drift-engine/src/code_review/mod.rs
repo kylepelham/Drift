@@ -143,6 +143,10 @@ fn render(request: &Request, scope: Option<&Scope>) -> String {
 
     let lines = match scope {
         Some(Scope::NotRepo) => return finish(sections, include_str!("prompts/scope_none.md")),
+        Some(Scope::Unlisted(command)) => {
+            let text = fill(include_str!("prompts/scope_failed.md"), &[("command", command)]);
+            return finish(sections, &text);
+        }
         Some(Scope::Clean { base_name }) => {
             let text = fill(include_str!("prompts/scope_clean.md"), &[("base_name", base_name)]);
             return finish(sections, &text);

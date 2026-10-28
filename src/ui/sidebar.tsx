@@ -1,17 +1,17 @@
 import { closeMobileDrawer, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
+import { actionFailed, archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
 import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
-import { archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
 import { pickBackup, saveBackup } from "./session-backup";
+import { openSettings } from "../state/settings";
 import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
 import { drawerSwipe } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
-import { openSettings } from "./settings";
 import { ArchiveModal } from "./archive";
 import { nativeFrame } from "./titlebar";
 import { useEngine } from "../engine";
@@ -240,7 +240,11 @@ export function Sidebar() {
                     <button
                         class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                         title={t("drift.sidebar.addWorkspace")}
-                        onClick={() => void add()}
+                        onClick={() =>
+                            void add().catch((cause: unknown) =>
+                                actionFailed(engine, t("drift.sidebar.addWorkspace"), cause),
+                            )
+                        }
                     >
                         <IconPlus />
                     </button>

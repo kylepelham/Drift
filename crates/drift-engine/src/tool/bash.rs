@@ -191,7 +191,7 @@ impl Bash {
             .data_dir
             .join("tool-output")
             .join(&context.session_id)
-            .join(format!("{}.log", context.call_id));
+            .join(format!("{}.log", super::call_file_name(&context.call_id)));
         let mut spool = Spool::new(Some(path));
 
         let running = &mut started.running;
@@ -345,10 +345,20 @@ fn spawn(mut process: tokio::process::Command) -> Result<Running, ToolError> {
     let mut child = process
         .spawn()
         .map_err(|error| ToolError(format!("could not start shell: {error}")))?;
-    // Keeping the tree handle alive makes a dropped run future kill every descendant.
-    let tree = child
+    // The tree handle lets a dropped run kill every descendant, so a shell it cannot hold never resumes.
+    let adopted = child
         .id()
-        .and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
+        .ok_or_else(|| std::io::Error::other("the shell has no process ID"))
+        .and_then(crate::platform::process::Tree::adopt);
+    let tree = match adopted {
+        Ok(tree) => Some(tree),
+        Err(error) => {
+            let _ = child.start_kill();
+            return Err(ToolError(format!(
+                "could not start shell: its processes could not be held together ({error})"
+            )));
+        }
+    };
     crate::platform::process::resume(&child).map_err(|error| ToolError(format!("could not start shell: {error}")))?;
     let pipes = Pipes::take(&mut child);
 

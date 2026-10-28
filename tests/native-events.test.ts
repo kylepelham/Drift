@@ -290,3 +290,27 @@ test("the open workspace is told to the engine at once, on each change and again
         directory: "C:/two",
     });
 });
+
+test("events held past the cap while hydrates fail are dropped for a hydrate at the newest", async () => {
+    const engine = fakeEngine();
+    const hydrated: number[] = [];
+    let fail = true;
+    const applied: number[] = [];
+    const stream = connectEvents(engine.target, {
+        hydrate: (seq) => {
+            hydrated.push(seq);
+            if (fail) return Promise.reject(new Error("offline"));
+        },
+        event: (envelope) => void applied.push(envelope.seq),
+    });
+    stops.push(engine.stop, stream.close);
+    await until(() => engine.cursors.length === 1);
+    engine.hello(1);
+    await until(() => hydrated.length === 1);
+    for (let seq = 2; seq <= 5_002; seq += 1) engine.send(workspaceEvent(seq));
+    fail = false;
+
+    await until(() => stream.cursor() === 5_002);
+    expect(hydrated.at(-1)).toBe(5_002);
+    expect(applied.length).toBeLessThan(5_000);
+});

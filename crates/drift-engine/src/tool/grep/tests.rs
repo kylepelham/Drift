@@ -20,6 +20,21 @@ async fn finds_lines_with_numbers_and_filters_by_include() {
 }
 
 #[tokio::test]
+async fn a_file_the_search_cannot_read_is_said_to_be_missing() {
+    let sandbox = Sandbox::new("grep-unreadable");
+    sandbox.file("a.rs", "needle\n");
+    std::fs::write(sandbox.ctx.workspace.join("latin1.txt"), b"needle caf\xe9\n").unwrap();
+    let out = Grep.run(&sandbox.ctx, json!({ "pattern": "needle" })).await.unwrap();
+
+    assert!(out.output.starts_with("a.rs:1: needle"), "{}", out.output);
+    assert!(
+        out.output.contains("1 files or folders could not be read"),
+        "{}",
+        out.output
+    );
+}
+
+#[tokio::test]
 async fn skips_secrets_git_internals_and_binaries() {
     let sandbox = Sandbox::new("grep-skip");
     sandbox.file("src/a.rs", "token = 1\n");
@@ -137,6 +152,7 @@ async fn a_directory_search_does_not_bypass_file_read_rules() {
             pattern: "blocked.txt".into(),
             decision: crate::permission::Decision::Deny,
         }],
+        ..Default::default()
     });
     let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
     assert!(out.output.contains("hit public") && !out.output.contains("hit restricted"));
@@ -167,6 +183,7 @@ async fn an_approved_search_outside_the_workspace_covers_its_files_unless_a_rule
             pattern: "*held.txt".into(),
             decision: crate::permission::Decision::Ask,
         }],
+        ..Default::default()
     });
     let ruled = Grep.run(&sandbox.ctx, input).await.unwrap();
     assert!(

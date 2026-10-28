@@ -21,7 +21,7 @@ impl Guest for Guard {
         if call.tool != "bash" {
             return BeforeTool::Allow;
         }
-        let command = field(&call.input, "command");
+        let command = field(&call.input, "command").split_whitespace().collect::<Vec<_>>().join(" ");
         match REFUSED.iter().find(|refused| command.contains(*refused)) {
             Some(refused) => BeforeTool::Deny(format!("`{refused}` rewrites history; ask the user to run it")),
             None => BeforeTool::Allow,

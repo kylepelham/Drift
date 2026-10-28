@@ -28,6 +28,7 @@ async fn the_model_never_sees_a_secret_and_its_tools_only_ever_get_the_real_one(
     // One policy for both: a second `rule` call would replace the first.
     h.engine.permissions.set_policy(Policy {
         rules: vec![allow("edit"), allow("bash")],
+        ..Default::default()
     });
     std::fs::write(h._dir.join("ws/AGENTS.md"), format!("Deploy with {SECRET}.\n")).unwrap();
     h.provider

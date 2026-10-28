@@ -134,6 +134,26 @@ fn shell_decision(sandbox: &Sandbox, bash: &Bash, line: &str) -> crate::permissi
     )
 }
 
+#[test]
+fn a_bash_sink_is_a_file_to_powershell() {
+    let sandbox = Sandbox::new("bash-ps-sink");
+    let powershell = Bash::with(Shell::PowerShell("pwsh".into()));
+    let bash = Bash::with(Shell::Bash("bash".into()));
+
+    assert_eq!(
+        shell_decision(&sandbox, &powershell, "Get-Content a.txt > /dev/null"),
+        crate::permission::Decision::Ask
+    );
+    assert_eq!(
+        shell_decision(&sandbox, &powershell, "Get-Content a.txt > $null"),
+        crate::permission::Decision::Allow
+    );
+    assert_eq!(
+        shell_decision(&sandbox, &bash, "cat a.txt > /dev/null"),
+        crate::permission::Decision::Allow
+    );
+}
+
 fn assert_shell_redirections(sandbox: &Sandbox, bash: &Bash) {
     let decide = |line: &str| shell_decision(sandbox, bash, line);
     let drives: &[&str] = if cfg!(windows) {
@@ -256,6 +276,7 @@ fn assert_shell_links_and_policy(sandbox: &Sandbox, bash: &Bash) {
             pattern: "git log*".into(),
             decision: crate::permission::Decision::Ask,
         }],
+        ..Default::default()
     });
     assert_eq!(
         decide("git log --oneline"),

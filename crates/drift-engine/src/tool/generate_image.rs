@@ -51,11 +51,7 @@ fn format_of(path: &Path) -> Result<Format, ToolError> {
 
 /// A new PNG in the scratch directory, named for the call so its asks and its run agree.
 fn default_path(ctx: &Context) -> PathBuf {
-    let name: String = ctx
-        .call_id
-        .chars()
-        .filter(|char| char.is_ascii_alphanumeric() || matches!(char, '_' | '-'))
-        .collect();
+    let name = super::call_file_name(&ctx.call_id);
 
     scratch_dir().join("images").join(format!("{name}.png"))
 }

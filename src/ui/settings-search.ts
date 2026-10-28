@@ -1,29 +1,8 @@
+import { sections, type Section } from "../state/settings";
 import { keybindLabels } from "./settings-shortcuts";
 import { themeLabels } from "./settings-theme";
 import { t } from "../state/i18n";
 
-export const sections = [
-    "General",
-    "Appearance",
-    "Code",
-    "Notifications",
-    "Voice",
-    "Shortcuts",
-    "Tools",
-    "Browser",
-    "Providers",
-    "Usage",
-    "Skills",
-    "MCP",
-    "Plugins",
-    "Prompts",
-    "Permissions",
-    "Storage",
-    "Remote Access",
-    "About",
-] as const;
-
-export type Section = (typeof sections)[number];
 type SettingsSearchDefinition = { title: string; description?: string };
 export type SettingsSearchItem = { section: Section; sectionLabel: string; title: string; description: string };
 

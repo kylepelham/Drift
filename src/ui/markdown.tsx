@@ -1,5 +1,5 @@
 import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { markdownNodeSignature, replaceMarkdownSuffix } from "./markdown-render";
 import { previewParentDirectory, readFilePreview } from "../file-preview";
 import { animateResponses, responseAnimationSpeed } from "../state/prefs";
@@ -267,17 +267,14 @@ export function Markdown(props: {
         }
     }
 
-    // Reconciliation can replace text without notifying consumers, so revision forces reparsing.
-    const html = createMemo(() => {
-        void props.revision;
-
-        return sanitizeMarkdownHtml(
+    // Read only where a redraw happens: a reveal in progress skips the whole parse until it ends.
+    const html = () =>
+        sanitizeMarkdownHtml(
             marked.parse(props.documentPreview ? props.text : prepareMarkdown(props.text, props.humanAuthored), {
                 async: false,
             }),
             props.documentPreview,
         );
-    });
     createEffect(() => {
         if (props.documentPreview) return;
 

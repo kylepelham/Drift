@@ -35,7 +35,7 @@ pub use file::{
 pub use overrides::{AgentOverride, ModelPin};
 pub use user::{set_local_server, user_plugins, user_providers};
 
-use crate::permission::{Policy, Rule};
+use crate::permission::{Decision, Policy, Rule};
 use crate::session::types::ModelRef;
 use discovery::{ancestors_to_repo_root, clip, instruction_file, instruction_files, markdown_files};
 use serde::{Deserialize, Serialize};
@@ -88,6 +88,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
     pub permissions: Vec<Rule>,
+    /// The project drift.json's allow rules, which rank below every rule of the user's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_allows: Vec<Rule>,
     pub agents: Vec<Agent>,
     pub commands: Vec<Command>,
     pub skills: Vec<Skill>,
@@ -238,6 +241,7 @@ impl Config {
     pub fn policy(&self) -> Policy {
         Policy {
             rules: self.permissions.clone(),
+            after_global: self.project_allows.clone(),
         }
     }
 
@@ -248,7 +252,10 @@ impl Config {
             .map(|agent| agent.permissions.iter().rev().cloned().collect())
             .unwrap_or_default();
 
-        Policy { rules }
+        Policy {
+            rules,
+            ..Policy::default()
+        }
     }
 
     pub fn agent(&self, name: &str) -> Option<&Agent> {
@@ -300,10 +307,14 @@ impl Config {
         if file.default_agent.is_some() {
             self.default_agent = file.default_agent;
         }
-        // Project rules precede home rules so the more specific configuration wins.
-        let mut rules = file.permissions;
+        // Project deny and ask rules precede the user's so they win; its allows never overrule the user.
+        let (allows, mut rules): (Vec<Rule>, Vec<Rule>) = file
+            .permissions
+            .into_iter()
+            .partition(|rule| project && rule.decision == Decision::Allow);
         rules.append(&mut self.permissions);
         self.permissions = rules;
+        self.project_allows.extend(allows);
 
         if project {
             self.note_project_commands(&file.formatters, &file.checks);

@@ -138,6 +138,7 @@ async fn stopping_the_source_does_not_stop_what_it_spawned() {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
 
     let sleep = if cfg!(windows) {

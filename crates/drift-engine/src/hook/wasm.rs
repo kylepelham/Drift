@@ -767,6 +767,11 @@ pub(crate) mod tests {
             BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into())
         );
         assert_eq!(
+            plugin.before_tool(&call("bash", "git  push	--force origin main")).await,
+            BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into()),
+            "spacing does not hide a refused command"
+        );
+        assert_eq!(
             plugin.before_tool(&call("read", "git push --force")).await,
             BeforeTool::Allow
         );

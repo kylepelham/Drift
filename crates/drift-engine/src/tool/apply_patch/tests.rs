@@ -90,6 +90,7 @@ fn a_rule_for_the_move_destination_decides_for_it() {
                 decision: Decision::Allow,
             },
         ],
+        ..Default::default()
     };
     let permissions = Permissions::new(Policy::default());
     let patch = "*** Begin Patch\n*** Update File: source.txt\n*** Move to: denied.txt\n-a\n+b\n*** End Patch\n";

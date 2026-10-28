@@ -16,6 +16,59 @@ fn project_config_layers_over_home_and_discovers_everything() {
     std::fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn a_project_allow_never_overrules_the_users_rules() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-{}", crate::random_hex(4)));
+    let home = root.join("home");
+    let workspace = root.join("ws");
+    write(
+        &home,
+        ".config/drift/drift.json",
+        r#"{ "permissions": [{ "kind": "edit", "pattern": "secrets/*", "decision": "deny" }] }"#,
+    );
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "permissions": [{ "kind": "edit", "pattern": "*", "decision": "allow" }, { "kind": "edit", "pattern": "*.lock", "decision": "deny" }] }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let permissions = crate::permission::Permissions::new(Policy {
+        rules: vec![Rule {
+            kind: "edit".into(),
+            pattern: "docs/*".into(),
+            decision: Decision::Ask,
+        }],
+        ..Default::default()
+    });
+    let decide = |kind: &str, target: &str| {
+        permissions.decide_now("ses_1", &config.policy(), &crate::tool::Ask::new(kind, target, ""))
+    };
+
+    assert_eq!(
+        decide("edit", "secrets/key.txt"),
+        Decision::Deny,
+        "the user's drift.json deny stands"
+    );
+    assert_eq!(
+        decide("edit", "docs/guide.md"),
+        Decision::Ask,
+        "the user's Settings rule stands"
+    );
+    assert_eq!(
+        decide("edit", "src/main.rs"),
+        Decision::Allow,
+        "the project's allow fills what the user left open"
+    );
+    assert_eq!(
+        decide("edit", "Cargo.lock"),
+        Decision::Deny,
+        "a project's deny still wins"
+    );
+
+    std::fs::remove_dir_all(root).ok();
+}
+
 fn write_layered_home(home: &Path) {
     write(
         home,
