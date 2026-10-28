@@ -645,6 +645,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "Aby rozpocząć, dodaj lub wybierz obszar roboczy po lewej.",
     "drift.chat.empty.firstWorkspace":
         "Drift działa w folderze na Twoim komputerze. Wybierz folder projektu, a czat otworzy się w nim.",
+    "drift.chat.empty.connectProvider":
+        "Drift potrzebuje modelu AI, z którym będzie pracować. Użyj tego, który już masz: zaloguj się subskrypcją Claude lub ChatGPT, wklej klucz API albo uruchom model na tym komputerze za pomocą Ollama lub LM Studio.",
+    "drift.chat.empty.connectModel": "Połącz model",
     "drift.chat.empty.promptHint": "Zacznij pisać poniżej. Enter wysyła, Shift+Enter wstawia nowy wiersz.",
     "drift.chat.empty.quote1": "Meduzy nie mają mózgu, a jakoś sobie radzą. Dasz radę.",
     "drift.chat.empty.quote2": "Małe różnice, spokojne morze.",
@@ -683,6 +686,7 @@ export const drift = {
     "drift.composer.openThread": "Otwórz ten wątek",
     "drift.composer.pendingInThread": "w {{thread}}",
     "drift.composer.addWorkspace": "Dodaj obszar roboczy, aby zacząć czat",
+    "drift.composer.connectProvider": "Połącz model, aby zacząć czat",
     "drift.composer.selectWorkspace": "Wybierz obszar roboczy, aby rozpocząć",
     "drift.composer.thinkingLevel": "Poziom rozumowania",
     "drift.slash.account.auto": "Automatycznie",
@@ -1250,6 +1254,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Skopiowano. Dostosuj stąd lub zacznij od",
     "drift.settings.notifications": "Powiadomienia",
     "drift.settings.providers.notConnected": "Nie połączono",
+    "drift.settings.providers.intro":
+        "Dostawca to usługa, która uruchamia model AI. Zaloguj się subskrypcją, za którą już płacisz, wklej klucz API albo uruchom model na tym komputerze. Możesz połączyć kilku dostawców i przełączać modele w polu wiadomości.",
+    "drift.settings.providers.suggested": "Dobre na początek",
+    "drift.settings.providers.more": "Więcej dostawców",
     "drift.settings.search.empty": "Brak pasujących ustawień",
     "drift.settings.search.placeholder": "Szukaj ustawień",
     "drift.settings.sound.audioFileRequired": "Wybierz plik dźwiękowy.",

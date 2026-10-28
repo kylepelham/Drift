@@ -641,6 +641,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "Додайте або виберіть робочий простір ліворуч, щоб почати.",
     "drift.chat.empty.firstWorkspace":
         "Drift працює всередині папки на вашому комп'ютері. Виберіть папку проєкту, і чат відкриється в ній.",
+    "drift.chat.empty.connectProvider":
+        "Drift потрібна модель ШІ для роботи. Скористайтеся тією, що вже є: увійдіть через підписку Claude або ChatGPT, вставте ключ API або запустіть модель на цьому комп'ютері за допомогою Ollama чи LM Studio.",
+    "drift.chat.empty.connectModel": "Підключити модель",
     "drift.chat.empty.promptHint": "Почніть вводити нижче. Enter надсилає, Shift+Enter переносить рядок.",
     "drift.chat.empty.quote1": "У медуз немає мозку, а вони все одно дають раду. Ви теж упораєтеся.",
     "drift.chat.empty.quote2": "Маленькі диффи, спокійне море.",
@@ -679,6 +682,7 @@ export const drift = {
     "drift.composer.openThread": "Відкрити цю гілку",
     "drift.composer.pendingInThread": "у {{thread}}",
     "drift.composer.addWorkspace": "Додайте робочий простір, щоб почати чат",
+    "drift.composer.connectProvider": "Підключіть модель, щоб почати чат",
     "drift.composer.selectWorkspace": "Виберіть робочий простір, щоб почати",
     "drift.composer.thinkingLevel": "Рівень міркування",
     "drift.slash.account.auto": "Авто",
@@ -1246,6 +1250,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Скопійовано. Налаштуйте звідси або почніть з",
     "drift.settings.notifications": "Сповіщення",
     "drift.settings.providers.notConnected": "Не підключено",
+    "drift.settings.providers.intro":
+        "Провайдер - це сервіс, що запускає модель ШІ. Увійдіть через підписку, за яку вже платите, вставте ключ API або запустіть модель на цьому комп'ютері. Можна підключити кількох провайдерів і перемикати моделі в полі введення.",
+    "drift.settings.providers.suggested": "З чого почати",
+    "drift.settings.providers.more": "Інші провайдери",
     "drift.settings.search.empty": "Немає відповідних налаштувань",
     "drift.settings.search.placeholder": "Пошук налаштувань",
     "drift.settings.sound.audioFileRequired": "Виберіть аудіофайл.",

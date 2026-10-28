@@ -654,6 +654,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "Ajoutez ou sélectionnez un espace de travail à gauche pour commencer.",
     "drift.chat.empty.firstWorkspace":
         "Drift travaille dans un dossier de votre ordinateur. Choisissez le dossier d'un projet et la discussion s'y ouvre.",
+    "drift.chat.empty.connectProvider":
+        "Drift a besoin d'un modèle d'IA pour fonctionner. Utilisez-en un que vous avez déjà : connectez-vous avec un abonnement Claude ou ChatGPT, collez une clé d'API, ou exécutez un modèle sur cet ordinateur avec Ollama ou LM Studio.",
+    "drift.chat.empty.connectModel": "Connecter un modèle",
     "drift.chat.empty.promptHint": "Commencez à saisir ci-dessous. Entrée envoie, Maj+Entrée passe à la ligne.",
     "drift.chat.empty.quote1": "Les méduses n'ont pas de cerveau et s'en sortent très bien. Vous aussi.",
     "drift.chat.empty.quote2": "Petits diffs, mer calme.",
@@ -692,6 +695,7 @@ export const drift = {
     "drift.composer.openThread": "Ouvrir cette discussion",
     "drift.composer.pendingInThread": "dans {{thread}}",
     "drift.composer.addWorkspace": "Ajoutez un espace de travail pour commencer à discuter",
+    "drift.composer.connectProvider": "Connectez un modèle pour commencer à discuter",
     "drift.composer.selectWorkspace": "Sélectionnez un espace de travail pour commencer",
     "drift.composer.thinkingLevel": "Niveau de réflexion",
     "drift.slash.account.auto": "Automatique",
@@ -1267,6 +1271,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Copié. Ajustez à partir d'ici, ou partez de",
     "drift.settings.notifications": "Notifications",
     "drift.settings.providers.notConnected": "Non connecté",
+    "drift.settings.providers.intro":
+        "Un fournisseur est le service qui exécute le modèle d'IA. Connectez-vous avec un abonnement que vous payez déjà, collez une clé d'API, ou exécutez un modèle sur cet ordinateur. Vous pouvez en connecter plusieurs et changer de modèle depuis la zone de saisie.",
+    "drift.settings.providers.suggested": "Pour bien commencer",
+    "drift.settings.providers.more": "Plus de fournisseurs",
     "drift.settings.search.empty": "Aucun paramètre correspondant",
     "drift.settings.search.placeholder": "Rechercher dans les paramètres",
     "drift.settings.sound.audioFileRequired": "Choisissez un fichier audio.",

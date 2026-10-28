@@ -1,12 +1,12 @@
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
-import { IconBranch, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
+import { IconBranch, IconMic, IconPaperclip, IconPlug, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
 import { dictationEnabled, dictationModel, dictationProvider } from "../state/voice";
-import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { removeReviewComment, reviewCommentsFile } from "../state/review-comments";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
 import { compactModelName, connectedModelItems } from "./composer-models";
@@ -175,13 +175,19 @@ export function Composer() {
     };
     const online = () => engine.state.connection === "online";
     const ready = () => online() && !!activeWorkspace();
-    // A first run has no folder to chat in: the composer says so and opens the picker when clicked.
+    // A first run has no folder to chat in, then no model to talk to: the composer says so and opens the step when clicked.
     const firstWorkspace = () => workspacesReady() && workspaces().length === 0;
+    const noModel = () => ready() && needsProvider(engine.state);
     const placeholder = () => {
         if (firstWorkspace()) return t("drift.composer.addWorkspace");
         if (!activeWorkspace()) return t("drift.composer.selectWorkspace");
         if (!online()) return t("drift.composer.connecting");
+        if (noModel()) return t("drift.composer.connectProvider");
         return busy() ? `${t("drift.prompt.steer")}...` : t("prompt.placeholder.simple");
+    };
+    const takeFirstStep = () => {
+        if (!firstWorkspace()) return openSettings("Providers");
+        void pickWorkspace().catch((cause: unknown) => actionFailed(engine, t("drift.sidebar.addWorkspace"), cause));
     };
 
     const availableModelItems = createMemo<PickerItem[]>(() => connectedModelItems(engine.state));
@@ -301,6 +307,7 @@ export function Composer() {
 
     /** Sends the draft, queued behind the running turn when `queue` is set: Alt+Enter, Alt-click or a long press. */
     async function submitAs(queue: boolean) {
+        if (noModel()) return openSettings("Providers");
         queueing = queue;
         try {
             return await submit();
@@ -436,6 +443,7 @@ export function Composer() {
         (!draft().trim() && staged().length === 0 && comments().length === 0) ||
         staged().some((file) => file.status === "processing") ||
         !ready() ||
+        noModel() ||
         submitting();
 
     return (
@@ -506,16 +514,12 @@ export function Composer() {
                         }}
                         onKeyDown={onKey}
                     />
-                    <Show when={firstWorkspace()}>
+                    <Show when={firstWorkspace() || noModel()}>
                         <button
                             type="button"
                             class="absolute inset-0 cursor-pointer"
-                            aria-label={t("drift.composer.addWorkspace")}
-                            onClick={() =>
-                                void pickWorkspace().catch((cause: unknown) =>
-                                    actionFailed(engine, t("drift.sidebar.addWorkspace"), cause),
-                                )
-                            }
+                            aria-label={placeholder()}
+                            onClick={takeFirstStep}
                         />
                     </Show>
                 </div>
@@ -528,19 +532,33 @@ export function Composer() {
                             fallbackLabel={agentLabel(prefs().agent)}
                             onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
                         />
-                        <Picker
-                            label={t("command.category.model")}
-                            items={modelItems()}
-                            selected={modelId()}
-                            icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
-                            fallbackLabel={modelName()}
-                            compactLabel={compactModelName(modelName())}
-                            onManage={() => setManageModels(true)}
-                            onPick={(id) => {
-                                const [providerID, ...rest] = id.split("/");
-                                updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } });
-                            }}
-                        />
+                        <Show
+                            when={!noModel()}
+                            fallback={
+                                <button
+                                    type="button"
+                                    class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-raised"
+                                    onClick={() => openSettings("Providers")}
+                                >
+                                    <IconPlug class="size-3.5 shrink-0" />
+                                    {t("drift.chat.empty.connectModel")}
+                                </button>
+                            }
+                        >
+                            <Picker
+                                label={t("command.category.model")}
+                                items={modelItems()}
+                                selected={modelId()}
+                                icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
+                                fallbackLabel={modelName()}
+                                compactLabel={compactModelName(modelName())}
+                                onManage={() => setManageModels(true)}
+                                onPick={(id) => {
+                                    const [providerID, ...rest] = id.split("/");
+                                    updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } });
+                                }}
+                            />
+                        </Show>
                         <Show when={variants().length > 0}>
                             <Picker
                                 label={t("drift.composer.thinkingLevel")}

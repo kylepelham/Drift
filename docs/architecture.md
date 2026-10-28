@@ -75,6 +75,14 @@ With no workspace at all (a first run), the empty chat says Drift works inside a
 offers Add workspace, and the composer reads "Add a workspace to start chatting" and opens the
 folder picker when clicked, instead of a field that took no input.
 
+The second step is a model. Once the engine is online with its catalog and no provider is
+connected (`needsProvider`), the empty chat explains the three ways in (a subscription sign-in, an
+API key, a local runner) and offers Connect a model; the composer reads "Connect a model to start
+chatting", its model picker becomes a Connect a model button, and both open Settings > Providers,
+so a first prompt can no longer make an empty thread that fails with "no model selected". Until
+something is connected, that page opens with a short explanation and a "Good places to start"
+group (Anthropic, OpenAI, Google, Ollama) above the rest.
+
 Workspace menus and editing live in `workspace-dialogs.tsx`; date headings and avatar
 initials live in `workspace-presentation.ts`. The list keeps its worker status logic,
 including queued background workers' outlined dots and absence of a running timer.

@@ -611,6 +611,9 @@ export const drift = {
     "drift.attachment.table": "{{rows}} 行 x {{columns}} 列",
     "drift.chat.empty.noWorkspace": "在左侧添加或选择工作区以开始。",
     "drift.chat.empty.firstWorkspace": "Drift 在你电脑上的某个文件夹中工作。选择一个项目文件夹，聊天就会在那里打开。",
+    "drift.chat.empty.connectProvider":
+        "Drift 需要一个 AI 模型才能工作。可以使用你已有的：用 Claude 或 ChatGPT 订阅登录，粘贴 API 密钥，或通过 Ollama 或 LM Studio 在这台电脑上运行模型。",
+    "drift.chat.empty.connectModel": "连接模型",
     "drift.chat.empty.promptHint": "在下方开始输入。Enter 发送，Shift+Enter 换行。",
     "drift.chat.empty.quote1": "水母没有大脑，照样游得好好的。你一定行。",
     "drift.chat.empty.quote2": "小改动，风平浪静。",
@@ -649,6 +652,7 @@ export const drift = {
     "drift.composer.openThread": "打开该会话",
     "drift.composer.pendingInThread": "位于 {{thread}}",
     "drift.composer.addWorkspace": "添加工作区以开始聊天",
+    "drift.composer.connectProvider": "连接模型以开始聊天",
     "drift.composer.selectWorkspace": "选择工作区以开始",
     "drift.composer.thinkingLevel": "思考级别",
     "drift.slash.account.auto": "自动",
@@ -1192,6 +1196,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "已复制。在此基础上微调，或基于此开始",
     "drift.settings.notifications": "通知",
     "drift.settings.providers.notConnected": "未连接",
+    "drift.settings.providers.intro":
+        "提供方是运行 AI 模型的服务。可以用你已订阅的服务登录，粘贴 API 密钥，或在这台电脑上运行模型。你可以连接多个提供方，并在输入框中切换模型。",
+    "drift.settings.providers.suggested": "推荐的起点",
+    "drift.settings.providers.more": "更多提供方",
     "drift.settings.search.empty": "没有匹配的设置",
     "drift.settings.search.placeholder": "搜索设置",
     "drift.settings.sound.audioFileRequired": "请选择音频文件。",

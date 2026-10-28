@@ -104,6 +104,22 @@ test("an online engine never resolves a model from a disconnected provider", asy
     expect(resolveModel(state, { providerID: "anthropic", modelID: "fable" })).toBeNull();
 });
 
+test("a new user is asked to connect a provider only once the engine is online with its catalog", async () => {
+    const { createEngineState, needsProvider } = await import("../src/engine/store");
+    const [state, set] = createEngineState();
+    set("providers", [{ id: "anthropic", name: "Anthropic", models: { fable: model("fable", "Fable") } }] as never);
+
+    // Still connecting: the cached catalog stands in, and nothing is asked yet.
+    expect(needsProvider(state)).toBe(false);
+    set("connection", "online");
+    expect(needsProvider(state)).toBe(true);
+    set("connected", ["anthropic"]);
+    expect(needsProvider(state)).toBe(false);
+    set("connected", []);
+    set("providers", []);
+    expect(needsProvider(state)).toBe(false);
+});
+
 test("a corrupt provider catalog cache is discarded instead of seeding garbage", async () => {
     const { normalizeProviderCatalog } = await import("../src/state/provider-cache");
     expect(normalizeProviderCatalog(null)).toBeNull();

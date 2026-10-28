@@ -631,6 +631,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "시작하려면 왼쪽에서 작업 공간을 추가하거나 선택하세요.",
     "drift.chat.empty.firstWorkspace":
         "Drift는 컴퓨터의 폴더 안에서 작업합니다. 프로젝트 폴더를 고르면 그곳에서 채팅이 열립니다.",
+    "drift.chat.empty.connectProvider":
+        "Drift를 사용하려면 AI 모델이 필요합니다. 이미 가지고 있는 것을 사용하세요. Claude 또는 ChatGPT 구독으로 로그인하거나, API 키를 붙여넣거나, Ollama나 LM Studio로 이 컴퓨터에서 모델을 실행할 수 있습니다.",
+    "drift.chat.empty.connectModel": "모델 연결",
     "drift.chat.empty.promptHint": "아래에 입력하세요. Enter로 전송하고 Shift+Enter로 줄을 바꿉니다.",
     "drift.chat.empty.quote1": "해파리는 뇌가 없어도 잘 다닙니다. 당신도 할 수 있어요.",
     "drift.chat.empty.quote2": "작은 diff, 잔잔한 바다.",
@@ -669,6 +672,7 @@ export const drift = {
     "drift.composer.openThread": "해당 스레드 열기",
     "drift.composer.pendingInThread": "{{thread}}에서",
     "drift.composer.addWorkspace": "채팅을 시작하려면 작업 공간을 추가하세요",
+    "drift.composer.connectProvider": "채팅을 시작하려면 모델을 연결하세요",
     "drift.composer.selectWorkspace": "작업 공간을 선택하여 시작",
     "drift.composer.thinkingLevel": "사고 수준",
     "drift.slash.account.auto": "자동",
@@ -1228,6 +1232,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "복사되었습니다. 여기서 조정하거나 다음에서 시작하세요:",
     "drift.settings.notifications": "알림",
     "drift.settings.providers.notConnected": "연결되지 않음",
+    "drift.settings.providers.intro":
+        "제공자는 AI 모델을 실행하는 서비스입니다. 이미 결제 중인 구독으로 로그인하거나, API 키를 붙여넣거나, 이 컴퓨터에서 모델을 실행하세요. 둘 이상 연결할 수 있으며 입력창에서 모델을 바꿀 수 있습니다.",
+    "drift.settings.providers.suggested": "추천 시작 옵션",
+    "drift.settings.providers.more": "더 많은 제공자",
     "drift.settings.search.empty": "일치하는 설정 없음",
     "drift.settings.search.placeholder": "설정 검색",
     "drift.settings.sound.audioFileRequired": "오디오 파일을 선택하세요.",

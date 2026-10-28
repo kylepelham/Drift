@@ -638,6 +638,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "Dodajte ili odaberite radni prostor lijevo za početak.",
     "drift.chat.empty.firstWorkspace":
         "Drift radi unutar foldera na vašem računaru. Odaberite folder projekta i chat se otvara u njemu.",
+    "drift.chat.empty.connectProvider":
+        "Drift treba AI model za rad. Koristite neki koji već imate: prijavite se pretplatom na Claude ili ChatGPT, zalijepite API ključ ili pokrenite model na ovom računaru pomoću Ollame ili LM Studija.",
+    "drift.chat.empty.connectModel": "Povežite model",
     "drift.chat.empty.promptHint": "Počnite pisati ispod. Enter šalje, Shift+Enter prelazi u novi red.",
     "drift.chat.empty.quote1": "Meduze nemaju mozak, a ipak se snalaze. Možete vi to.",
     "drift.chat.empty.quote2": "Male razlike, mirno more.",
@@ -676,6 +679,7 @@ export const drift = {
     "drift.composer.openThread": "Otvori taj razgovor",
     "drift.composer.pendingInThread": "u razgovoru {{thread}}",
     "drift.composer.addWorkspace": "Dodajte radni prostor da započnete razgovor",
+    "drift.composer.connectProvider": "Povežite model da biste počeli razgovor",
     "drift.composer.selectWorkspace": "Odaberite radni prostor za početak",
     "drift.composer.thinkingLevel": "Nivo razmišljanja",
     "drift.slash.account.auto": "Automatski",
@@ -1241,6 +1245,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Kopirano. Prilagodite odavde ili počnite od",
     "drift.settings.notifications": "Obavijesti",
     "drift.settings.providers.notConnected": "Nije povezano",
+    "drift.settings.providers.intro":
+        "Provajder je usluga koja pokreće AI model. Prijavite se pretplatom koju već plaćate, zalijepite API ključ ili pokrenite model na ovom računaru. Možete povezati više njih i mijenjati modele iz polja za pisanje.",
+    "drift.settings.providers.suggested": "Dobra mjesta za početak",
+    "drift.settings.providers.more": "Više provajdera",
     "drift.settings.search.empty": "Nema odgovarajućih postavki",
     "drift.settings.search.placeholder": "Pretraži postavke",
     "drift.settings.sound.audioFileRequired": "Odaberite zvučnu datoteku.",

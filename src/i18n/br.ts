@@ -649,6 +649,9 @@ export const drift = {
     "drift.chat.empty.noWorkspace": "Adicione ou selecione um espaço de trabalho à esquerda para começar.",
     "drift.chat.empty.firstWorkspace":
         "O Drift trabalha dentro de uma pasta do seu computador. Escolha a pasta de um projeto e o chat abre nela.",
+    "drift.chat.empty.connectProvider":
+        "O Drift precisa de um modelo de IA para funcionar. Use um que você já tem: entre com uma assinatura do Claude ou do ChatGPT, cole uma chave de API ou rode um modelo neste computador com Ollama ou LM Studio.",
+    "drift.chat.empty.connectModel": "Conectar um modelo",
     "drift.chat.empty.promptHint": "Comece a digitar abaixo. Enter envia, Shift+Enter quebra a linha.",
     "drift.chat.empty.quote1": "Águas-vivas não têm cérebro e mesmo assim se viram. Você consegue.",
     "drift.chat.empty.quote2": "Diffs pequenos, mar calmo.",
@@ -687,6 +690,7 @@ export const drift = {
     "drift.composer.openThread": "Abrir essa conversa",
     "drift.composer.pendingInThread": "em {{thread}}",
     "drift.composer.addWorkspace": "Adicione um espaço de trabalho para começar a conversar",
+    "drift.composer.connectProvider": "Conecte um modelo para começar a conversar",
     "drift.composer.selectWorkspace": "Selecione um espaço de trabalho para começar",
     "drift.composer.thinkingLevel": "Nível de raciocínio",
     "drift.slash.account.auto": "Automático",
@@ -1256,6 +1260,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Copiado. Ajuste a partir daqui ou comece por",
     "drift.settings.notifications": "Notificações",
     "drift.settings.providers.notConnected": "Não conectado",
+    "drift.settings.providers.intro":
+        "Um provedor é o serviço que executa o modelo de IA. Entre com uma assinatura que você já paga, cole uma chave de API ou rode um modelo neste computador. Você pode conectar mais de um e trocar de modelo pelo campo de mensagem.",
+    "drift.settings.providers.suggested": "Bons pontos de partida",
+    "drift.settings.providers.more": "Mais provedores",
     "drift.settings.search.empty": "Nenhuma configuração correspondente",
     "drift.settings.search.placeholder": "Pesquisar configurações",
     "drift.settings.sound.audioFileRequired": "Escolha um arquivo de áudio.",

@@ -432,6 +432,7 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Drift stays responsive under heavy load: everything the agent starts runs below normal priority, so its builds yield to the window and engine
 - [x] The app icon is drawn in the default accent and the running window's taskbar icon follows the theme's accent
 - [x] A first run with no workspace says to add one and the composer opens the folder picker, instead of taking text it cannot send
+- [x] With no provider connected, the empty chat and the composer explain what a provider is and lead to Settings > Providers, which suggests where to start
 
 ## Parity with Claude Code, Codex and opencode
 
