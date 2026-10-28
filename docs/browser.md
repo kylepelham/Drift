@@ -211,7 +211,7 @@ the active page unless `page` names another.
 | `eval` | JavaScript in the page (VBScript in IE mode with `language: vbscript`); the result as JSON. |
 | `logs` | Console messages or network requests, optionally matching `search`; `request` with an id returns its body (Chrome and Edge). |
 | `dialog` | Accepts or dismisses an open alert, confirm or prompt, with optional `text`. |
-| `viewport` | `desktop` (the browser's own), `tablet` (768x1024), `mobile` (390x844, touch and a phone's user agent on Chrome and Edge), or `width`/`height`; the page reloads. |
+| `viewport` | `desktop` (the browser's own), `tablet` (768x1024), `mobile` (390x844, touch and a phone's user agent on Chrome and Edge), or `width`/`height`; the page reloads. Every size keeps the browser's own pixel ratio: with any other, Chromium redraws the page scaled for each screenshot, and the pane's screencast showed those frames zoomed and cropped. |
 | `trace` | A performance trace and its summary (Chrome and Edge): `record` is `reload` (the default), or `start` then `stop` around what the model does; `throttle` slows the CPU and network. |
 | `audit` | A Lighthouse audit (Chrome and Edge): scores and failing audits; `mode` `navigation` or `snapshot`, `device` `desktop` or `mobile`. |
 | `pages`, `select`, `close` | Lists tabs (popups included), makes one active, closes one. |

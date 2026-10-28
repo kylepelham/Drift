@@ -142,6 +142,7 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     drop(viewer);
 
     sees_a_tall_page_small_clicks_where_seen_and_zooms(&sandbox).await;
+    a_phone_screenshot_never_reaches_the_pane_zoomed(&sandbox).await;
 
     call(&sandbox, json!({ "action": "stop" })).await.unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -181,6 +182,40 @@ async fn sees_a_tall_page_small_clicks_where_seen_and_zooms(sandbox: &Sandbox) {
         .unwrap();
     assert_eq!(size_in(&zoomed.output), (800, 400), "{}", zoomed.output);
     assert_eq!(zoomed.metadata.images.map(|images| images.len()), Some(1));
+}
+
+/// A phone keeps the surface's own pixel ratio: any other makes Chromium redraw the page zoomed for each screenshot,
+/// and the pane's stream shows it so.
+async fn a_phone_screenshot_never_reaches_the_pane_zoomed(sandbox: &Sandbox) {
+    let page = "data:text/html,<meta name=viewport content='width=device-width'><p>Phone";
+    call(sandbox, json!({ "action": "navigate", "url": page }))
+        .await
+        .unwrap();
+    call(sandbox, json!({ "action": "viewport", "preset": "mobile" }))
+        .await
+        .unwrap();
+    let measured = call(
+        sandbox,
+        json!({ "action": "eval", "expression": "innerWidth + 'x' + innerHeight + '@' + devicePixelRatio" }),
+    );
+    assert_eq!(measured.await.unwrap().output, "390x844@1");
+
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let mut viewer = crate::browser::driver::watch(driver);
+    call(sandbox, json!({ "action": "screenshot" })).await.unwrap();
+    let next = async {
+        loop {
+            match viewer.frames.recv().await {
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                other => break other.unwrap(),
+            }
+        }
+    };
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(5), next)
+        .await
+        .expect("a frame within 5 s");
+    let picture = image::load_from_memory(&frame.jpeg).unwrap();
+    assert_eq!((picture.width(), picture.height()), (390, 844));
 }
 
 /// The last `WxH` size a result names.

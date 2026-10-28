@@ -178,11 +178,11 @@ impl Tab for Page {
             return self.reload().await;
         };
 
-        let scale = if size.mobile { 2 } else { 1 };
+        // The surface's own scale (0): any other makes each screenshot re-emulate the page, which the pane's stream shows zoomed.
         let metrics = json!({
             "width": size.width,
             "height": size.height,
-            "deviceScaleFactor": scale,
+            "deviceScaleFactor": 0,
             "mobile": size.mobile,
         });
         self.agent_sized.store(true, Ordering::SeqCst);
