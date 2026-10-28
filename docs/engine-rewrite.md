@@ -2702,6 +2702,11 @@ Settled after the first external review of M1; each has a regression test.
   (`NtResumeProcess`). Finding its thread instead took a snapshot of every thread on the machine:
   about 115ms per command on the runtime's own thread, so sixteen agents running commands at once
   went from 1.9s per step to 1.1s when it went.
+- What the agent starts (shells, background commands, checks, language servers, MCP servers,
+  browsers) runs at below-normal priority (`BELOW_NORMAL_PRIORITY_CLASS`, unix `nice 10`), and what
+  it starts inherits that. Drift's window and engine stay at normal, so a build on every core yields
+  the moment they need a core: with 32 CPU-bound processes on 16 cores, a normal-priority probe's
+  timer p95 went from 410ms late to 19ms and an engine request from 382ms to 15ms, as unloaded.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
   else Git's bash on Windows, found beside the `git` on PATH (`<root>/cmd`, `bin` or
   `mingw64/bin` lead to `<root>/bin/bash.exe`, since Git puts only `cmd` on PATH), then in Program

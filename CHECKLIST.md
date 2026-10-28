@@ -429,6 +429,7 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Z.AI's coding plan and Zhipu's China routes (`zai-coding-plan`, `zhipuai`, `zhipuai-coding-plan`); a maker's regions and plans are one provider in settings, a tab per route
 - [ ] Second tier: Xiaomi and StepFun catalogue routes, Mistral with its 9-character tool ids
 - [x] Long sessions stay smooth while streaming: deltas fold for 100 ms (#94), and visibility and tool groups are remembered per message revision
+- [x] Drift stays responsive under heavy load: everything the agent starts runs below normal priority, so its builds yield to the window and engine
 
 ## Parity with Claude Code, Codex and opencode
 

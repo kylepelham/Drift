@@ -253,7 +253,7 @@ fn stdio_command(
 
     crate::platform::process::prepare(&mut process);
     #[cfg(windows)]
-    process.creation_flags(0x0800_0000);
+    process.creation_flags(0x0800_0000 | crate::platform::process::BELOW_NORMAL);
 
     Ok(process)
 }

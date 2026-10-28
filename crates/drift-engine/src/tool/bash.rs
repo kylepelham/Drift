@@ -339,7 +339,7 @@ fn shell_for(
 /// Starts the shell in a job that holds everything it starts.
 fn spawn(mut process: tokio::process::Command) -> Result<Running, ToolError> {
     #[cfg(windows)]
-    process.creation_flags(0x0800_0000 | 0x0000_0004);
+    process.creation_flags(0x0800_0000 | 0x0000_0004 | crate::platform::process::BELOW_NORMAL);
     crate::platform::process::prepare(&mut process);
 
     let mut child = process

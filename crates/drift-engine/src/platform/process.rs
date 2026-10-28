@@ -2,6 +2,10 @@
 
 use std::io;
 
+/// Tool processes run below Drift, and what they start inherits it, so a build on every core never starves the window.
+#[cfg(windows)]
+pub(crate) const BELOW_NORMAL: u32 = windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS;
+
 #[cfg(windows)]
 mod imp {
     use super::*;
@@ -100,7 +104,7 @@ mod imp {
     pub fn prepare(_command: &mut tokio::process::Command) {}
 
     pub(super) fn suspend(command: &mut tokio::process::Command) {
-        command.creation_flags(0x0800_0000 | 0x0000_0004);
+        command.creation_flags(0x0800_0000 | 0x0000_0004 | BELOW_NORMAL);
     }
 
     #[link(name = "ntdll", kind = "raw-dylib")]
@@ -169,6 +173,13 @@ mod imp {
 
     pub fn prepare(command: &mut tokio::process::Command) {
         command.process_group(0);
+        // SAFETY: nice only lowers this process's own priority and is async-signal-safe.
+        unsafe {
+            command.pre_exec(|| {
+                libc::nice(10);
+                Ok(())
+            });
+        }
     }
 
     pub(super) fn suspend(_command: &mut tokio::process::Command) {}
@@ -462,6 +473,28 @@ mod tests {
         assert!(failure.is_err());
         assert!(!marker.exists(), "no code ran before adoption failed");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_owned_tree_and_what_it_starts_run_below_normal_priority() {
+        let script = "(Get-Process -Id $PID).PriorityClass; (Get-Process -Id (Get-CimInstance Win32_Process -Filter \"ProcessId=$PID\").ParentProcessId).PriorityClass";
+        let mut command = tokio::process::Command::new("cmd.exe");
+        command
+            .args(["/c", "powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+            .stdout(std::process::Stdio::piped());
+        let (child, _tree) = super::spawn_owned(&mut command).await.unwrap();
+        let output = tokio::time::timeout(std::time::Duration::from_secs(30), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        let classes = String::from_utf8_lossy(&output.stdout);
+        let classes: Vec<_> = classes.split_whitespace().collect();
+        assert_eq!(
+            classes,
+            ["BelowNormal", "BelowNormal"],
+            "the shell's child and the shell itself"
+        );
     }
 
     #[cfg(windows)]
