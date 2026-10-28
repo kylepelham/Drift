@@ -1,5 +1,5 @@
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code";
-import { createEffect, createMemo, createSignal, For, Show, untrack } from "solid-js";
 import { pluginGrammarsRevision } from "../syntax-grammars";
 import { codeTokens, type SyntaxToken } from "./markdown";
 import { resolveFileLanguage } from "../syntax-language";
@@ -224,8 +224,28 @@ export function PatchPanel(props: { files: PatchFile[] }) {
     );
 }
 
+/** Rows a diff box shows before it scrolls (`max-h-80`), for the space a file holds until it mounts. */
+const placeholderRows = 12;
+
 function PatchFilePanel(props: { file: PatchFile }) {
     const [open, setOpen] = createSignal(true);
+    // A long patch builds and highlights each file only as it nears the view, not all at once on expand.
+    const [near, setNear] = createSignal(false);
+    let box!: HTMLDivElement;
+    onMount(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return;
+                setNear(true);
+                observer.disconnect();
+            },
+            { rootMargin: "600px 0px" },
+        );
+        observer.observe(box);
+        onCleanup(() => observer.disconnect());
+    });
+    const placeholder = () =>
+        `calc(${Math.min(placeholderRows, props.file.additions + props.file.deletions + 1) * 1.625}em + 0.5rem)`;
     const status = () => {
         if (props.file.type === "add") return t("drift.file.created");
         if (props.file.type === "delete") return t("drift.file.deleted");
@@ -234,7 +254,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
         return null;
     };
     return (
-        <div class="overflow-hidden rounded-lg border border-edge">
+        <div ref={box} class="overflow-hidden rounded-lg border border-edge">
             <button
                 class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-raised/50"
                 onClick={() => setOpen(!open())}
@@ -251,7 +271,13 @@ function PatchFilePanel(props: { file: PatchFile }) {
             </button>
             <Show when={open()}>
                 <div class="border-t border-edge">
-                    <DiffPanel diff={props.file.patch} filename={props.file.relativePath ?? props.file.filePath} bare />
+                    <Show when={near()} fallback={<div class="font-mono text-xs" style={{ height: placeholder() }} />}>
+                        <DiffPanel
+                            diff={props.file.patch}
+                            filename={props.file.relativePath ?? props.file.filePath}
+                            bare
+                        />
+                    </Show>
                 </div>
             </Show>
         </div>

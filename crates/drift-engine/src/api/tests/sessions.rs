@@ -51,6 +51,7 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
             pattern: "*".into(),
             decision: crate::permission::Decision::Ask,
         }],
+        ..Default::default()
     });
     assert_eq!(
         response_status(
@@ -340,6 +341,15 @@ async fn workspace_config_and_commands_are_served() {
     }
     let sent = provider.requests.lock().unwrap()[0].messages[0].blocks.clone();
     assert_eq!(sent, vec![crate::llm::Block::Text("Run tests for the parser".into())]);
+    let transcript = harness.engine.store.transcript(&session_id).unwrap();
+    assert!(
+        transcript[0].parts.iter().any(|row| row.part
+            == crate::session::types::Part::Command {
+                name: "test".into(),
+                arguments: "the parser".into(),
+            }),
+        "the prompt remembers the command that wrote it, for the transcript to show"
+    );
     assert_eq!(
         response_status(
             harness

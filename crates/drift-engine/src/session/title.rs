@@ -6,6 +6,7 @@ use std::time::Duration;
 use super::oneshot::{Fallback, OneShot};
 use super::types::{Part, Role, Session};
 use crate::Engine;
+use crate::config::Config;
 use crate::event::Event;
 use crate::llm::{Block, ChatMessage};
 
@@ -19,7 +20,7 @@ const TITLE_TIMEOUT: Duration = Duration::from_secs(30);
 impl Engine {
     /// Names an untitled session from its first message: the text itself at once, the model's title
     /// when it arrives. A rename in the meantime wins; any failure keeps the text.
-    pub(super) fn title_untitled(self: &Arc<Self>, session: &Session) {
+    pub(super) fn title_untitled(self: &Arc<Self>, session: &Session, config: &Config) {
         if !session.title.is_empty() {
             return;
         }
@@ -31,10 +32,11 @@ impl Engine {
         let placeholder: String = joined.chars().take(PLACEHOLDER_CHARS).collect();
         self.rename_if(&session.id, "", &placeholder);
 
+        let input = with_command(config, text);
         let engine = self.clone();
         let id = session.id.clone();
         tokio::spawn(async move {
-            if let Some(title) = engine.model_title(&id, &text).await {
+            if let Some(title) = engine.model_title(&id, &input).await {
                 engine.rename_if(&id, &placeholder, &title);
             }
         });
@@ -79,6 +81,25 @@ impl Engine {
         if let Ok(Some(updated)) = self.store.retitle_if(session_id, expected, title) {
             self.hub.publish(Event::SessionUpdated { session: updated });
         }
+    }
+}
+
+/// A bare `/review high` read as a greeting, so a slash command comes with what the command does.
+fn with_command(config: &Config, text: String) -> String {
+    let name = text
+        .trim_start()
+        .strip_prefix('/')
+        .and_then(|rest| rest.split_whitespace().next());
+    let described = name.and_then(|name| {
+        config
+            .commands
+            .iter()
+            .find(|command| command.name == name && !command.description.trim().is_empty())
+    });
+
+    match described {
+        Some(command) => format!("{text}\n\n(/{}: {})", command.name, command.description.trim()),
+        None => text,
     }
 }
 

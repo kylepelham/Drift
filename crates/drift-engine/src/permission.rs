@@ -275,7 +275,11 @@ impl Permissions {
         }
 
         let rules = agent.rules.iter().chain(&workspace.rules).cloned().collect();
-        self.check(hub, &Policy { rules }, request, abort).await
+        let policy = Policy {
+            rules,
+            after_global: workspace.after_global.clone(),
+        };
+        self.check(hub, &policy, request, abort).await
     }
 
     /// Resolves immediately from rules, or publishes a request and waits for the user.

@@ -7,6 +7,7 @@ fn workspace_rules_are_checked_against_every_command_of_a_line() {
             rule("bash", "git push*", Decision::Deny),
             rule("bash", "git *", Decision::Allow),
         ],
+        ..Default::default()
     };
     let permissions = Permissions::new(Policy::default());
 
@@ -36,6 +37,7 @@ fn deny_rules_catch_assignment_prefixes_and_powershell_aliases_but_approvals_sta
     let permissions = Permissions::new(Policy::default());
     let deny = |pattern| Policy {
         rules: vec![rule("bash", pattern, Decision::Deny)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &deny("git status*"), &shell("FIXTURE=1 git status")),
@@ -56,6 +58,7 @@ fn deny_rules_catch_assignment_prefixes_and_powershell_aliases_but_approvals_sta
 
     let allow = Policy {
         rules: vec![rule("bash", "git status*", Decision::Allow)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &allow, &shell("EVIL=1 git status")),
@@ -78,6 +81,7 @@ fn deny_rules_catch_assignment_prefixes_and_powershell_aliases_but_approvals_sta
 fn a_secret_read_is_allowed_only_by_name_and_denied_by_any_glob() {
     let broad = Policy {
         rules: vec![rule("read", "*", Decision::Allow)],
+        ..Default::default()
     };
     let permissions = Permissions::new(Policy::default());
     assert_eq!(
@@ -106,6 +110,7 @@ fn a_secret_read_is_allowed_only_by_name_and_denied_by_any_glob() {
 
     let named = Policy {
         rules: vec![rule("read", "C:/repo/.env", Decision::Allow)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &named, &ask("read", "C:/repo/.env")),
@@ -113,6 +118,7 @@ fn a_secret_read_is_allowed_only_by_name_and_denied_by_any_glob() {
     );
     let deny = Policy {
         rules: vec![rule("read", "**/.env*", Decision::Deny)],
+        ..Default::default()
     };
     assert_eq!(
         permissions.decide("ses_1", &deny, &ask("read", "C:/repo/.env.local")),
@@ -139,6 +145,7 @@ fn first_matching_rule_wins_and_no_match_asks() {
             rule("bash", "git *", Decision::Allow),
             rule("edit", "C:/repo/**", Decision::Allow),
         ],
+        ..Default::default()
     };
 
     assert_eq!(policy.decide(&ask("bash", "git push origin")), Decision::Deny);
@@ -157,6 +164,7 @@ fn a_committed_relative_rule_matches_paths_inside_the_workspace() {
             rule("edit", "src/generated/**", Decision::Deny),
             rule("edit", "src/**", Decision::Allow),
         ],
+        ..Default::default()
     };
 
     assert_eq!(
@@ -178,4 +186,17 @@ fn a_committed_relative_rule_matches_paths_inside_the_workspace() {
         (None, Decision::Ask),
         "nothing outside is relative"
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_windows_path_rule_matches_whatever_its_case_or_slashes() {
+    let deny = Policy {
+        rules: vec![rule("read", "C:/Users/kyle/secrets/**", Decision::Deny)],
+        ..Default::default()
+    };
+    let ask = crate::tool::Ask::new("read", r"C:\Users\Kyle\secrets\key", "");
+
+    assert_eq!(deny.explicit(&ask), Some(Decision::Deny));
+    assert_eq!(Compiled::new(deny.rules.clone()).explicit(&ask), Some(Decision::Deny));
 }

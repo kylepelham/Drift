@@ -185,6 +185,7 @@ async fn a_plugin_answers_an_ask_the_rules_leave_to_the_user_and_never_overrides
                 decision: Decision::Ask,
             },
         ],
+        ..Default::default()
     });
     h.provider
         .push(tool_call("bash", r#"{"command": "echo hi"}"#))

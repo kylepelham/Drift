@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::tree::TreeError;
-use super::types::{MessageStatus, MessageWithParts, Session, Todo, Visibility};
+use super::types::{MessageStatus, MessageWithParts, Part, Session, Todo, Visibility};
 use crate::Engine;
 use crate::event::Event;
 
@@ -148,9 +148,10 @@ impl Engine {
     fn restore_one(&self, entry: SessionBackup, workspace_id: &str, linked: bool) -> rusqlite::Result<Option<Session>> {
         let SessionBackup {
             mut session,
-            messages,
+            mut messages,
             todos,
         } = entry;
+        confine_history(&mut messages);
         session.workspace_id = workspace_id.into();
         session.archived_at = None;
         session.running = false;
@@ -171,6 +172,28 @@ impl Engine {
 
         self.store.finish_import(&session.id, None, &todos)
     }
+}
+
+/// A backup may come from anyone, so its undo records keep only files inside the workspace it lands in.
+fn confine_history(messages: &mut [MessageWithParts]) {
+    for row in messages.iter_mut().flat_map(|message| &mut message.parts) {
+        if let Part::ToolCall {
+            metadata: Some(metadata),
+            ..
+        } = &mut row.part
+            && let Some(changes) = &mut metadata.changes
+        {
+            changes.retain(|change| inside_workspace(&change.path));
+        }
+    }
+}
+
+fn inside_workspace(path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_) | std::path::Component::CurDir))
 }
 
 #[cfg(test)]

@@ -1,12 +1,13 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { collapseCompaction, compactionCollapsed, showReasoning, toolGroups } from "../state/prefs";
 import { compareMessages, messageRevisionKey, type MessageEntry } from "../engine/store";
-import { collapseCompaction, compactionCollapsed } from "../state/prefs";
+import { groupAssistantEntries, ownGroups, type OwnGroups } from "./message-groups";
 import { clearReveal, revealTarget } from "./session-search";
-import { groupAssistantEntries } from "./message-groups";
 import { createRevertBackfill } from "./revert-backfill";
 import { selectedSession } from "../state/selection";
 import { messageProblem } from "../engine/messages";
 import { holdWheelInLock } from "./chat-wheel";
+import { rendererVersion } from "../plugins";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
 import { messageVisible } from "./message";
@@ -39,14 +40,16 @@ import {
 } from "./transcript-find";
 import {
     copiedCount,
+    entryResults,
     retryInFlight,
+    rowContent,
     thinkingState,
     timelineEntries,
     timelineParts,
     timelineRowVisible,
 } from "./timeline-state";
 
-import type { Part } from "../engine/parts";
+import type { PartGroup } from "./message-groups";
 import type { JSX } from "solid-js";
 
 const loadOlderAt = 1200;
@@ -71,15 +74,15 @@ export function Chat(props: { dock: JSX.Element }) {
         for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)];
 
         const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined;
-        const sorted = [...transcript]
-            .filter((entry) => {
-                if (!revertedAt) return true;
-                if (boundary) return compareMessages(entry, boundary) < 0;
-                return entry.info.id < revertedAt;
-            })
-            .sort(compareMessages);
+        const kept = transcript.filter((entry) => {
+            if (!revertedAt) return true;
+            if (boundary) return compareMessages(entry, boundary) < 0;
+            return entry.info.id < revertedAt;
+        });
+        // The transcript is almost always in order already; sorting it on every token cost the most.
+        const ordered = kept.every((entry, index) => index === 0 || compareMessages(kept[index - 1]!, entry) <= 0);
 
-        return sorted;
+        return ordered ? kept : kept.sort(compareMessages);
     });
     const spawnedCopy = createMemo(() => {
         const id = selectedSession();
@@ -138,8 +141,23 @@ export function Chat(props: { dock: JSX.Element }) {
 
         return status?.type === "busy" ? retryInFlight(entries(), thinking()?.messageID) : undefined;
     });
-    const timelineSource = createMemo(() => timelineEntries(entries(), thinking()?.messageID));
-    const assistantGroups = createMemo(() => groupAssistantEntries(timelineSource()));
+    const revisionOf = (entry: MessageEntry) =>
+        engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)] ?? 0;
+    const visibleResults = entryResults<boolean>(revisionOf);
+    const groupResults = entryResults<OwnGroups>(revisionOf);
+    const timelineSource = createMemo(() => {
+        const settings = `${showReasoning()}|${collapseCompaction()}|${rendererVersion()}`;
+        return timelineEntries(entries(), thinking()?.messageID, (entry) =>
+            visibleResults(entry, settings, () => messageVisible(entry)),
+        );
+    });
+    const assistantGroups = createMemo(() => {
+        const kinds = toolGroups();
+        const settings = `${showReasoning()}|${rendererVersion()}|${JSON.stringify(kinds)}`;
+        return groupAssistantEntries(timelineSource(), kinds, (entry) =>
+            groupResults(entry, settings, () => ownGroups(entry, kinds)),
+        );
+    });
     const timeline = createMemo(() => {
         const source = timelineSource();
         const groups = assistantGroups();
@@ -154,7 +172,7 @@ export function Chat(props: { dock: JSX.Element }) {
         return new Map(list.map((entry, index) => [entry.info.id, list[index + 1]]));
     });
     const thinkingOnly = (entry?: MessageEntry) =>
-        !!entry && thinking()?.messageID === entry.info.id && !messageVisible(entry);
+        !!entry && thinking()?.messageID === entry.info.id && !rowContent(entry, assistantGroups().get(entry.info.id));
     const collapsedSummary = (entry: MessageEntry) =>
         entry.info.role === "assistant" && !!entry.info.summary && collapseCompaction() && compactionCollapsed();
 
@@ -189,7 +207,13 @@ export function Chat(props: { dock: JSX.Element }) {
     let anchor: ScrollAnchor | undefined;
     const takeAnchor = () => (anchor = untrack(stick) ? undefined : captureAnchor(scroller, headerOffset + 8));
 
-    function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
+    function rowEstimate(
+        entry: MessageEntry,
+        groups: PartGroup[] | undefined,
+        fontSize: number,
+        thinking: boolean,
+        collapsed: boolean,
+    ) {
         const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)];
         const cached = estimates.get(entry.info.id);
         if (
@@ -201,7 +225,7 @@ export function Chat(props: { dock: JSX.Element }) {
         )
             return cached.value;
 
-        const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed);
+        const value = estimatedTimelineRow(entry, fontSize, timelineParts(entry, groups), thinking, collapsed);
         estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value });
 
         return value;
@@ -218,11 +242,10 @@ export function Chat(props: { dock: JSX.Element }) {
         const groups = assistantGroups();
         for (let index = 0; index < list.length; index++) {
             const entry = list[index];
-            const parts = timelineParts(entry, groups.get(entry.info.id));
-            result[index + 1] =
-                result[index] +
-                (heights.get(entry.info.id) ??
-                    rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)));
+            const height =
+                heights.get(entry.info.id) ??
+                rowEstimate(entry, groups.get(entry.info.id), fontSize, thinkingOnly(entry), collapsedSummary(entry));
+            result[index + 1] = result[index] + height;
         }
 
         return result;
@@ -273,9 +296,14 @@ export function Chat(props: { dock: JSX.Element }) {
     });
     onCleanup(() => observer.disconnect());
 
+    // A search hit or focused element is never brought into view behind the dock; the caret in it would scroll on each key.
+    function padForDock(focused: EventTarget | null) {
+        const inDock = focused instanceof Node && dock.contains(focused);
+        scroller.style.scrollPaddingBottom = inDock ? "0px" : `${dock.offsetHeight}px`;
+    }
+
     const viewportObserver = new ResizeObserver(() => {
-        // A search hit or focused element is never brought into view behind the dock.
-        scroller.style.scrollPaddingBottom = `${dock.offsetHeight}px`;
+        padForDock(document.activeElement);
         // Snap before publishing: browser clamping as the dock grows would otherwise make the range jump.
         if (untrack(stick)) snapViewportToBottom();
         else publishViewport();
@@ -293,8 +321,10 @@ export function Chat(props: { dock: JSX.Element }) {
     });
     onCleanup(() => viewportObserver.disconnect());
 
+    // Runs under the row's owner, so the row stops being observed (and retained) when it unmounts.
     function measureRow(element: HTMLDivElement) {
         observer.observe(element);
+        onCleanup(() => observer.unobserve(element));
     }
 
     function publishViewport() {
@@ -476,15 +506,23 @@ export function Chat(props: { dock: JSX.Element }) {
         loadingOlder = true;
 
         const before = scroller.scrollHeight - scroller.scrollTop;
-        void engine.actions.loadOlder(id).finally(() => {
-            queueMicrotask(() => {
-                loadingOlder = false;
-                if (selectedSession() !== id) return;
-                scroller.scrollTop = scroller.scrollHeight - before;
-                publishViewport();
-                takeAnchor();
+        void engine.actions
+            .loadOlder(id)
+            .catch((cause: unknown) =>
+                engine.actions.notice({
+                    message: cause instanceof Error ? cause.message : String(cause),
+                    variant: "error",
+                }),
+            )
+            .finally(() => {
+                queueMicrotask(() => {
+                    loadingOlder = false;
+                    if (selectedSession() !== id) return;
+                    scroller.scrollTop = scroller.scrollHeight - before;
+                    publishViewport();
+                    takeAnchor();
+                });
             });
-        });
     }
 
     function scrollToBottom() {
@@ -571,7 +609,12 @@ export function Chat(props: { dock: JSX.Element }) {
                             </div>
                         </div>
                     </Show>
-                    <div ref={dock} class="composer-dock shrink-0 px-4 pb-4">
+                    <div
+                        ref={dock}
+                        class="composer-dock shrink-0 px-4 pb-4"
+                        onFocusIn={(event) => padForDock(event.target)}
+                        onFocusOut={(event) => padForDock(event.relatedTarget)}
+                    >
                         <button
                             type="button"
                             title={t("drift.chat.scrollToLatest")}

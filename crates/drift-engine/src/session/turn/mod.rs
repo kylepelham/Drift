@@ -455,7 +455,7 @@ impl Engine {
         if plan.session.visibility != Visibility::Hidden {
             let _ = self.store.claim_turn(&plan.session.id);
         }
-        self.title_untitled(&plan.session);
+        self.title_untitled(&plan.session, &plan.config);
         let started = self.store.newest_prompt(&plan.session.id).ok().flatten();
         if !self.run_bootstrap(&mut plan, &abort).await {
             self.turns.steering.lock().unwrap().remove(&plan.session.id);

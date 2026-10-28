@@ -76,7 +76,11 @@ impl Tool for Edit {
             };
             super::fits_history(&name, written.len())?;
             // The match proves the text it changed, not the rest: the file is not counted as read for a later overwrite.
+            let seen = !ctx.files.changed_since_seen(&path);
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            if seen {
+                ctx.files.restamp(&path);
+            }
 
             let change = Change::new(&path, &name, "update", &content, &updated_view);
             let plural = if replacements == 1 { "" } else { "s" };

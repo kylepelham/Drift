@@ -626,6 +626,11 @@ export const drift = {
     "drift.attachment.processing": "กำลังอ่าน...",
     "drift.attachment.table": "{{rows}} แถว x {{columns}} คอลัมน์",
     "drift.chat.empty.noWorkspace": "เพิ่มหรือเลือกพื้นที่ทำงานทางซ้ายเพื่อเริ่มต้น",
+    "drift.chat.empty.firstWorkspace":
+        "Drift ทำงานภายในโฟลเดอร์บนคอมพิวเตอร์ของคุณ เลือกโฟลเดอร์โปรเจกต์แล้วแชทจะเปิดที่นั่น",
+    "drift.chat.empty.connectProvider":
+        "Drift ต้องใช้โมเดล AI ในการทำงาน ใช้ตัวที่คุณมีอยู่แล้วได้เลย ลงชื่อเข้าใช้ด้วยการสมัครสมาชิก Claude หรือ ChatGPT วางคีย์ API หรือรันโมเดลบนคอมพิวเตอร์เครื่องนี้ด้วย Ollama หรือ LM Studio",
+    "drift.chat.empty.connectModel": "เชื่อมต่อโมเดล",
     "drift.chat.empty.promptHint": "เริ่มพิมพ์ด้านล่าง กด Enter เพื่อส่ง และ Shift+Enter เพื่อขึ้นบรรทัดใหม่",
     "drift.chat.empty.quote1": "แมงกะพรุนไม่มีสมองแต่ก็ยังไปได้ คุณทำได้แน่นอน",
     "drift.chat.empty.quote2": "ส่วนต่างเล็ก ทะเลสงบ",
@@ -663,6 +668,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} ไม่รองรับไฟล์แนบ {{kind}} ({{filename}})",
     "drift.composer.openThread": "เปิดเธรดนั้น",
     "drift.composer.pendingInThread": "ใน {{thread}}",
+    "drift.composer.addWorkspace": "เพิ่มพื้นที่ทำงานเพื่อเริ่มแชท",
+    "drift.composer.connectProvider": "เชื่อมต่อโมเดลเพื่อเริ่มแชท",
     "drift.composer.selectWorkspace": "เลือกพื้นที่ทำงานเพื่อเริ่มต้น",
     "drift.composer.thinkingLevel": "ระดับการคิด",
     "drift.slash.account.auto": "อัตโนมัติ",
@@ -1219,6 +1226,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "คัดลอกแล้ว ปรับแต่งจากตรงนี้ หรือเริ่มจาก",
     "drift.settings.notifications": "การแจ้งเตือน",
     "drift.settings.providers.notConnected": "ยังไม่ได้เชื่อมต่อ",
+    "drift.settings.providers.intro":
+        "ผู้ให้บริการคือบริการที่รันโมเดล AI ลงชื่อเข้าใช้ด้วยการสมัครสมาชิกที่คุณจ่ายอยู่แล้ว วางคีย์ API หรือรันโมเดลบนคอมพิวเตอร์เครื่องนี้ คุณเชื่อมต่อได้มากกว่าหนึ่งรายและสลับโมเดลได้จากช่องพิมพ์ข้อความ",
+    "drift.settings.providers.suggested": "ตัวเลือกที่เหมาะสำหรับเริ่มต้น",
+    "drift.settings.providers.more": "ผู้ให้บริการอื่นๆ",
     "drift.settings.search.empty": "ไม่มีการตั้งค่าที่ตรงกัน",
     "drift.settings.search.placeholder": "ค้นหาการตั้งค่า",
     "drift.settings.sound.audioFileRequired": "เลือกไฟล์เสียง",

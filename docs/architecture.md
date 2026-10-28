@@ -45,6 +45,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   `produce` for fine-grained solid updates. It consumes the generated native event union
   directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
   There is no SDK record conversion or event-name translation.
+- `src/engine/deltas.ts` holds `part.delta` events for 100 ms and folds each part's contiguous run
+  into one before the reducer sees it; any other event flushes them first, so order holds. A token
+  rewrote the part and reran every transcript memo, which made long sessions stutter while streaming.
 - `src/engine/actions.ts` and its `actions-*.ts` groups are the only place engine calls
   happen. `actions.ts` keeps transcripts, session listing and sending, and merges the
   groups for sessions, asks, providers and configuration, which share one `ActionContext`.
@@ -67,6 +70,18 @@ which every session call carries. One event stream covers every workspace, so bu
 thinking indicators, and pending asks stay accurate for all of them at once. Switching
 workspaces (`EngineProvider.setDirectory`) loads that workspace's conversation list once per
 connection; session-keyed state persists.
+
+With no workspace at all (a first run), the empty chat says Drift works inside a folder and
+offers Add workspace, and the composer reads "Add a workspace to start chatting" and opens the
+folder picker when clicked, instead of a field that took no input.
+
+The second step is a model. Once the engine is online with its catalog and no provider is
+connected (`needsProvider`), the empty chat explains the three ways in (a subscription sign-in, an
+API key, a local runner) and offers Connect a model; the composer reads "Connect a model to start
+chatting", its model picker becomes a Connect a model button, and both open Settings > Providers,
+so a first prompt can no longer make an empty thread that fails with "no model selected". Until
+something is connected, that page opens with a short explanation and a "Good places to start"
+group (Anthropic, OpenAI, Google, Ollama) above the rest.
 
 Workspace menus and editing live in `workspace-dialogs.tsx`; date headings and avatar
 initials live in `workspace-presentation.ts`. The list keeps its worker status logic,
@@ -160,7 +175,9 @@ click navigates or expands. Attachments and `@` mentions render from `file-part.
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed
-file. Write output renders every line immediately, then lazily highlights 160-line
+file. Each patch file builds and highlights its diff only once it comes within 600px of the
+view, holding roughly its height until then, so expanding a large patch costs only the files
+on screen. Write output renders every line immediately, then lazily highlights 160-line
 chunks near its own scroll viewport; large files stay complete and cheap to open.
 Assistant Markdown code blocks keep their original source beside the rendered DOM and
 add a top-right icon copy control, so Shiki token markup never changes copied text.
@@ -320,8 +337,10 @@ notices and errors the frontend writes itself all go through `t()`; error text t
 sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
 The About section shows the app version, the live engine version, whether this copy can
-update itself, a link to driftagent.dev, and credit to OpenCode. Update capability loads
-once with the settings host and its row always occupies space. The jellyfish uses the
+update itself, a link to driftagent.dev, and credit to OpenCode. Settings and the MCP manager
+are lazy chunks: `src/state/settings.ts` holds the open state and `openSettings`, and the dialog's
+code loads the first time it opens. Update capability loads once when the dialog first mounts,
+and its row always occupies space. The jellyfish uses the
 same model and shaders as driftagent.dev and imports them with three.js only on mount, as
 a lazy chunk outside the startup bundle. A static logo occupies the frame until the first
 WebGL frame has rendered off-DOM. Reduced motion keeps that logo. Leaving About removes
@@ -340,6 +359,17 @@ row that grew from a 96px estimate to 2000px past the top jerk the view by the d
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
 
+Which messages show and how each reply's tools group are remembered per message (`entryResults`),
+keyed by its revision and the settings they read, so a streamed token works out only the reply it
+lands in. Neighbouring replies still merge their groups on every pass, from copies, so a remembered
+reply's own groups never grow. The transcript skips its sort when it is already in order, and a row
+with a measured height is never estimated.
+
+A running turn only grows the transcript. The thinking indicator sits tight under the row above
+when the step it belongs to draws nothing of its own (`rowContent`): hidden reasoning, or calls that
+all joined the group above. A finished step's footer waits for the turn to end. Both used to show
+for the moment between one step finishing and the next starting, pushing the view and pulling it back.
+
 `src/ui/chat.tsx` owns the transcript scroller: stickiness, gestures, paging and search
 jumps. Row height estimates, the virtual range and stick thresholds are in
 `timeline-virtual.ts`; which messages become rows, retry and thinking state are in
@@ -347,6 +377,9 @@ jumps. Row height estimates, the virtual range and stick thresholds are in
 history behind a revert is `revert-backfill.ts`. The composer dock is the scroller's last child,
 `position: sticky` at its bottom, so a wheel, touchpad or swipe over the composer scrolls the
 conversation as the browser scrolls anything, momentum included; the transcript passes under it.
+The scroller's bottom scroll padding is the dock's height, so search hits and focused rows stay
+clear of it, except while focus is in the dock: the caret sat inside that padding, and the browser
+scrolled the transcript on every keystroke to bring it out.
 `chat-wheel.ts` only keeps a wheel over an inline menu marked `data-wheel-lock` (the composer's
 pickers) from scrolling the conversation behind it.
 
@@ -363,7 +396,8 @@ DOM. The latest appended rendered text is split into bounded inline segments and
 CSS opacity animation at the chosen typing speed. Small updates reveal per character, while large
 updates group characters into at most 240 segments. Delayed segments stay out of layout until their
 fade begins, so invisible backlog cannot expand the message. JavaScript never mutates text or reparses
-Markdown from an animation frame. Initial, mounted buffered, and historical renders stay instant. A
+Markdown from an animation frame, and an update queued behind a reveal is not parsed until the reveal
+ends and it redraws. Initial, mounted buffered, and historical renders stay instant. A
 live reveal drains normally after provider completion; reduced motion, loss of live status, or Stop
 completes it immediately. Transcript scrolling never changes reveal progress.
 
@@ -440,13 +474,19 @@ be sent.
 
 A code review (`/review`, see [code-review.md](code-review.md)) leaves a findings card in the
 transcript; Walk through in diff opens the panel on All changes with each finding as a note
-under its line and a "Finding N of M" stepper above the files.
+under its line and a "Finding N of M" stepper above the files. The card reads its findings from its own
+part and keeps its rows while the session streams: outcomes come from later reports, so it watches
+the whole transcript, but an unchanged result never remounts the rows (that reset their hover).
 
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with
 the thread title, search, context meter and window controls. Empty header space drags the
 window and double-click maximizes it; double-clicking the title renames the thread. The
 companion and the phone keep the sidebar's Workspaces heading and no window controls.
+
+The logo is one shape in the theme's accent. The installed icons are drawn in the default accent
+(`#f3a25f`); while Drift runs, `app-icon.ts` paints the logo in the current accent and sets it as
+the window's icon (`set_window_icon`), so the taskbar follows the theme too.
 
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity

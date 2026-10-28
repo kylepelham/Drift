@@ -241,8 +241,19 @@ pub(super) const LATEST: i64 = MIGRATIONS.len() as i64;
 
 pub(super) fn apply(conn: &Connection) -> rusqlite::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let known = MIGRATIONS.len();
+    let Some(current) = usize::try_from(current).ok().filter(|current| *current <= known) else {
+        // A newer build's schema may have dropped or renamed what this one reads.
+        let why = format!(
+            "drift.db has schema version {current}, which this build of Drift does not know (it knows 0 to {known})"
+        );
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
+            Some(why),
+        ));
+    };
 
-    for (index, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
+    for (index, sql) in MIGRATIONS.iter().enumerate().skip(current) {
         let version = index as i64 + 1;
         conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {version}; COMMIT;"))?;
     }

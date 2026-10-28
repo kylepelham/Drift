@@ -29,11 +29,9 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
     const groups = createMemo(() => providerGroups(filtered()));
     const providerIDs = () => providers().map((provider) => provider.id);
     const enabled = (item: PickerItem) => modelVisible(item.id, defaults().has(item.id));
-    const providerItems = (providerID: string, source = filtered()) =>
-        sortManagerModelItems(
-            source.filter((item) => (item.providerID ?? item.group ?? t("dialog.provider.group.other")) === providerID),
-            enabled,
-        );
+    // Grouped and sorted once per change, so each provider's section reads its list instead of rescanning all models.
+    const allByProvider = createMemo(() => itemsByProvider(props.items, enabled));
+    const shownByProvider = createMemo(() => itemsByProvider(filtered(), enabled));
     const providerOpen = (providerID: string) => !!query().trim() || expanded().includes(providerID);
     const toggleProvider = (providerID: string) =>
         setExpanded((current) =>
@@ -82,9 +80,9 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                 let root!: HTMLElement;
                                 let cancelDrag = () => {};
                                 onCleanup(() => cancelDrag());
-                                const all = () => providerItems(provider.id, props.items);
-                                const visibleItems = () => providerItems(provider.id);
-                                const enabledCount = () => all().filter(enabled).length;
+                                const all = () => allByProvider().get(provider.id) ?? [];
+                                const visibleItems = () => shownByProvider().get(provider.id) ?? [];
+                                const enabledCount = createMemo(() => all().filter(enabled).length);
                                 const allEnabled = () => all().length > 0 && enabledCount() === all().length;
                                 return (
                                     <section
@@ -205,6 +203,19 @@ function providerGroups(items: PickerItem[]) {
         if (!groups.has(id)) groups.set(id, item.group ?? t("dialog.provider.group.other"));
     }
     return [...groups].map(([id, label]) => ({ id, label }));
+}
+
+function itemsByProvider(items: PickerItem[], visible: (item: PickerItem) => boolean) {
+    const grouped = new Map<string, PickerItem[]>();
+    for (const item of items) {
+        const id = item.providerID ?? item.group ?? t("dialog.provider.group.other");
+        const list = grouped.get(id);
+        if (list) list.push(item);
+        else grouped.set(id, [item]);
+    }
+    for (const [id, list] of grouped) grouped.set(id, sortManagerModelItems(list, visible));
+
+    return grouped;
 }
 
 export function sortManagerModelItems(items: PickerItem[], visible: (item: PickerItem) => boolean) {

@@ -642,6 +642,11 @@ export const drift = {
     "drift.attachment.processing": "Чтение...",
     "drift.attachment.table": "{{rows}} строк x {{columns}} столбцов",
     "drift.chat.empty.noWorkspace": "Добавьте или выберите рабочее пространство слева, чтобы начать.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift работает внутри папки на вашем компьютере. Выберите папку проекта, и чат откроется в ней.",
+    "drift.chat.empty.connectProvider":
+        "Drift нужна модель ИИ для работы. Используйте ту, что у вас уже есть: войдите по подписке Claude или ChatGPT, вставьте ключ API или запустите модель на этом компьютере через Ollama или LM Studio.",
+    "drift.chat.empty.connectModel": "Подключить модель",
     "drift.chat.empty.promptHint": "Начните вводить текст ниже. Enter отправляет, Shift+Enter переносит строку.",
     "drift.chat.empty.quote1": "У медуз нет мозга, и они всё равно справляются. Вы тоже справитесь.",
     "drift.chat.empty.quote2": "Маленькие диффы, спокойное море.",
@@ -679,6 +684,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} не принимает вложения {{kind}} ({{filename}})",
     "drift.composer.openThread": "Открыть эту ветку",
     "drift.composer.pendingInThread": "в ветке {{thread}}",
+    "drift.composer.addWorkspace": "Добавьте рабочее пространство, чтобы начать чат",
+    "drift.composer.connectProvider": "Подключите модель, чтобы начать чат",
     "drift.composer.selectWorkspace": "Выберите рабочее пространство, чтобы начать",
     "drift.composer.thinkingLevel": "Уровень рассуждений",
     "drift.slash.account.auto": "Авто",
@@ -1247,6 +1254,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Скопировано. Настройте отсюда или начните с",
     "drift.settings.notifications": "Уведомления",
     "drift.settings.providers.notConnected": "Не подключён",
+    "drift.settings.providers.intro":
+        "Провайдер - это сервис, на котором работает модель ИИ. Войдите по подписке, за которую уже платите, вставьте ключ API или запустите модель на этом компьютере. Можно подключить несколько провайдеров и переключать модели в поле ввода.",
+    "drift.settings.providers.suggested": "С чего начать",
+    "drift.settings.providers.more": "Другие провайдеры",
     "drift.settings.search.empty": "Подходящих настроек нет",
     "drift.settings.search.placeholder": "Поиск настроек",
     "drift.settings.sound.audioFileRequired": "Выберите аудиофайл.",

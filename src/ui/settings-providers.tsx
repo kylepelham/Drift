@@ -17,6 +17,9 @@ export type ProviderNotice = { tone: "success" | "warning" | "error"; text: stri
 /** One row in the list: a provider, or a maker's regions and plans together. */
 type ProviderEntry = { id: string; name: string; routes: ProviderInfo[] };
 
+/** Shown first until anything is connected: subscription sign-ins, then a free local runner. */
+const suggestedIds = ["anthropic", "openai", "google", "ollama"];
+
 export function ProvidersSection() {
     const engine = useEngine();
     const [methods, setMethods] = createSignal<Record<string, ProviderAuthMethod[]>>({});
@@ -58,9 +61,14 @@ export function ProvidersSection() {
         const connected = (entry: ProviderEntry) =>
             entry.routes.some((route) => engine.state.connected.includes(route.id));
 
+        const rest = matching.filter((entry) => !connected(entry));
+        const first = engine.state.connected.length === 0 && !value;
+        const suggested = first ? suggestedIds.flatMap((id) => rest.filter((entry) => entry.id === id)) : [];
+
         return {
             connected: matching.filter(connected),
-            rest: matching.filter((entry) => !connected(entry)),
+            suggested,
+            rest: rest.filter((entry) => !suggested.includes(entry)),
         };
     });
 
@@ -140,6 +148,9 @@ export function ProvidersSection() {
 
     return (
         <div class="space-y-1">
+            <Show when={engine.state.connected.length === 0}>
+                <p class="mb-3 px-1 text-sm text-ink-muted">{t("drift.settings.providers.intro")}</p>
+            </Show>
             <input
                 class="mb-2 h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
                 placeholder={t("dialog.provider.search.placeholder")}
@@ -166,9 +177,19 @@ export function ProvidersSection() {
                 </div>
                 <For each={groups().connected}>{row}</For>
             </Show>
+            <Show when={groups().suggested.length > 0}>
+                <div class="px-3 pt-1 pb-1 text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
+                    {t("drift.settings.providers.suggested")}
+                </div>
+                <For each={groups().suggested}>{row}</For>
+            </Show>
             <Show when={groups().rest.length > 0}>
                 <div class="px-3 pt-3 pb-1 text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
-                    {t("drift.settings.providers.notConnected")}
+                    {t(
+                        groups().suggested.length
+                            ? "drift.settings.providers.more"
+                            : "drift.settings.providers.notConnected",
+                    )}
                 </div>
                 <For each={groups().rest}>{row}</For>
             </Show>

@@ -638,6 +638,11 @@ export const drift = {
     "drift.attachment.processing": "Læser...",
     "drift.attachment.table": "{{rows}} rækker x {{columns}} kolonner",
     "drift.chat.empty.noWorkspace": "Tilføj eller vælg et arbejdsområde til venstre for at begynde.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift arbejder i en mappe på din computer. Vælg en projektmappe, så åbner chatten der.",
+    "drift.chat.empty.connectProvider":
+        "Drift har brug for en AI-model at arbejde med. Brug en, du allerede har: log ind med et Claude- eller ChatGPT-abonnement, indsæt en API-nøgle, eller kør en model på denne computer med Ollama eller LM Studio.",
+    "drift.chat.empty.connectModel": "Tilslut en model",
     "drift.chat.empty.promptHint": "Begynd at skrive nedenfor. Enter sender, Shift+Enter skifter linje.",
     "drift.chat.empty.quote1": "Vandmænd har ingen hjerne og klarer sig alligevel. Du kan godt.",
     "drift.chat.empty.quote2": "Små diffs, roligt hav.",
@@ -675,6 +680,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} accepterer ikke {{kind}}-vedhæftninger ({{filename}})",
     "drift.composer.openThread": "Åbn den tråd",
     "drift.composer.pendingInThread": "i {{thread}}",
+    "drift.composer.addWorkspace": "Tilføj et arbejdsområde for at begynde at chatte",
+    "drift.composer.connectProvider": "Tilslut en model for at begynde at chatte",
     "drift.composer.selectWorkspace": "Vælg et arbejdsområde for at begynde",
     "drift.composer.thinkingLevel": "Tænkeniveau",
     "drift.slash.account.auto": "Automatisk",
@@ -1243,6 +1250,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Kopieret. Juster herfra, eller start fra",
     "drift.settings.notifications": "Notifikationer",
     "drift.settings.providers.notConnected": "Ikke forbundet",
+    "drift.settings.providers.intro":
+        "En udbyder er den tjeneste, der kører AI-modellen. Log ind med et abonnement, du allerede betaler for, indsæt en API-nøgle, eller kør en model på denne computer. Du kan tilslutte flere og skifte model fra skrivefeltet.",
+    "drift.settings.providers.suggested": "Gode steder at starte",
+    "drift.settings.providers.more": "Flere udbydere",
     "drift.settings.search.empty": "Ingen matchende indstillinger",
     "drift.settings.search.placeholder": "Søg i indstillinger",
     "drift.settings.sound.audioFileRequired": "Vælg en lydfil.",

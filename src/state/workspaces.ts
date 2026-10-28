@@ -7,6 +7,7 @@ import { applyMirroredSession } from "./selection";
 import { isRemoteRuntime } from "../runtime";
 import { createSignal } from "solid-js";
 import { shellEvents } from "../shell";
+import { pickFolder } from "./dialog";
 import { persisted } from "./persist";
 
 import type { ArchivePurge } from "../engine/actions";
@@ -138,7 +139,13 @@ export function applyMirroredWorkspace(id: string | null) {
     setActiveWorkspaceId(id);
 }
 
-export async function addWorkspace(path: string) {
+/** Asks for a folder and opens it as a workspace; cancelling the picker changes nothing. */
+export async function pickWorkspace() {
+    const path = await pickFolder();
+    if (path) await addWorkspace(path);
+}
+
+async function addWorkspace(path: string) {
     const name = path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? path;
     const workspace = await driftStore.addWorkspace({ id: crypto.randomUUID(), path, name, icon: "" });
     await refreshWorkspaces();

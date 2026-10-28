@@ -22,7 +22,11 @@ const MAX_NAMED: usize = 20;
 #[derive(Debug, PartialEq)]
 pub(super) enum Scope {
     NotRepo,
-    Clean { base_name: String },
+    /// Git could not list the changes, named by the command that failed; never taken for a clean tree.
+    Unlisted(&'static str),
+    Clean {
+        base_name: String,
+    },
     Changes(Changes),
 }
 
@@ -72,14 +76,14 @@ pub(super) async fn resolve(workspace: &Path) -> Scope {
     }
 
     let (base, base_name) = base(workspace).await;
-    let numstat = git_text(workspace, &["diff", "--numstat", &base, "--"])
-        .await
-        .unwrap_or_default();
-    let (tracked, tracked_lines) = count(&numstat);
+    let Some(numstat) = plain_git(workspace, &["diff", "--numstat", &base, "--"], None).await else {
+        return Scope::Unlisted("git diff");
+    };
+    let (tracked, tracked_lines) = count(&String::from_utf8_lossy(&numstat));
 
-    let listed = plain_git(workspace, &["ls-files", "--others", "--exclude-standard", "-z"], None)
-        .await
-        .unwrap_or_default();
+    let Some(listed) = plain_git(workspace, &["ls-files", "--others", "--exclude-standard", "-z"], None).await else {
+        return Scope::Unlisted("git ls-files");
+    };
     let untracked: Vec<String> = String::from_utf8_lossy(&listed)
         .split('\0')
         .filter(|path| !path.is_empty())

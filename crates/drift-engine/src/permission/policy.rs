@@ -22,6 +22,9 @@ pub struct Rule {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Policy {
     pub rules: Vec<Rule>,
+    /// Rules consulted only after every other, the global policy's too: a project's allow rules.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub after_global: Vec<Rule>,
 }
 
 #[derive(Clone, Copy)]
@@ -45,10 +48,8 @@ impl Rule {
             return false;
         }
 
-        GlobBuilder::new(&self.pattern)
-            .literal_separator(false)
-            .build()
-            .is_ok_and(|glob| glob.compile_matcher().is_match(target))
+        self.matcher()
+            .is_some_and(|matcher| matcher.is_match(system_form(target).as_ref()))
     }
 
     pub(super) fn has_wildcards(&self) -> bool {
@@ -75,12 +76,31 @@ impl Rule {
             .err()
             .map(|error| format!("\"{}\" is not a valid pattern: {error}", self.pattern))
     }
+
+    fn matcher(&self) -> Option<globset::GlobMatcher> {
+        GlobBuilder::new(&system_form(&self.pattern))
+            .literal_separator(false)
+            .case_insensitive(cfg!(windows))
+            .build()
+            .ok()
+            .map(|glob| glob.compile_matcher())
+    }
+}
+
+/// Windows paths ignore case and take either slash, so there rules and targets match as the system reads them.
+fn system_form(text: &str) -> std::borrow::Cow<'_, str> {
+    if cfg!(windows) {
+        text.replace('\\', "/").into()
+    } else {
+        text.into()
+    }
 }
 
 impl Policy {
     pub fn explicit(&self, ask: &Ask) -> Option<Decision> {
         self.rules
             .iter()
+            .chain(&self.after_global)
             .find(|rule| rule.matches(ask))
             .map(|rule| rule.decision)
     }
@@ -95,11 +115,7 @@ impl Compiled {
         let compiled = rules
             .into_iter()
             .map(|rule| {
-                let matcher = GlobBuilder::new(&rule.pattern)
-                    .literal_separator(false)
-                    .build()
-                    .ok()
-                    .map(|glob| glob.compile_matcher());
+                let matcher = rule.matcher();
                 (rule, matcher)
             })
             .collect();
@@ -108,7 +124,7 @@ impl Compiled {
     }
 
     pub fn explicit(&self, ask: &Ask) -> Option<Decision> {
-        let targets = ask.targets();
+        let targets: Vec<_> = ask.targets().into_iter().map(system_form).collect();
 
         self.0
             .iter()
@@ -116,7 +132,7 @@ impl Compiled {
                 (rule.kind == ask.kind || rule.kind == "*")
                     && matcher
                         .as_ref()
-                        .is_some_and(|matcher| targets.iter().any(|target| matcher.is_match(target)))
+                        .is_some_and(|matcher| targets.iter().any(|target| matcher.is_match(target.as_ref())))
             })
             .map(|(rule, _)| rule.decision)
     }

@@ -643,6 +643,11 @@ export const drift = {
     "drift.attachment.processing": "Reading...",
     "drift.attachment.table": "{{rows}} rows x {{columns}} columns",
     "drift.chat.empty.noWorkspace": "Add or select a workspace on the left to start.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift works inside a folder on your computer. Pick a project folder and the chat opens there.",
+    "drift.chat.empty.connectProvider":
+        "Drift needs an AI model to work with. Use one you already have: sign in with a Claude or ChatGPT subscription, paste an API key, or run a model on this computer with Ollama or LM Studio.",
+    "drift.chat.empty.connectModel": "Connect a model",
     "drift.chat.empty.promptHint": "Start typing below. Enter sends, Shift+Enter breaks the line.",
     "drift.chat.empty.quote1": "Jellyfish have no brain and still get around. You've got this.",
     "drift.chat.empty.quote2": "Small diffs, calm seas.",
@@ -680,6 +685,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} does not accept {{kind}} attachments ({{filename}})",
     "drift.composer.openThread": "Open that thread",
     "drift.composer.pendingInThread": "in {{thread}}",
+    "drift.composer.addWorkspace": "Add a workspace to start chatting",
+    "drift.composer.connectProvider": "Connect a model to start chatting",
     "drift.composer.selectWorkspace": "Select a workspace to start",
     "drift.composer.thinkingLevel": "Thinking level",
     "drift.slash.account.auto": "Auto",
@@ -1249,6 +1256,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Copied. Adjust from here, or start from",
     "drift.settings.notifications": "Notifications",
     "drift.settings.providers.notConnected": "Not connected",
+    "drift.settings.providers.intro":
+        "A provider is the service that runs the AI model. Sign in with a subscription you already pay for, paste an API key, or run a model on this computer. You can connect more than one and switch models from the composer.",
+    "drift.settings.providers.suggested": "Good places to start",
+    "drift.settings.providers.more": "More providers",
     "drift.settings.section": "Drift",
     "drift.settings.search.empty": "No matching settings",
     "drift.settings.search.placeholder": "Search settings",

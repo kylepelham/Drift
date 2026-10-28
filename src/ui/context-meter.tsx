@@ -41,12 +41,19 @@ export function ContextMeter(props: { sessionId: string }) {
     const engine = useEngine();
     const model = () =>
         resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model);
-    const stats = () => contextStats(engine.state, props.sessionId, model());
+    const stats = createMemo(() => contextStats(engine.state, props.sessionId, model()));
     const percent = () => stats()?.percent ?? 0;
+    // The popover shows only on hover, so its transcript breakdown is built only then.
+    const [hovered, setHovered] = createSignal(false);
 
     const refresh = () => {
         const provider = model()?.providerID;
         if (provider) void refreshUsage(provider);
+    };
+
+    const openPopover = () => {
+        setHovered(true);
+        refresh();
     };
 
     createEffect(
@@ -57,7 +64,7 @@ export function ContextMeter(props: { sessionId: string }) {
     );
 
     return (
-        <div class="group/meter relative shrink-0" onMouseEnter={refresh}>
+        <div class="group/meter relative shrink-0" onMouseEnter={openPopover} onMouseLeave={() => setHovered(false)}>
             <button
                 class={`flex h-6 items-center gap-1.5 rounded-md px-1 transition-colors select-none hover:bg-raised hover:text-ink ${toneText[usageTone(percent())]}`}
                 title={t("context.usage.clickToView")}
@@ -69,10 +76,12 @@ export function ContextMeter(props: { sessionId: string }) {
                 </span>
             </button>
             <div class="context-meter-popover absolute top-full right-0 z-30 hidden pt-1.5 group-hover/meter:block">
-                <div class="pop-in w-80 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none">
-                    <ContextSection sessionId={props.sessionId} />
-                    <Show when={model()?.providerID}>{(provider) => <UsageSection provider={provider()} />}</Show>
-                </div>
+                <Show when={hovered()}>
+                    <div class="pop-in w-80 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none">
+                        <ContextSection sessionId={props.sessionId} />
+                        <Show when={model()?.providerID}>{(provider) => <UsageSection provider={provider()} />}</Show>
+                    </div>
+                </Show>
             </div>
         </div>
     );
@@ -99,12 +108,13 @@ function MeterRing(props: { percent: number }) {
 
 export function ContextSection(props: { sessionId: string }) {
     const engine = useEngine();
-    const stats = () =>
+    const stats = createMemo(() =>
         contextStats(
             engine.state,
             props.sessionId,
             resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model),
-        );
+        ),
+    );
     const segments = createMemo(() => {
         const usage = stats();
         return usage ? estimateContextBreakdown(engine.state.transcripts[props.sessionId] ?? [], usage.count) : [];

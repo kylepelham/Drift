@@ -170,6 +170,7 @@ pub(super) async fn update(
     if let Some(archived) = body.archived {
         if archived {
             engine.abort(&id);
+            engine.stop_warming(&id);
             engine.processes.stop_session(&id);
             engine.browsers.stop_session(&id);
             engine.permissions.forget_session(&id);
@@ -354,38 +355,58 @@ pub(super) async fn delete(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
-    let worktree = engine
+    let session = engine
         .store
         .session(&id)?
-        .and_then(|session| Some((session.workspace_id, session.worktree?)));
-    if query.archived {
-        match engine.store.purge_archived(&id)? {
-            Purge::Deleted => {}
-            Purge::Active => {
-                return Err(ApiError::new(
-                    StatusCode::CONFLICT,
-                    "active",
-                    "the session was restored; it is kept",
-                ));
-            }
-            Purge::Missing => return Err(ApiError::not_found("session")),
-        }
+        .ok_or_else(|| ApiError::not_found("session"))?;
+    if query.archived && session.archived_at.is_none() {
+        return Err(restored());
     }
+    let worktree = session.worktree.map(|name| (session.workspace_id, name));
 
-    engine.abort(&id);
+    // The turn has stopped before its rows go, so it never writes into a session that is gone.
+    let removed = engine
+        .exclusively(&id, async { Ok(remove_rows(&engine, &id, query.archived)) })
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "busy",
+                "the session's turn did not stop; it is kept",
+            )
+        })?;
+    removed?;
+    engine.stop_warming(&id);
     engine.processes.stop_session(&id);
     engine.browsers.stop_session(&id);
     engine.permissions.forget_session(&id);
     engine.questions.forget_session(&id);
-    if !query.archived && !engine.store.delete_session(&id)? {
-        return Err(ApiError::not_found("session"));
-    }
 
     engine.hub.publish(Event::SessionDeleted { session_id: id });
     if let Some((workspace_id, name)) = worktree {
         engine.retire_worktree(&workspace_id, &name).await;
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn remove_rows(engine: &Engine, id: &str, archived: bool) -> Result<(), ApiError> {
+    if !archived {
+        return if engine.store.delete_session(id)? {
+            Ok(())
+        } else {
+            Err(ApiError::not_found("session"))
+        };
+    }
+
+    match engine.store.purge_archived(id)? {
+        Purge::Deleted => Ok(()),
+        Purge::Active => Err(restored()),
+        Purge::Missing => Err(ApiError::not_found("session")),
+    }
+}
+
+fn restored() -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "active", "the session was restored; it is kept")
 }
 
 #[derive(Deserialize, ToSchema)]

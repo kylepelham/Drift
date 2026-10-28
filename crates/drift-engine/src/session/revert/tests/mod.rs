@@ -18,6 +18,7 @@ fn allow_writes(h: &Harness) {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
 }
 
@@ -28,6 +29,7 @@ fn allow_shell(h: &Harness) {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
 }
 
@@ -111,6 +113,11 @@ async fn overlapping_writes(break_chain: bool) -> (Harness, String, String, Path
     h.engine.move_session(&h.session.id, &workspace.id).unwrap();
     if break_chain {
         std::fs::write(&file, "X").unwrap();
+        // The model reads the outside change before writing over it.
+        h.engine
+            .turns
+            .files_for(&h.engine.store, &h.session.id)
+            .mark_read(&crate::tool::canonical(&file));
     }
     h.provider.push(write("a.txt", "C")).push(text("second write"));
     let second = h

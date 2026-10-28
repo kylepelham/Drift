@@ -137,14 +137,15 @@ pub fn move_sign_in(credentials: &Credentials, from: &str, to: &str) {
     }
 }
 
+/// Who a sign-in's tokens are for: the server's URL and the app it signs in as.
+fn identity(config: &ServerConfig) -> Option<(String, Option<String>)> {
+    config
+        .remote()
+        .map(|(url, app)| (url.to_string(), app.map(|app| app.client_id.clone())))
+}
+
 /// Forgets saved tokens when a server changes URL or app identity, keeping them away from other hosts or clients.
 pub fn forget_if_moved(credentials: &Credentials, server: &str, before: &ServerConfig, after: &ServerConfig) {
-    let identity = |config: &ServerConfig| {
-        config
-            .remote()
-            .map(|(url, app)| (url.to_string(), app.map(|app| app.client_id.clone())))
-    };
-
     if identity(before) != identity(after) {
         let _ = forget(credentials, server);
     }
@@ -180,29 +181,76 @@ impl crate::Engine {
         let page = state.get_authorization_url().await?;
         let engine = Arc::downgrade(self);
         let server = name.to_string();
+        let started = identity(&row.config);
+        let stopped = tokio_util::sync::CancellationToken::new();
+        if let Some(earlier) = self
+            .mcp
+            .signing_in
+            .lock()
+            .unwrap()
+            .insert(server.clone(), stopped.clone())
+        {
+            earlier.cancel();
+        }
 
         tokio::spawn(async move {
-            let finished = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state))
-                .await
-                .unwrap_or_else(|_| {
+            let waited = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state));
+            let finished = tokio::select! {
+                waited = waited => waited.unwrap_or_else(|_| {
                     Err(SignInError::BrowserTimeout {
                         minutes: SIGN_IN_WAIT.as_secs() / 60,
                     })
-                });
+                }),
+                () = stopped.cancelled() => return,
+            };
             let Some(engine) = engine.upgrade() else { return };
-            match finished {
-                Ok(()) => drop(engine.connect_mcp(&server).await),
-                Err(why) => engine
-                    .mcp
-                    .sign_in_failed(&server, &engine.store, &engine.hub, &why.to_string()),
-            }
+            engine.finish_sign_in(&server, &stopped, started, finished).await;
         });
 
         Ok(page)
     }
 
+    /// Connects with what a finished sign-in stored, unless it was stopped or the server changed while
+    /// it waited: tokens issued for another host or app, or after a sign-out, are forgotten.
+    async fn finish_sign_in(
+        self: &Arc<Self>,
+        server: &str,
+        stopped: &tokio_util::sync::CancellationToken,
+        started: Option<(String, Option<String>)>,
+        finished: Result<(), SignInError>,
+    ) {
+        let current = {
+            let mut flows = self.mcp.signing_in.lock().unwrap();
+            let current = !stopped.is_cancelled();
+            if current {
+                flows.remove(server);
+            }
+            current
+        };
+        let config = self.store.mcp_server(server).ok().flatten().map(|row| row.config);
+        let same = config.as_ref().map(identity) == Some(started);
+
+        match finished {
+            Ok(()) if current && same => drop(self.connect_mcp(server).await),
+            Ok(()) => {
+                let _ = forget(&self.credentials, server);
+                if current {
+                    let why = "the server changed while signing in; sign in again";
+                    self.mcp.sign_in_failed(server, &self.store, &self.hub, why);
+                }
+            }
+            Err(why) if current => self
+                .mcp
+                .sign_in_failed(server, &self.store, &self.hub, &why.to_string()),
+            Err(_) => {}
+        }
+    }
+
     /// Forgets a server's sign-in and reconnects it without one, so it is plain what it can do signed out.
     pub async fn sign_out_mcp(self: &Arc<Self>, name: &str) -> Result<(), SignInError> {
+        if let Some(waiting) = self.mcp.signing_in.lock().unwrap().remove(name) {
+            waiting.cancel();
+        }
         forget(&self.credentials, name)?;
         self.mcp.disconnect(name, &self.store, &self.hub).await;
         let _ = self.connect_mcp(name).await;

@@ -428,6 +428,11 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Model makers' own APIs, after opencode v2's routes: Meta (Responses over SSE), Moonshot and Kimi Code, DeepSeek, MiniMax and its Token Plans (Messages), Alibaba and its coding plans (DashScope); thinking switches offered as `none` and `thinking` where models.dev gives a toggle; Kimi schemas sanitized, Qwen cached at breakpoints; MiniMax Token Plan usage and Kimi Code's China region in usage limits
 - [x] Z.AI's coding plan and Zhipu's China routes (`zai-coding-plan`, `zhipuai`, `zhipuai-coding-plan`); a maker's regions and plans are one provider in settings, a tab per route
 - [ ] Second tier: Xiaomi and StepFun catalogue routes, Mistral with its 9-character tool ids
+- [x] Long sessions stay smooth while streaming: deltas fold for 100 ms (#94), and visibility and tool groups are remembered per message revision
+- [x] Drift stays responsive under heavy load: everything the agent starts runs below normal priority, so its builds yield to the window and engine
+- [x] The app icon is drawn in the default accent and the running window's taskbar icon follows the theme's accent
+- [x] A first run with no workspace says to add one and the composer opens the folder picker, instead of taking text it cannot send
+- [x] With no provider connected, the empty chat and the composer explain what a provider is and lead to Settings > Providers, which suggests where to start
 
 ## Parity with Claude Code, Codex and opencode
 

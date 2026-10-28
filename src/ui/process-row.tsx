@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { openFile } from "../tool-actions";
 import { openExternal } from "../shell";
 import { useEngine } from "../engine";
@@ -125,8 +125,16 @@ export function ShellProcessStatus(props: { sessionId: string; processId: string
 
     // The running time counts up while it runs; an ended one shows how long it ran.
     const [now, setNow] = createSignal(Date.now());
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    onCleanup(() => clearInterval(tick));
+    const running = createMemo(() => {
+        const process = record();
+        return !!process && typeof process.endedAt !== "number";
+    });
+    createEffect(() => {
+        if (!running()) return;
+
+        const tick = setInterval(() => setNow(Date.now()), 1000);
+        onCleanup(() => clearInterval(tick));
+    });
 
     const span = (process: ProcessRecord) => processSpan((process.endedAt ?? now()) - process.startedAt);
 

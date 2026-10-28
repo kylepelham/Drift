@@ -203,7 +203,9 @@ test("the context meter shows usage limits and the breakdown, and remote access 
     expect(meter).toContainCode("<AccountLimits entry={entry()} account={account()} />");
     expect(meter).toContain("<ProviderIcon id={props.provider}");
     expect(meter).not.toContain("detailedBreakdown");
-    expect(meter).toContain("onMouseEnter={refresh}");
+    expect(meter).toContain("onMouseEnter={openPopover}");
+    expect(meter).toContainCode("const openPopover = () => { setHovered(true); refresh(); };");
+    expect(meter).toContain("<Show when={hovered()}>");
     expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=");
     expect(await Bun.file("src/ui/debug.tsx").text()).toContain("<ContextSection sessionId=");
     const remote = await Bun.file("src-tauri/src/remote.rs").text();

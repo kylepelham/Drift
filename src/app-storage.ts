@@ -10,15 +10,16 @@ export function keepAppStorage(storage: Storage = localStorage, send: Send = sen
     let timer: ReturnType<typeof setTimeout> | undefined;
     let sent = 0;
     let acked: { sequence: number; values: Values } | undefined;
+    // Kept in step with every write, so a flush never reads every value back out of storage.
+    let known: Values = Object.fromEntries(entries(storage));
     const flush = () => {
         clearTimeout(timer);
         timer = undefined;
-        const values: Values = Object.fromEntries(entries(storage));
+        const values: Values = { ...known };
         const sequence = ++sent;
-        const whole = JSON.stringify(values);
         // A large set goes as its changes since the last kept snapshot, so it can still outlive the page.
-        const base = bytes(whole) >= KEEPALIVE_BYTES ? acked : undefined;
-        const body = base ? JSON.stringify(changes(base.values, values)) : whole;
+        const base = acked && atLeastKeepalive(values) ? acked : undefined;
+        const body = JSON.stringify(base ? changes(base.values, values) : values);
         void Promise.resolve(send(body, sequence, base?.sequence)).then((kept) => {
             if (kept && (!acked || acked.sequence < sequence)) acked = { sequence, values };
         });
@@ -27,14 +28,27 @@ export function keepAppStorage(storage: Storage = localStorage, send: Send = sen
         clearTimeout(timer);
         timer = setTimeout(flush, 300);
     };
+    const track: Record<"setItem" | "removeItem" | "clear", (args: unknown[]) => void> = {
+        setItem: ([key, value]) => (known[String(key)] = String(value)),
+        removeItem: ([key]) => delete known[String(key)],
+        clear: () => (known = {}),
+    };
 
     for (const name of ["setItem", "removeItem", "clear"] as const) {
         const original = proto[name] as (this: Storage, ...args: unknown[]) => void;
         proto[name] = function (this: Storage, ...args: unknown[]) {
             original.apply(this, args);
-            if (this === storage) later();
+            if (this !== storage) return;
+            track[name](args);
+            later();
         } as never;
     }
+    // Another page's writes reach this one only as storage events.
+    addEventListener("storage", (event) => {
+        if (event.storageArea !== storage) return;
+        known = Object.fromEntries(entries(storage));
+        later();
+    });
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden" && timer) flush();
     });
@@ -58,6 +72,17 @@ function changes(before: Values, after: Values) {
     const removed = Object.keys(before).filter((key) => !(key in after));
 
     return { set, removed };
+}
+
+/** Whether `values` as JSON reach the keepalive budget; the raw lengths settle a large set without encoding it. */
+function atLeastKeepalive(values: Values) {
+    let chars = 0;
+    for (const [key, value] of Object.entries(values)) {
+        chars += key.length + value.length;
+        if (chars >= KEEPALIVE_BYTES) return true;
+    }
+
+    return bytes(JSON.stringify(values)) >= KEEPALIVE_BYTES;
 }
 
 function bytes(text: string) {

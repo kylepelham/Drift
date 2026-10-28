@@ -637,6 +637,11 @@ export const drift = {
     "drift.attachment.processing": "読み込み中...",
     "drift.attachment.table": "{{rows}} 行 x {{columns}} 列",
     "drift.chat.empty.noWorkspace": "開始するには、左側でワークスペースを追加または選択してください。",
+    "drift.chat.empty.firstWorkspace":
+        "Drift はコンピューター上のフォルダーの中で動作します。プロジェクトのフォルダーを選ぶと、そこでチャットが開きます。",
+    "drift.chat.empty.connectProvider":
+        "Drift を使うには AI モデルが必要です。すでにお持ちのものを使えます。Claude または ChatGPT のサブスクリプションでサインインするか、API キーを貼り付けるか、Ollama や LM Studio でこのコンピューター上でモデルを実行してください。",
+    "drift.chat.empty.connectModel": "モデルを接続",
     "drift.chat.empty.promptHint": "下に入力してください。Enterで送信、Shift+Enterで改行します。",
     "drift.chat.empty.quote1": "クラゲには脳がないのに、ちゃんと進んでいます。あなたなら大丈夫。",
     "drift.chat.empty.quote2": "小さな差分、穏やかな海。",
@@ -674,6 +679,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}}は{{kind}}添付ファイルを受け付けません ({{filename}})",
     "drift.composer.openThread": "そのスレッドを開く",
     "drift.composer.pendingInThread": "{{thread}}内",
+    "drift.composer.addWorkspace": "ワークスペースを追加してチャットを開始",
+    "drift.composer.connectProvider": "モデルを接続してチャットを始めましょう",
     "drift.composer.selectWorkspace": "ワークスペースを選択して開始",
     "drift.composer.thinkingLevel": "思考レベル",
     "drift.slash.account.auto": "自動",
@@ -1243,6 +1250,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "コピーしました。ここから調整するか、ベースを選択",
     "drift.settings.notifications": "通知",
     "drift.settings.providers.notConnected": "未接続",
+    "drift.settings.providers.intro":
+        "プロバイダーとは、AI モデルを実行するサービスのことです。すでに契約しているサブスクリプションでサインインするか、API キーを貼り付けるか、このコンピューター上でモデルを実行できます。複数を接続して、入力欄からモデルを切り替えることもできます。",
+    "drift.settings.providers.suggested": "おすすめの始め方",
+    "drift.settings.providers.more": "その他のプロバイダー",
     "drift.settings.search.empty": "一致する設定がありません",
     "drift.settings.search.placeholder": "設定を検索",
     "drift.settings.sound.audioFileRequired": "音声ファイルを選択してください。",

@@ -95,7 +95,16 @@ impl Tool for ApplyPatch {
                 )?;
             }
 
+            let seen: Vec<std::path::PathBuf> = plan
+                .steps
+                .iter()
+                .filter(|step| step.after.is_some() && !ctx.files.changed_since_seen(&step.path))
+                .map(|step| step.path.clone())
+                .collect();
             plan.apply(&ctx.engine.store).await?;
+            for path in &seen {
+                ctx.files.restamp(path);
+            }
             let written: Vec<&Step> = plan.steps.iter().filter(|step| step.after.is_some()).collect();
             // A hunk proves the text it changed, not the rest of the file: only a file written whole counts as read.
             for step in written.iter().filter(|step| step.whole) {

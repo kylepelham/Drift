@@ -227,6 +227,7 @@ async fn a_turn_review_spans_the_turn_from_before_its_first_change_to_after_its_
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
     let write =
         |path: &str, content: &str| tool_call("write", &json!({ "path": path, "content": content }).to_string());
@@ -287,6 +288,7 @@ async fn a_turn_review_keeps_edits_made_after_the_engine_carried_the_turn_on() {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
     let write =
         |path: &str, content: &str| tool_call("write", &json!({ "path": path, "content": content }).to_string());

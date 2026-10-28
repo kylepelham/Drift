@@ -195,6 +195,7 @@ async fn undo_stops_an_mcp_call_under_way_instead_of_waiting_for_it() {
             pattern: "*".into(),
             decision: Decision::Allow,
         }],
+        ..Default::default()
     });
     h.provider
         .push(tool_call("echo_shout", &json!({ "text": "hang" }).to_string()));
@@ -287,4 +288,19 @@ async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_commits_
             .all(|message| message.info.id != second),
         "the rolled-back prompt is gone"
     );
+}
+
+#[tokio::test]
+async fn an_undo_dropped_midway_frees_the_session() {
+    let h = harness().await;
+    let stuck = h
+        .engine
+        .exclusively(&h.session.id, std::future::pending::<Result<(), RevertError>>());
+    assert!(tokio::time::timeout(Duration::from_millis(50), stuck).await.is_err());
+
+    assert!(
+        h.engine.turns.claim(&h.session.id, &CancellationToken::new()),
+        "a dropped undo leaves the session free for the next turn"
+    );
+    h.engine.turns.release(&h.session.id);
 }

@@ -226,7 +226,10 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   still running) records a new task on the same hidden session (`Store::resume_task`), so the
   subagent keeps everything it saw and the prompt only needs the follow-up; its agent stays as it
   was. Every result ends with `(task_id: ...)` so the model can do so; the UI's card hides that
-  line. `task_for_session` answers with the newest task of a session.
+  line. `task_for_session` answers with the newest task of a session. The session takes the new
+  call's description as its title, so the sidebar names the job it is doing now. A call to continue
+  one still running is refused before anything starts; the UI shows it as an ordinary failed call,
+  not as that worker, which carries on under its own row.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
@@ -289,7 +292,8 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   workspace. The file is `drift-<name>-<date>.json`: the desktop asks where to save it (the shell's
   `save_json_file`, never offered to remote devices) and says where it went; a browser downloads it.
   Undo history (shadow blobs) is not in
-  a backup, so a restored conversation cannot undo file changes.
+  a backup, so a restored conversation cannot undo file changes; its undo records keep only paths
+  inside the workspace, so a crafted file can never make undo delete or overwrite a file elsewhere.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.
@@ -330,7 +334,8 @@ Every job the engine does can run on its own model, chosen under Settings > Prom
   the automatic switch-off. The timeout holds for each attempt.
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
-  the placeholder.
+  the placeholder. A first message that is a slash command (`/audit high`) goes to the title model
+  with the command's description, since alone it was named "Greeting".
 - Reasoning is replayed as reasoning only to the model and account that produced it
   (`convert::Target`): the same catalog entry, or one that runs the same model, a mode and its base
   (`Catalog::same_model`: Claude Opus 5.5 and Claude Opus 5.5 Fast send one id). Any other model or
@@ -1662,7 +1667,8 @@ listed there.
     `docs/mcp.md`. rmcp drives both eras' requests through `ClientHandler::create_elicitation`,
     so one handler answers both. Each connection's client keeps the calls in flight on it, and a
     question goes to the newest. The protocol has no field naming which call a 2025-era request
-    belongs to, and two of Drift's calls on one connection at once are rare. A rejected answer
+    belongs to, and two of Drift's calls on one connection at once are rare; when those calls come
+    from different sessions the question is declined, so it never reaches another conversation. A rejected answer
     asks the card again with the problem shown, rather than sending it and letting the server
     refuse. The tests use the stateless HTTP stand-in; the 2025 stdio path goes through the same
     handler and is not tested separately.
@@ -2336,7 +2342,9 @@ code until he picks.
   drops them all, and what an early read read counts as read only once its result is used (it ran
   against a copy of the session's read record). So reads overlap the rest of the reply without a
   broken reply's calls ever reaching the model.
-  `edit`, `write` and `apply_patch` refuse existing files the session has not `read`; every
+  `edit`, `write` and `apply_patch` refuse existing files the session has not `read`, and `write`
+  refuses one whose size or modification time changed since this run last read or wrote it (the
+  model's own edits, patches and a formatter that rewrote nothing keep it current); every
   mutating call records what it changed in its part's metadata. A shell line that only reads and
   exits 0 counts too for each file it printed (`cat`, `type`, `head`, `tail`, `Get-Content`, and
   `sed -n '<range>p'`, which now also counts as reading; `command::files_read`), since GPT and
@@ -2701,6 +2709,11 @@ Settled after the first external review of M1; each has a regression test.
   (`NtResumeProcess`). Finding its thread instead took a snapshot of every thread on the machine:
   about 115ms per command on the runtime's own thread, so sixteen agents running commands at once
   went from 1.9s per step to 1.1s when it went.
+- What the agent starts (shells, background commands, checks, language servers, MCP servers,
+  browsers) runs at below-normal priority (`BELOW_NORMAL_PRIORITY_CLASS`, unix `nice 10`), and what
+  it starts inherits that. Drift's window and engine stay at normal, so a build on every core yields
+  the moment they need a core: with 32 CPU-bound processes on 16 cores, a normal-priority probe's
+  timer p95 went from 410ms late to 19ms and an engine request from 382ms to 15ms, as unloaded.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
   else Git's bash on Windows, found beside the `git` on PATH (`<root>/cmd`, `bin` or
   `mingw64/bin` lead to `<root>/bin/bash.exe`, since Git puts only `cmd` on PATH), then in Program
@@ -3054,7 +3067,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   straight after each reconnect is retried at 500 ms, 1 s, 2 s and so on up to 30 s. Only a
   connection that held for a minute starts its next reconnects from 500 ms again.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
-  (project rules first, so they win), plus agents and commands from `~/.config/drift/agents`,
+  (project deny and ask rules first, so they win; project allow rules last, below the user's and
+  Settings' rules), plus agents and commands from `~/.config/drift/agents`,
   `~/.config/drift/commands`, then the workspace's `.drift/agents/*.md`, `.drift/commands/*.md`, and
   skills (`config::skill_folders`, nearest first so a nearer skill shadows a farther one of its
   name): `.drift/skills`, `.agents/skills` and `.claude/skills` in the workspace and each parent up
@@ -3174,6 +3188,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   command ran `line`, which returned: ...". A delegating command cannot use them (400), since they
   run in the conversation. A template's `@path` naming a workspace file or directory is attached
   as an @ mention, read in under the same rules as one the user typed.
+  The prompt also carries a `command` part (`name`, `arguments`) that the model never reads, so the
+  transcript shows `/name arguments` as a command note instead of the expanded template or a plain
+  message; earlier prompts that are a bare `/name args` naming a known command show the same way.
   Command front matter may name an `agent`, a `model` (`provider/model`) and `subtask`. The
   command is validated against the running config generation, the one its turn is then admitted
   with. An action agent is refused. As in opencode, a command's agent and model apply to its own
@@ -3290,7 +3307,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - Policy evaluation is separate from an approval dialog. The defaults are opencode's: everything
     runs without asking except what reaches outside the workspace and files likely to hold
     secrets. Workspace reads, scratch access, searches, skills, delegation, fetches of public URLs
-    (`webfetch`; one naming this machine, a private or link-local address or a local name asks)
+    (`webfetch`; one naming this machine, a private or link-local address or a local name asks, and
+    a public name fetched unasked connects only to public addresses: one resolving to this machine or
+    its network fails, telling the model to fetch again with `private: true`, which asks)
     and every MCP call (a read-only hint matters only to read-only agents) carry an
     allow-by-default request. Explicit deny/ask rules still apply; an unmatched default request
     produces no dialog.
@@ -3347,7 +3366,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - Rules for every workspace are kept in Settings > Permissions: an ordered list (kind, glob,
     allow/ask/deny) in the `permissionRules` setting, loaded into the engine's global policy at
     startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after
-    the rules in drift.json and the first match wins, so a project's file still decides first. A
+    the rules in drift.json and the first match wins, so a project's deny and ask rules still decide
+    first; a project's allow rules are checked last, after these, so a committed file never loosens
+    a rule of the user's. A
     rule whose kind names no operation or whose pattern is no glob is refused with the reason, and
     the list holds at most 200. Below them, under "Always allowed in one workspace", a workspace
     picker (the active workspace first) shows that workspace's "always" grants, since a grant holds

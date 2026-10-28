@@ -147,6 +147,7 @@ impl Engine {
 
         let permissions = Permissions::new(Policy {
             rules: store.setting(PERMISSION_RULES_KEY)?.unwrap_or_default(),
+            ..Default::default()
         });
         let saving = store.clone();
         permissions.save_grants_with(Box::new(move |workspace, grants| {
@@ -292,7 +293,10 @@ impl Engine {
     /// Replaces the rules kept in Settings; calls checked from now on follow them.
     pub fn set_permission_rules(&self, rules: Vec<permission::Rule>) -> rusqlite::Result<()> {
         self.store.set_setting(PERMISSION_RULES_KEY, &rules)?;
-        self.permissions.set_policy(Policy { rules });
+        self.permissions.set_policy(Policy {
+            rules,
+            ..Default::default()
+        });
 
         Ok(())
     }

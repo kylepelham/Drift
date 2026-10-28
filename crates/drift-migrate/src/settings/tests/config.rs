@@ -18,7 +18,13 @@ fn import_permissions(text: &str) -> (Policy, SettingsReport) {
         .unwrap_or_default();
     let rules: Vec<Rule> = serde_json::from_value(written["permissions"].clone()).unwrap_or_default();
 
-    (Policy { rules }, report)
+    (
+        Policy {
+            rules,
+            ..Default::default()
+        },
+        report,
+    )
 }
 
 fn decide(policy: &Policy, kind: &str, target: &str) -> Option<Decision> {

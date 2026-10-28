@@ -1,6 +1,6 @@
-import { createEffect, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, For, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
+import { actionFailed, archiveFailed, WorkspaceIcon } from "./workspaces";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
-import { archiveFailed, WorkspaceIcon } from "./workspaces";
 import { selectSession } from "../state/selection";
 import { IconRestore, IconX } from "./icons";
 import { Portal } from "solid-js/web";
@@ -15,6 +15,8 @@ import {
     workspaces,
 } from "../state/workspaces";
 
+import type { Workspace } from "../state/store";
+
 const purgeAge = 7 * 24 * 60 * 60 * 1000;
 
 export function ArchiveModal(props: { onClose: () => void }) {
@@ -24,8 +26,18 @@ export function ArchiveModal(props: { onClose: () => void }) {
     onMount(() => onCleanup(activateModal(dialog, props.onClose)));
     createEffect(() => {
         if (engine.state.connection !== "online") return;
-        void engine.actions.loadAllSessions();
+        untrack(() => void engine.actions.loadAllSessions());
     });
+
+    async function restore(workspace: Workspace) {
+        try {
+            await restoreWorkspace(workspace);
+            return true;
+        } catch (cause) {
+            actionFailed(engine, t("drift.sidebar.addWorkspace"), cause);
+            return false;
+        }
+    }
 
     async function restoreThread(sessionId: string, workspaceId: string) {
         try {
@@ -34,8 +46,9 @@ export function ArchiveModal(props: { onClose: () => void }) {
             return archiveFailed(engine, cause);
         }
         const workspace = allWorkspaces().find((entry) => entry.id === workspaceId);
-        if (workspace?.removedAt) await restoreWorkspace(workspace);
-        else if (workspace) selectWorkspace(workspace.id);
+        if (workspace?.removedAt) {
+            if (!(await restore(workspace))) return;
+        } else if (workspace) selectWorkspace(workspace.id);
         selectSession(sessionId);
         props.onClose();
     }
@@ -78,7 +91,9 @@ export function ArchiveModal(props: { onClose: () => void }) {
                                             title={workspace.name}
                                             detail={`${workspace.path} · ${expiry(workspace.removedAt)}`}
                                             icon={<WorkspaceIcon workspace={workspace} />}
-                                            onRestore={() => void restoreWorkspace(workspace).then(props.onClose)}
+                                            onRestore={() =>
+                                                void restore(workspace).then((ok) => ok && props.onClose())
+                                            }
                                         />
                                     )}
                                 </For>

@@ -291,3 +291,24 @@ async fn a_name_that_resolves_to_a_private_address_stays_on_this_machine() {
     assert!(!super::resolves_public("http://localhost:3000/").await);
     assert!(super::resolves_public("https://drift-unresolvable.invalid/").await);
 }
+
+#[tokio::test]
+async fn a_fetch_nobody_was_asked_about_never_connects_to_this_machine() {
+    let sandbox = Sandbox::new("webfetch-private");
+    let url = serve().await.replace("127.0.0.1", "localhost") + "/page";
+
+    let Err(refused) = super::direct(&sandbox.ctx, &url, "markdown", true).await else {
+        panic!("a name on this machine was fetched unasked");
+    };
+    assert!(refused.0.contains(super::PRIVATE_HOST), "{}", refused.0);
+    assert!(
+        !WebFetch
+            .ask(&sandbox.ctx, &json!({ "url": "https://docs.rs/", "private": true }))
+            .unwrap()
+            .default_allow
+    );
+    assert!(matches!(
+        super::direct(&sandbox.ctx, &url, "markdown", false).await,
+        Ok(Fetched::Thin(_))
+    ));
+}

@@ -109,8 +109,18 @@ export function NoticeHost() {
     const engine = useEngine();
     const [now, setNow] = createSignal(Date.now());
     const [dismissed, setDismissed] = createSignal(new Set<string>());
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    onCleanup(() => clearInterval(timer));
+
+    // Wakes once at the next notice's expiry, and not at all while none is showing.
+    createEffect(() => {
+        const current = now();
+        const ends = engine.state.notices
+            .map((notice) => notice.created + notice.duration)
+            .filter((end) => end > current);
+        if (!ends.length) return;
+
+        const timer = setTimeout(() => setNow(Date.now()), Math.min(...ends) - Date.now());
+        onCleanup(() => clearTimeout(timer));
+    });
 
     const visible = createMemo(() =>
         engine.state.notices.filter(

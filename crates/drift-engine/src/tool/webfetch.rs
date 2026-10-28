@@ -26,7 +26,8 @@ impl Tool for WebFetch {
                 "type": "object",
                 "properties": {
                     "url": { "type": "string", "description": "Absolute http or https URL." },
-                    "format": { "type": "string", "enum": ["markdown", "text", "html"], "description": "How to return HTML pages. Default markdown." }
+                    "format": { "type": "string", "enum": ["markdown", "text", "html"], "description": "How to return HTML pages. Default markdown." },
+                    "private": { "type": "boolean", "description": "Set only after a fetch said the host is on this machine or its network: asks the user first." }
                 },
                 "required": ["url"]
             }),
@@ -37,7 +38,11 @@ impl Tool for WebFetch {
         let url = input["url"].as_str()?;
         // As opencode, a public URL fetches unasked; this machine, its network or metadata hosts ask.
         let ask = Ask::new("webfetch", url, format!("Fetch {url}"));
-        Some(if public(url) { ask.allow_by_default() } else { ask })
+        Some(if unasked(url, input) {
+            ask.allow_by_default()
+        } else {
+            ask
+        })
     }
 
     /// Fetches the page itself first; a page that will not load, or loads nearly empty, is read through a web search
@@ -50,7 +55,7 @@ impl Tool for WebFetch {
             }
             let format = input["format"].as_str().unwrap_or("markdown");
 
-            match direct(ctx, url, format).await? {
+            match direct(ctx, url, format, unasked(url, &input)).await? {
                 Fetched::Done(output) => Ok(output),
                 Fetched::Thin(output) => Ok(match through_provider(ctx, url).await {
                     Some(Ok(rendered)) => rendered,
@@ -76,11 +81,12 @@ enum Fetched {
     Blocked(ToolError),
 }
 
-/// The page as this machine fetches it. A missing page, one too large, or an abort is an error no provider helps with.
-async fn direct(ctx: &Context, url: &str, format: &str) -> Result<Fetched, ToolError> {
-    let response = match respond(ctx, url).await {
+/// The page as this machine fetches it. A missing page, one too large, or an abort is an error no provider helps with;
+/// so is a host fetched unasked that turns out to be on this machine or its network.
+async fn direct(ctx: &Context, url: &str, format: &str, unasked: bool) -> Result<Fetched, ToolError> {
+    let response = match respond(ctx, url, unasked).await {
         Ok(response) => response,
-        Err(error) if ctx.abort.is_cancelled() => return Err(error),
+        Err(error) if ctx.abort.is_cancelled() || error.0.contains(PRIVATE_HOST) => return Err(error),
         Err(error) => return Ok(Fetched::Blocked(error)),
     };
     if let Some(target) = elsewhere(&response) {
@@ -165,6 +171,11 @@ async fn through_provider(ctx: &Context, url: &str) -> Option<Result<Output, Str
     })
 }
 
+/// Whether the fetch runs without asking: a public URL the model has not marked as on this machine or its network.
+fn unasked(url: &str, input: &Value) -> bool {
+    public(url) && !input["private"].as_bool().unwrap_or(false)
+}
+
 /// Whether `url` may go to a third party: a public host by name or address, with no credentials in it.
 fn public(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
@@ -225,8 +236,9 @@ fn public_address(address: std::net::IpAddr) -> bool {
 }
 
 /// The page as a browser asks for it, asked again honestly when Cloudflare challenges the browser agent.
-async fn respond(ctx: &Context, url: &str) -> Result<reqwest::Response, ToolError> {
-    let response = fetch(ctx, url, BROWSER).await?;
+async fn respond(ctx: &Context, url: &str, unasked: bool) -> Result<reqwest::Response, ToolError> {
+    let client = client(unasked);
+    let response = fetch(ctx, &client, url, BROWSER).await?;
     // Cloudflare challenges a browser agent whose TLS does not look like a browser's; an honest one often passes.
     let challenged = response.status() == reqwest::StatusCode::FORBIDDEN
         && response
@@ -234,7 +246,7 @@ async fn respond(ctx: &Context, url: &str) -> Result<reqwest::Response, ToolErro
             .get("cf-mitigated")
             .is_some_and(|value| value == "challenge");
     if challenged {
-        return fetch(ctx, url, HONEST).await;
+        return fetch(ctx, &client, url, HONEST).await;
     }
     Ok(response)
 }
@@ -271,9 +283,32 @@ const BROWSER: &str =
 const HONEST: &str = "Drift/1.0 (+https://driftagent.dev)";
 const MAX_REDIRECTS: usize = 10;
 
+const PRIVATE_HOST: &str = "is on this machine or its network";
+
+/// Resolves a name to its public addresses only, so a fetch nobody was asked about never reaches this machine or its network.
+struct PublicOnly;
+
+impl reqwest::dns::Resolve for PublicOnly {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let public: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await?
+                .filter(|address| public_address(address.ip()))
+                .collect();
+            if public.is_empty() {
+                return Err(format!("{host} {PRIVATE_HOST}; fetch it again with private: true to ask the user").into());
+            }
+            Ok(Box::new(public.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
 /// Follows redirects only within the URL's own origin: the user approved that URL, not wherever it points.
-fn client() -> reqwest::Client {
-    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+/// A fetch nobody was asked about resolves only to public addresses.
+fn client(unasked: bool) -> reqwest::Client {
+    static ASKED: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    static UNASKED: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     let policy = reqwest::redirect::Policy::custom(|attempt| {
         let same = attempt
             .previous()
@@ -286,15 +321,19 @@ fn client() -> reqwest::Client {
         }
     });
 
-    CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(15))
-                .redirect(policy)
-                .build()
-                .unwrap_or_default()
-        })
-        .clone()
+    let build = || {
+        let builder = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .redirect(policy);
+        let builder = if unasked {
+            builder.dns_resolver(PublicOnly)
+        } else {
+            builder
+        };
+        builder.build().unwrap_or_default()
+    };
+
+    if unasked { &UNASKED } else { &ASKED }.get_or_init(build).clone()
 }
 
 /// The same host, on the same scheme and port, or moved from http to https (the usual upgrade).
@@ -304,8 +343,13 @@ fn same_origin(from: &reqwest::Url, to: &reqwest::Url) -> bool {
     from.host_str() == to.host_str() && (same || upgrade)
 }
 
-async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Response, ToolError> {
-    let request = client()
+async fn fetch(
+    ctx: &Context,
+    client: &reqwest::Client,
+    url: &str,
+    agent: &str,
+) -> Result<reqwest::Response, ToolError> {
+    let request = client
         .get(url)
         .timeout(TIMEOUT)
         .header("user-agent", agent)
@@ -316,9 +360,24 @@ async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Respons
         .header("accept-language", "en-US,en;q=0.9");
 
     tokio::select! {
-        response = request.send() => response.map_err(|error| ToolError(format!("request failed: {error}"))),
+        response = request.send() => response.map_err(|error| ToolError(format!("request failed: {}", causes(&error)))),
         () = ctx.abort.cancelled() => Err(ToolError("aborted".into())),
     }
+}
+
+/// An error with every cause behind it, so a refused private host says why.
+fn causes(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let line = cause.to_string();
+        if !text.contains(&line) {
+            text = format!("{text}: {line}");
+        }
+        source = cause.source();
+    }
+
+    text
 }
 
 /// Where a redirect the client would not follow points, resolved against the page that sent it.

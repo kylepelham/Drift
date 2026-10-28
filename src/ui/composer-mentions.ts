@@ -1,10 +1,11 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { createLatestOnly } from "../state/latest";
 
 /** Matches a trailing `@path` mention at the caret. Shared so the reader and replacer cannot drift. */
 const mentionPattern = /(^|\s)@([\w./\\-]*)$/;
 
 const maxMentionResults = 8;
+const mentionSearchDelayMs = 100;
 
 export type MentionAutocompleteOptions = {
     /** The textarea, read lazily because refs are assigned after this runs. */
@@ -23,7 +24,7 @@ export type MentionAutocompleteOptions = {
 /**
  * Typing `@` opens a file search whose results are inserted at the caret.
  *
- * The search runs on every keystroke, so results are guarded: a slow response for an earlier query
+ * The search runs once typing pauses, and results are guarded: a slow response for an earlier query
  * must not replace the hits for what the user has typed since.
  */
 export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
@@ -46,19 +47,24 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
     createEffect(() => {
         const current = query();
         if (current === null || !options.ready()) {
+            search.begin();
             setHits([]);
             return;
         }
 
         const token = search.begin();
-        void options
-            .findFiles(current)
-            .catch(() => [] as string[])
-            .then((found) => {
-                if (!search.isCurrent(token)) return;
-                setHits(found.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults));
-                setCursor(0);
-            });
+        // Typing a path waits for a pause, so the engine runs one search instead of one per letter.
+        const timer = setTimeout(() => {
+            void options
+                .findFiles(current)
+                .catch(() => [] as string[])
+                .then((found) => {
+                    if (!search.isCurrent(token)) return;
+                    setHits(found.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults));
+                    setCursor(0);
+                });
+        }, mentionSearchDelayMs);
+        onCleanup(() => clearTimeout(timer));
     });
 
     /** Replaces the partial `@…` at the caret with the chosen path and moves the caret past it. */

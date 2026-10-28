@@ -4,10 +4,23 @@ import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 import type { EngineState, TaskRecord } from "../engine/store";
 import type { ToolPart } from "../engine/parts";
 
-export function delegatedChildId(state: EngineState, part: ToolPart) {
-    if (part.name !== "task" && part.name !== "spawn_thread") return null;
+/** A `task` or `spawn_thread` call that ran a worker, or is starting one; not one the engine refused outright. */
+export function delegates(part: ToolPart) {
+    if (part.name !== "task" && part.name !== "spawn_thread") return false;
+    if (part.status !== "error" && part.status !== "denied") return true;
+
+    return !!childSessionOf(part);
+}
+
+function childSessionOf(part: ToolPart) {
     const sessionId = (toolMeta(part) as { sessionId?: unknown } | undefined)?.sessionId;
-    if (typeof sessionId === "string" && sessionId) return sessionId;
+    return typeof sessionId === "string" && sessionId ? sessionId : null;
+}
+
+export function delegatedChildId(state: EngineState, part: ToolPart) {
+    if (!delegates(part)) return null;
+    const sessionId = childSessionOf(part);
+    if (sessionId) return sessionId;
     if (part.name !== "task") return null;
 
     const input = toolInput(part) as { description?: unknown; subagent_type?: unknown; task_id?: unknown };

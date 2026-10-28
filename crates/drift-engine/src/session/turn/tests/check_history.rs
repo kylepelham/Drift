@@ -218,6 +218,7 @@ async fn a_check_rewrite_without_a_capture_is_still_announced_and_said_to_be_unr
     };
     h.engine.permissions.set_policy(Policy {
         rules: vec![allow("edit"), allow("bash"), allow("project-commands")],
+        ..Default::default()
     });
     let fix = if cfg!(windows) {
         ["cmd", "/c", "echo fixed> $FILE"]

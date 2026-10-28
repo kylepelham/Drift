@@ -358,6 +358,9 @@ export function messageRevisionKey(sessionID: string, messageID: string) {
     return `message\0${sessionID}\0${messageID}`;
 }
 
+/** Every pending permission and question together; a poll begun before a change to them is not applied. */
+export const asksRevisionKey = "asks";
+
 export function bumpRevision(draft: EngineState, key: string) {
     draft.revisions[key] = (draft.revisions[key] ?? 0) + 1;
 }
@@ -708,6 +711,11 @@ export function childrenOf(state: EngineState, parentId: string) {
 }
 
 const providerPriority = ["anthropic", "openai", "opencode", "github-copilot", "google", "zai", "xai"];
+
+/** Online with the catalog loaded but no connected provider to send to: a new user's step before the first prompt. */
+export function needsProvider(state: EngineState) {
+    return state.connection === "online" && state.providers.length > 0 && !resolveModel(state, null);
+}
 
 export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRef | null {
     if (

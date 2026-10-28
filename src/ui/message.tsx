@@ -1,10 +1,10 @@
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
 import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } from "./message-groups";
+import { clarificationAnswer, commandNote, type ClarificationAnswer } from "./clarification-answer";
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconSlash, IconUndo } from "./icons";
 import { collapseCompaction, compactionCollapsed, editedFilesCard } from "../state/prefs";
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
-import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
-import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
 import { selectedSession, selectSession } from "../state/selection";
 import { messageModel, messageProblem } from "../engine/messages";
@@ -183,7 +183,8 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
         () =>
             answered() ??
             (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined) ??
-            orchestratorNudge(props.entry),
+            orchestratorNudge(props.entry) ??
+            commandNote(props.entry, (name) => engine.state.commands.some((command) => command.name === name)),
     );
     const text = () => clarification()?.text ?? messageText(props.entry);
     // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
@@ -259,28 +260,34 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                 {(answer) => (
                     <div class="group flex min-w-0 flex-col items-end gap-1.5">
                         <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
-                            <Show
-                                when={answer().items.length}
-                                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
-                            >
-                                <For each={answer().items}>
-                                    {(item) => (
-                                        <div class="space-y-1">
-                                            <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
-                                                {item.question}
-                                            </div>
-                                            <div
-                                                data-find-ignore={item.answers.length ? undefined : ""}
-                                                class="whitespace-pre-wrap break-words text-ink"
-                                            >
-                                                {item.answers.length
-                                                    ? item.answers.join(", ")
-                                                    : t("drift.question.unanswered")}
-                                            </div>
+                            {answer().command && !answer().body ? undefined : (
+                                <Show
+                                    when={answer().items.length}
+                                    fallback={
+                                        <div class="whitespace-pre-wrap break-words">
+                                            {answer().body ?? answer().text}
                                         </div>
-                                    )}
-                                </For>
-                            </Show>
+                                    }
+                                >
+                                    <For each={answer().items}>
+                                        {(item) => (
+                                            <div class="space-y-1">
+                                                <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
+                                                    {item.question}
+                                                </div>
+                                                <div
+                                                    data-find-ignore={item.answers.length ? undefined : ""}
+                                                    class="whitespace-pre-wrap break-words text-ink"
+                                                >
+                                                    {item.answers.length
+                                                        ? item.answers.join(", ")
+                                                        : t("drift.question.unanswered")}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </Show>
+                            )}
                         </NoteBox>
                         <UserActions entry={props.entry} onRevert={revert} copy={text} />
                     </div>
@@ -322,6 +329,7 @@ ${t("drift.message.revertKeepFiles")}`}
 }
 
 function noteIcon(answer: ClarificationAnswer) {
+    if (answer.command) return <IconSlash class="size-3.5" />;
     if (answer.spawned) return <IconBranch class="size-3.5" />;
     if (answer.nudge) return <IconArrowUpRight class="size-3.5" />;
 
@@ -329,6 +337,7 @@ function noteIcon(answer: ClarificationAnswer) {
 }
 
 function noteLabel(answer: ClarificationAnswer) {
+    if (answer.command) return <span class="font-mono text-accent">{answer.command}</span>;
     if (answer.spawned) return t("drift.chat.spawned.instruction");
     if (answer.nudge) return t("drift.orchestrator.nudge");
 
@@ -360,7 +369,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
 
-    const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
+    const visible = () => groups().length > 0 || !!problem() || footer();
     createAutoRead(
         () => props.entry,
         () => !!props.footer,
@@ -384,6 +393,8 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const turnOver = () =>
         !sessionBusy(engine.state, info().sessionId) ||
         engine.state.transcripts[info().sessionId]?.at(-1)?.info.id !== info().id;
+    // Shown mid-turn, a step's footer took space only until the next step began, pushing the transcript and back.
+    const footer = () => !!props.footer && !!info().finishedAt && turnOver();
 
     return (
         <Show when={visible()}>
@@ -442,10 +453,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         </Show>
                     )}
                 </Show>
-                <Show when={props.footer && info().finishedAt && turnOver() && editedFilesCard()}>
+                <Show when={footer() && editedFilesCard()}>
                     <EditedFilesCard entry={props.entry} />
                 </Show>
-                <Show when={props.footer && info().finishedAt}>
+                <Show when={footer()}>
                     <div class="message-actions touch-reveal flex items-center gap-3 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
                         <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>

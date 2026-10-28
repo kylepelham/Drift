@@ -157,6 +157,18 @@ enum Direction {
     Forward,
 }
 
+/// The session held for an undo, freed however the work ends, a dropped request included.
+struct Held<'a> {
+    turns: &'a super::turn::Turns,
+    session_id: &'a str,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.turns.release(self.session_id);
+    }
+}
+
 impl Engine {
     /// Hides `message_id`, a prompt, with everything after it, and undoes what those turns changed.
     /// Called again while undone it moves the point either way, and the files follow.
@@ -178,7 +190,7 @@ impl Engine {
 
     /// Runs `work` holding the session, so no turn starts while its files and history change
     /// underneath. A running turn is stopped first: asking to undo is asking for it to end.
-    async fn exclusively<T>(
+    pub(crate) async fn exclusively<T>(
         &self,
         session_id: &str,
         work: impl Future<Output = Result<T, RevertError>>,
@@ -195,9 +207,11 @@ impl Engine {
             }
         }
 
-        let result = work.await;
-        self.turns.release(session_id);
-        result
+        let _held = Held {
+            turns: &self.turns,
+            session_id,
+        };
+        work.await
     }
 
     async fn revert_claimed(

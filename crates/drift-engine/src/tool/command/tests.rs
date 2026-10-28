@@ -268,8 +268,12 @@ fn a_line_that_prints_files_names_them_and_anything_else_names_none() {
     assert_eq!(files_read(Dialect::Bash, "sed -n '1,80p' src/a.rs"), ["src/a.rs"]);
     assert_eq!(
         files_read(Dialect::Bash, "head -n 20 a.rs && tail b.rs"),
-        ["20", "a.rs", "b.rs"],
-        "flag values are dropped by the caller, which keeps only files"
+        ["a.rs", "b.rs"],
+        "an option's value is never a file"
+    );
+    assert_eq!(
+        files_read(Dialect::PowerShell, "Get-Content -TotalCount 5 a.rs"),
+        ["a.rs"]
     );
     assert_eq!(files_read(Dialect::Bash, "cat \"my file.txt\""), ["my file.txt"]);
     assert_eq!(

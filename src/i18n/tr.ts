@@ -639,6 +639,11 @@ export const drift = {
     "drift.attachment.processing": "Okunuyor...",
     "drift.attachment.table": "{{rows}} satır x {{columns}} sütun",
     "drift.chat.empty.noWorkspace": "Başlamak için soldan bir çalışma alanı ekleyin veya seçin.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift bilgisayarınızdaki bir klasörün içinde çalışır. Bir proje klasörü seçin, sohbet orada açılsın.",
+    "drift.chat.empty.connectProvider":
+        "Drift'in çalışması için bir yapay zeka modeline ihtiyacı var. Zaten sahip olduğunuz birini kullanın: bir Claude veya ChatGPT aboneliğiyle oturum açın, bir API anahtarı yapıştırın ya da Ollama veya LM Studio ile bu bilgisayarda bir model çalıştırın.",
+    "drift.chat.empty.connectModel": "Model bağla",
     "drift.chat.empty.promptHint": "Aşağıya yazmaya başlayın. Enter gönderir, Shift+Enter yeni satıra geçer.",
     "drift.chat.empty.quote1": "Denizanalarının beyni yok ama yine de yollarını buluyorlar. Sen de yaparsın.",
     "drift.chat.empty.quote2": "Küçük diff'ler, sakin denizler.",
@@ -676,6 +681,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}}, {{kind}} eklerini kabul etmiyor ({{filename}})",
     "drift.composer.openThread": "O konuyu aç",
     "drift.composer.pendingInThread": "{{thread}} içinde",
+    "drift.composer.addWorkspace": "Sohbete başlamak için bir çalışma alanı ekleyin",
+    "drift.composer.connectProvider": "Sohbete başlamak için bir model bağlayın",
     "drift.composer.selectWorkspace": "Başlamak için bir çalışma alanı seçin",
     "drift.composer.thinkingLevel": "Düşünme düzeyi",
     "drift.slash.account.auto": "Otomatik",
@@ -1244,6 +1251,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Kopyalandı. Buradan ayarlayın veya şununla başlayın",
     "drift.settings.notifications": "Bildirimler",
     "drift.settings.providers.notConnected": "Bağlı değil",
+    "drift.settings.providers.intro":
+        "Sağlayıcı, yapay zeka modelini çalıştıran hizmettir. Zaten ödediğiniz bir abonelikle oturum açın, bir API anahtarı yapıştırın ya da bu bilgisayarda bir model çalıştırın. Birden fazla sağlayıcı bağlayabilir ve modeli mesaj alanından değiştirebilirsiniz.",
+    "drift.settings.providers.suggested": "Başlamak için iyi seçenekler",
+    "drift.settings.providers.more": "Diğer sağlayıcılar",
     "drift.settings.search.empty": "Eşleşen ayar yok",
     "drift.settings.search.placeholder": "Ayarlarda ara",
     "drift.settings.sound.audioFileRequired": "Bir ses dosyası seçin.",

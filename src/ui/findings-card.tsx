@@ -1,5 +1,5 @@
+import { sameJson, savedChoice, sessionBusy } from "../engine/store";
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { savedChoice, sessionBusy } from "../engine/store";
 import { defaultBase } from "./review-sources";
 import { openReview } from "../state/panels";
 import { FileIcon } from "./file-icon";
@@ -10,6 +10,7 @@ import {
     findingOutcomes,
     findingReports,
     fixPrompt,
+    reportFindings,
     reviewedFiles,
     type FindingReport,
 } from "../state/review-findings";
@@ -108,9 +109,13 @@ function byFile(findings: Finding[]) {
 export function FindingsCard(props: { part: ToolPart }) {
     const engine = useEngine();
     const sessionId = () => props.part.sessionId;
-    const reports = createMemo(() => findingReports(engine.state.transcripts[sessionId()] ?? []));
-    const findings = createMemo(() => reports().find((report) => report.part.id === props.part.id)?.findings ?? []);
-    const outcomes = createMemo(() => findingOutcomes(reports(), props.part.id));
+    // Unchanged results keep their rows: any token streamed into the session reruns these, and new rows lost hover.
+    const findings = createMemo(() => reportFindings(props.part), undefined, { equals: sameJson });
+    const outcomes = createMemo(
+        () => findingOutcomes(findingReports(engine.state.transcripts[sessionId()] ?? []), props.part.id),
+        undefined,
+        { equals: sameJson },
+    );
     const open = () => findings().filter((finding, at) => !outcomes()[at] && !dismissedFindings().has(finding.id));
     const busy = () => sessionBusy(engine.state, sessionId());
     const [sending, setSending] = createSignal(false);

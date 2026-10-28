@@ -646,6 +646,11 @@ export const drift = {
     "drift.attachment.processing": "Leyendo...",
     "drift.attachment.table": "{{rows}} filas x {{columns}} columnas",
     "drift.chat.empty.noWorkspace": "Añade o selecciona un espacio de trabajo a la izquierda para empezar.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift trabaja dentro de una carpeta de tu ordenador. Elige la carpeta de un proyecto y el chat se abre allí.",
+    "drift.chat.empty.connectProvider":
+        "Drift necesita un modelo de IA con el que trabajar. Usa uno que ya tengas: inicia sesión con una suscripción de Claude o ChatGPT, pega una clave de API o ejecuta un modelo en este equipo con Ollama o LM Studio.",
+    "drift.chat.empty.connectModel": "Conectar un modelo",
     "drift.chat.empty.promptHint": "Empieza a escribir abajo. Intro envía y Mayús+Intro inserta un salto de línea.",
     "drift.chat.empty.quote1": "Las medusas no tienen cerebro y aun así se mueven. Tú puedes.",
     "drift.chat.empty.quote2": "Diffs pequeños, mar en calma.",
@@ -683,6 +688,8 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} no admite adjuntos {{kind}} ({{filename}})",
     "drift.composer.openThread": "Abrir ese hilo",
     "drift.composer.pendingInThread": "en {{thread}}",
+    "drift.composer.addWorkspace": "Añade un espacio de trabajo para empezar a chatear",
+    "drift.composer.connectProvider": "Conecta un modelo para empezar a chatear",
     "drift.composer.selectWorkspace": "Selecciona un espacio de trabajo para empezar",
     "drift.composer.thinkingLevel": "Nivel de razonamiento",
     "drift.slash.account.auto": "Automático",
@@ -1252,6 +1259,10 @@ export const drift = {
     "drift.settings.customPalette.copied": "Copiado. Ajusta desde aquí o empieza desde",
     "drift.settings.notifications": "Notificaciones",
     "drift.settings.providers.notConnected": "No conectado",
+    "drift.settings.providers.intro":
+        "Un proveedor es el servicio que ejecuta el modelo de IA. Inicia sesión con una suscripción que ya pagas, pega una clave de API o ejecuta un modelo en este equipo. Puedes conectar más de uno y cambiar de modelo desde el compositor.",
+    "drift.settings.providers.suggested": "Buenos puntos de partida",
+    "drift.settings.providers.more": "Más proveedores",
     "drift.settings.search.empty": "No hay ajustes que coincidan",
     "drift.settings.search.placeholder": "Buscar ajustes",
     "drift.settings.sound.audioFileRequired": "Elige un archivo de audio.",

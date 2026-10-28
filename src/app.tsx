@@ -1,5 +1,5 @@
+import { createEffect, createSignal, lazy, onCleanup, onMount, Show, untrack } from "solid-js";
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces";
-import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
@@ -25,8 +25,9 @@ import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
 import { rightPanelOpen } from "./state/panels";
+import { settingsOpen } from "./state/settings";
+import { bindAppIcon } from "./state/app-icon";
 import { bindPathCopy } from "./ui/path-copy";
-import { SettingsHost } from "./ui/settings";
 import { StartupSplash } from "./ui/startup";
 import { McpServersModal } from "./ui/mcp";
 import { PaletteHost } from "./ui/palette";
@@ -41,8 +42,12 @@ import { Sidebar } from "./ui/sidebar";
 import { Chat } from "./ui/chat";
 import { t } from "./state/i18n";
 
+// Settings and its pages load the first time it opens, not before the app first renders.
+const SettingsDialog = lazy(() => import("./ui/settings").then((module) => ({ default: module.SettingsDialog })));
+
 export function App() {
     bindTheme();
+    bindAppIcon();
     bindTextSizes();
     bindCodePreferences();
     bindLanguage();
@@ -89,7 +94,9 @@ export function App() {
                 <Lightbox />
                 <FilePreviewHost />
                 <McpServersModal />
-                <SettingsHost />
+                <Show when={settingsOpen()}>
+                    <SettingsDialog />
+                </Show>
                 <PaletteHost />
                 <ToolContextMenuHost />
                 <ImportSummaryHost />
@@ -192,15 +199,16 @@ function WorkspaceBinding() {
     });
     createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null));
     createEffect(() => setPluginGrammars(engine.state.grammars));
+    // Only connecting reruns this: the loads read and write the store, and tracking it refetched them endlessly.
     createEffect(() => {
         if (engine.state.connection !== "online") return;
 
-        void engine.actions.loadAllSessions();
-
-        // Full sweep once on connect; the timer keeps the active workspace hot afterward.
-        const paths = untrack(() => workspaces().map((workspace) => workspace.path));
-        void engine.actions.refreshPermissions(paths);
-        purge();
+        untrack(() => {
+            void engine.actions.loadAllSessions();
+            // Full sweep once on connect; the timer keeps the active workspace hot afterward.
+            void engine.actions.refreshPermissions(workspaces().map((workspace) => workspace.path));
+            purge();
+        });
     });
     const timer = setInterval(() => purge(), purgeIntervalMs);
     // Global /global/event covers live asks; this recovers asks raised while offline.

@@ -65,3 +65,16 @@ async fn an_undone_tail_stays_out_of_the_backup_and_other_files_are_refused() {
     let refused = h.engine.import_sessions(backup, &h.session.workspace_id);
     assert!(matches!(refused, Err(BackupError::Unreadable(_))));
 }
+
+#[test]
+fn a_restored_undo_record_names_only_files_inside_the_workspace() {
+    assert!(inside_workspace("src/a.rs") && inside_workspace("./a.rs"));
+    let outside: &[&str] = if cfg!(windows) {
+        &["", "../x", r"..\x", r"C:\Windows\x", "C:x", "/etc/passwd", r"\x"]
+    } else {
+        &["", "../x", "a/../../x", "/etc/passwd"]
+    };
+    for path in outside {
+        assert!(!inside_workspace(path), "{path}");
+    }
+}

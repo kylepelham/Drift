@@ -600,6 +600,8 @@ pub struct Servers {
     open: Mutex<HashMap<u64, PathBuf>>,
     /// Where each workspace's choices are read; none in a bare test registry, which offers every server.
     store: Option<Arc<Store>>,
+    /// Each server's sign-in waiting on the browser, stopped by a sign-out or a newer sign-in.
+    signing_in: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
 }
 
 enum Watch {

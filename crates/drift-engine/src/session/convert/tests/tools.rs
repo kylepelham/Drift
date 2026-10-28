@@ -31,6 +31,33 @@ fn a_call_id_stored_twice_by_an_older_session_goes_out_unique_with_its_result() 
 }
 
 #[test]
+fn calls_repeating_one_id_in_a_step_each_keep_their_own_result() {
+    let calls = ["first", "second", "third"].map(|output| call(ToolStatus::Done, Some(output)));
+    let transcript = [
+        message(Role::User, vec![Part::Text { text: "q".into() }]),
+        message(Role::Assistant, calls.to_vec()),
+    ];
+    let sent = messages(&transcript, &target());
+    let answers: Vec<(&str, &str)> = sent
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .filter_map(|block| match block {
+            Block::ToolResult { call_id, content, .. } => Some((call_id.as_str(), content.as_str())),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(answers.len(), 3);
+    for ((id, content), (want_id, want)) in answers
+        .iter()
+        .zip([("c1", "first"), ("c1_2", "second"), ("c1_3", "third")])
+    {
+        assert_eq!(*id, want_id);
+        assert!(content.contains(want), "{id} answered with {content}");
+    }
+}
+
+#[test]
 fn tool_calls_get_results_in_the_following_user_turn() {
     let transcript = vec![
         message(Role::User, vec![Part::Text { text: "read a".into() }]),

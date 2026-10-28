@@ -9,6 +9,7 @@ and download links. Layout, commands, and the video capture workflow are documen
 that repository's README.
 
 One coupling to this repo remains: the capture script (`scripts/capture-video.ts` over
-there) records real footage against Drift's dev server at `http://localhost:5180`, using
-a scratch workspace at `%LOCALAPPDATA%\Temp\opencode\demo\tidepool`. Never point it at a
+there) records real footage against Drift's dev server at `http://localhost:5180` (`bun run dev`),
+using a scratch workspace at `%TEMP%\drift-demo\tidepool` that it registers with the engine
+itself, since the browser build keeps workspaces in local storage only. Never point it at a
 real workspace.

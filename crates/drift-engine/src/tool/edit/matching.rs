@@ -116,7 +116,7 @@ fn folded_occurrences(view: &str, search: &str) -> Vec<Range<usize>> {
         .collect()
 }
 
-/// A line as the trailing-whitespace tier compares it.
+/// A line as alignment compares it, to keep each region line's ending.
 fn key(line: &str) -> String {
     line.trim_end().chars().map(ascii).collect()
 }
@@ -152,16 +152,16 @@ fn lines(view: &str) -> Vec<Line> {
 /// Whole lines that match ignoring trailing whitespace, earliest first, never overlapping.
 fn line_occurrences(view: &str, search: &str) -> Vec<Range<usize>> {
     let trailing_newline = search.ends_with('\n');
-    let wanted: Vec<String> = search
+    let wanted: Vec<&str> = search
         .strip_suffix('\n')
         .unwrap_or(search)
         .split('\n')
-        .map(key)
+        .map(str::trim_end)
         .collect();
     let lines = lines(view);
-    let keys: Vec<String> = lines
+    let keys: Vec<&str> = lines
         .iter()
-        .map(|line| key(&view[line.start..line.content_end]))
+        .map(|line| view[line.start..line.content_end].trim_end())
         .collect();
 
     let mut found: Vec<Range<usize>> = Vec::new();

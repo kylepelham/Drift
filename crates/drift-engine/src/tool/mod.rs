@@ -186,6 +186,16 @@ pub(crate) fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, T
         .ok_or_else(|| ToolError(format!("`{key}` is required")))
 }
 
+/// A provider's call id as a file name: only `[A-Za-z0-9_-]`, so no id can name a path elsewhere.
+pub(crate) fn call_file_name(call_id: &str) -> String {
+    let name: String = call_id
+        .chars()
+        .filter(|char| char.is_ascii_alphanumeric() || matches!(char, '_' | '-'))
+        .collect();
+
+    if name.is_empty() { "call".into() } else { name }
+}
+
 /// Refuses, before anything is written, a file too large for undo to keep: it could never be put back.
 fn fits_history(name: &str, bytes: usize) -> Result<(), ToolError> {
     let limit = crate::session::snapshot::MAX_RECORDED_BYTES;

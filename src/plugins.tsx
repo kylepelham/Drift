@@ -74,7 +74,9 @@ const hooks = new Map<HookName, Set<AnyHook>>();
 const renderers = new Map<string, ToolRenderer>();
 const partRenderers = new Map<string, PartRenderer>();
 const cleanups = new Set<() => void>();
-const [rendererVersion, setRendererVersion] = createSignal(0);
+const [rendererRevision, setRendererVersion] = createSignal(0);
+/** Bumped as plugins register or remove renderers. */
+export const rendererVersion = rendererRevision;
 const [pluginsSettled, setPluginsSettled] = createSignal(false);
 export { pluginsSettled };
 let generation = 0;

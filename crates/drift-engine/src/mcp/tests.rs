@@ -205,6 +205,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
             pattern: "echo/*".into(),
             decision: crate::permission::Decision::Deny,
         }],
+        ..Default::default()
     };
     assert_eq!(
         engine.permissions.decide_now("s", &denied, &read_only),

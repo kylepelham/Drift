@@ -300,6 +300,11 @@ pub enum Part {
         generation: String,
         effort: String,
     },
+    /// The slash command that wrote the prompt beside it, for the transcript to show; the model reads only the prompt.
+    Command {
+        name: String,
+        arguments: String,
+    },
     /// A stored part this build cannot read (imported, or written by a newer Drift), kept exactly as stored.
     Unknown {
         raw: String,

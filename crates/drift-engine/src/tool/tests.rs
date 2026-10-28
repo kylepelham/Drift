@@ -343,3 +343,10 @@ fn descriptions_promise_only_what_the_tools_do() {
         "{task}"
     );
 }
+
+#[test]
+fn a_call_id_never_names_a_path_elsewhere() {
+    assert_eq!(call_file_name("toolu_01-Ab"), "toolu_01-Ab");
+    assert_eq!(call_file_name(r"..\..\..\x"), "x");
+    assert_eq!(call_file_name("../"), "call");
+}

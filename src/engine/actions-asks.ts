@@ -1,18 +1,40 @@
+import { asksRevisionKey, bumpRevision } from "./store";
 import { EngineError } from "./native/client";
 import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
+import { untrack } from "solid-js";
 
 import type { ActionContext } from "./actions-context";
 import type { PermissionResponse } from "./actions";
+import type { Client } from "./native/client";
 
 /** Pending permission and question asks: loading them and answering them. */
-export function createAskActions({ requireClient, set }: ActionContext) {
-    /// Pending asks of both kinds; a single fetch each, applied together so the UI never sees a gap.
+export function createAskActions({ requireClient, state, set }: ActionContext) {
+    let polls = 0;
+
+    /**
+     * Pending asks of both kinds; a single fetch each, applied together so the UI never sees a gap. A poll
+     * overtaken by a newer one is dropped, and one an ask changed under is asked again, so neither lands stale.
+     */
     async function refreshPermissions(_directories: string[] = []) {
-        const [permissions, questions] = await Promise.all([
-            requireClient().permissions(),
-            requireClient().questions(),
-        ]);
+        const mine = ++polls;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            // Untracked: an effect that polls must not rerun on the revision this poll bumps.
+            const before = untrack(() => state.revisions[asksRevisionKey] ?? 0);
+            const [permissions, questions] = await Promise.all([
+                requireClient().permissions(),
+                requireClient().questions(),
+            ]);
+            if (mine !== polls) return;
+            if ((state.revisions[asksRevisionKey] ?? 0) !== before) continue;
+            return showAsks(permissions, questions);
+        }
+    }
+
+    function showAsks(
+        permissions: Awaited<ReturnType<Client["permissions"]>>,
+        questions: Awaited<ReturnType<Client["questions"]>>,
+    ) {
         set(
             produce((draft) => {
                 draft.permissions = {};
@@ -24,6 +46,7 @@ export function createAskActions({ requireClient, set }: ActionContext) {
                 }
                 for (const request of questions)
                     (draft.questions[request.sessionId] ??= []).push(questionForCard(request));
+                bumpRevision(draft, asksRevisionKey);
             }),
         );
     }
@@ -36,12 +59,10 @@ export function createAskActions({ requireClient, set }: ActionContext) {
             if (!(cause instanceof EngineError && cause.status === 404)) throw cause;
         }
         set(
-            produce(
-                (draft) =>
-                    void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter(
-                        (q) => q.id !== requestID,
-                    )),
-            ),
+            produce((draft) => {
+                draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID);
+                bumpRevision(draft, asksRevisionKey);
+            }),
         );
     }
 
@@ -51,12 +72,12 @@ export function createAskActions({ requireClient, set }: ActionContext) {
         } catch (cause) {
             if (cause instanceof EngineError && cause.status === 404) {
                 set(
-                    produce(
-                        (draft) =>
-                            void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter(
-                                (p) => p.id !== permissionID,
-                            )),
-                    ),
+                    produce((draft) => {
+                        draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter(
+                            (p) => p.id !== permissionID,
+                        );
+                        bumpRevision(draft, asksRevisionKey);
+                    }),
                 );
                 return;
             }

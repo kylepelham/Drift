@@ -132,6 +132,24 @@ fn a_chatgpt_sign_in_titles_on_the_backends_mini_model_never_an_api_only_one() {
 }
 
 #[tokio::test]
+async fn a_conversation_started_by_a_slash_command_is_named_from_what_the_command_does() {
+    let h = harness().await;
+    let session = untitled(&h);
+
+    h.provider.push(text("Code review")).push(text("Code review"));
+    h.engine.submit(&session.id, prompt("/review high")).await.unwrap();
+    title_after(&h, &session.id, |t| t == "Code review").await;
+
+    let request = title_request(&h).expect("a title request");
+    let sent = format!("{:?}", request.messages);
+    assert!(sent.contains("/review high"), "{sent}");
+    assert!(
+        sent.contains("(/review: "),
+        "the command's description goes with it: {sent}"
+    );
+}
+
+#[tokio::test]
 async fn a_model_pinned_in_settings_names_the_conversation() {
     let h = harness().await;
     let pinned = h.engine.catalog.read().unwrap().providers["anthropic"]

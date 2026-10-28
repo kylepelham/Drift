@@ -1,4 +1,5 @@
 import { toolInput, toolMetadata } from "../engine/parts";
+import { AsyncSizeCache } from "./markdown-syntax";
 import { createResource, Show } from "solid-js";
 import { toolFilename } from "./tool-labels";
 import { openLightbox } from "./lightbox";
@@ -6,6 +7,8 @@ import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 
 import type { ToolPart } from "../engine/parts";
+
+const imageCacheBudget = 32 * 1024 * 1024;
 
 /** The image a finished `generate_image` call saved, as the engine keeps it, and the file it was saved to. */
 export function generatedImage(part: ToolPart) {
@@ -50,17 +53,28 @@ export function ReadImage(props: { hash: string; path: string }) {
     );
 }
 
+/** Data URLs by content hash: a picture shown in several rows, or remounted by the virtual list, loads once. */
+const imageCache = new AsyncSizeCache<{ url: string; mime: string }>(imageCacheBudget, (image) => image.url.length);
+
+function loadImage(fetch: (hash: string) => Promise<{ mime: string; data: string }>, hash: string) {
+    return (
+        imageCache.get(hash) ??
+        imageCache.set(
+            hash,
+            0,
+            fetch(hash).then((loaded) => ({ url: `data:${loaded.mime};base64,${loaded.data}`, mime: loaded.mime })),
+        )
+    );
+}
+
 /** A generated image under its call's row, opened large on click; it shows once the engine hands it over. */
 export function ToolImage(props: { hash: string; filename?: string }) {
     const engine = useEngine();
     const [image] = createResource(
         () => props.hash,
-        (hash) => engine.actions.toolImage(hash).catch(() => undefined),
+        (hash) => loadImage(engine.actions.toolImage, hash).catch(() => undefined),
     );
-    const url = () => {
-        const loaded = image();
-        return loaded ? `data:${loaded.mime};base64,${loaded.data}` : undefined;
-    };
+    const url = () => image()?.url;
 
     return (
         <Show when={url()}>

@@ -15,7 +15,7 @@ import {
     IconSliders,
 } from "./icons";
 
-import type { Section } from "./settings-search";
+import type { Section } from "../state/settings";
 
 const icons = {
     General: IconSliders,
