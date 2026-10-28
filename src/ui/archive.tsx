@@ -1,4 +1,4 @@
-import { createEffect, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, For, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import { actionFailed, archiveFailed, WorkspaceIcon } from "./workspaces";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { selectSession } from "../state/selection";
@@ -26,7 +26,7 @@ export function ArchiveModal(props: { onClose: () => void }) {
     onMount(() => onCleanup(activateModal(dialog, props.onClose)));
     createEffect(() => {
         if (engine.state.connection !== "online") return;
-        void engine.actions.loadAllSessions();
+        untrack(() => void engine.actions.loadAllSessions());
     });
 
     async function restore(workspace: Workspace) {

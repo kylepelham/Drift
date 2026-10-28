@@ -2,6 +2,7 @@ import { asksRevisionKey, bumpRevision } from "./store";
 import { EngineError } from "./native/client";
 import { questionForCard } from "./questions";
 import { produce } from "solid-js/store";
+import { untrack } from "solid-js";
 
 import type { ActionContext } from "./actions-context";
 import type { PermissionResponse } from "./actions";
@@ -18,7 +19,8 @@ export function createAskActions({ requireClient, state, set }: ActionContext) {
     async function refreshPermissions(_directories: string[] = []) {
         const mine = ++polls;
         for (let attempt = 0; attempt < 3; attempt += 1) {
-            const before = state.revisions[asksRevisionKey] ?? 0;
+            // Untracked: an effect that polls must not rerun on the revision this poll bumps.
+            const before = untrack(() => state.revisions[asksRevisionKey] ?? 0);
             const [permissions, questions] = await Promise.all([
                 requireClient().permissions(),
                 requireClient().questions(),
