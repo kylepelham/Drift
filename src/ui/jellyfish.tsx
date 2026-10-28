@@ -84,7 +84,7 @@ function accentColor(host: HTMLElement) {
     host.append(probe);
     const value = getComputedStyle(probe).color;
     probe.remove();
-    return value || "#8fd9fb";
+    return value || "#f3a25f";
 }
 
 async function createScene(host: HTMLElement, ready: () => void) {

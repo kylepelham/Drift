@@ -647,6 +647,8 @@ export const drift = {
     "drift.attachment.processing": "Lendo...",
     "drift.attachment.table": "{{rows}} linhas x {{columns}} colunas",
     "drift.chat.empty.noWorkspace": "Adicione ou selecione um espaço de trabalho à esquerda para começar.",
+    "drift.chat.empty.firstWorkspace":
+        "O Drift trabalha dentro de uma pasta do seu computador. Escolha a pasta de um projeto e o chat abre nela.",
     "drift.chat.empty.promptHint": "Comece a digitar abaixo. Enter envia, Shift+Enter quebra a linha.",
     "drift.chat.empty.quote1": "Águas-vivas não têm cérebro e mesmo assim se viram. Você consegue.",
     "drift.chat.empty.quote2": "Diffs pequenos, mar calmo.",
@@ -684,6 +686,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} não aceita anexos {{kind}} ({{filename}})",
     "drift.composer.openThread": "Abrir essa conversa",
     "drift.composer.pendingInThread": "em {{thread}}",
+    "drift.composer.addWorkspace": "Adicione um espaço de trabalho para começar a conversar",
     "drift.composer.selectWorkspace": "Selecione um espaço de trabalho para começar",
     "drift.composer.thinkingLevel": "Nível de raciocínio",
     "drift.slash.account.auto": "Automático",

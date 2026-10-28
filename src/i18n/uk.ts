@@ -639,6 +639,8 @@ export const drift = {
     "drift.attachment.processing": "Читання...",
     "drift.attachment.table": "{{rows}} рядків x {{columns}} стовпців",
     "drift.chat.empty.noWorkspace": "Додайте або виберіть робочий простір ліворуч, щоб почати.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift працює всередині папки на вашому комп'ютері. Виберіть папку проєкту, і чат відкриється в ній.",
     "drift.chat.empty.promptHint": "Почніть вводити нижче. Enter надсилає, Shift+Enter переносить рядок.",
     "drift.chat.empty.quote1": "У медуз немає мозку, а вони все одно дають раду. Ви теж упораєтеся.",
     "drift.chat.empty.quote2": "Маленькі диффи, спокійне море.",
@@ -676,6 +678,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} не приймає вкладення {{kind}} ({{filename}})",
     "drift.composer.openThread": "Відкрити цю гілку",
     "drift.composer.pendingInThread": "у {{thread}}",
+    "drift.composer.addWorkspace": "Додайте робочий простір, щоб почати чат",
     "drift.composer.selectWorkspace": "Виберіть робочий простір, щоб почати",
     "drift.composer.thinkingLevel": "Рівень міркування",
     "drift.slash.account.auto": "Авто",

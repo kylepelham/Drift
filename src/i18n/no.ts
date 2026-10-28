@@ -638,6 +638,8 @@ export const drift = {
     "drift.attachment.processing": "Leser...",
     "drift.attachment.table": "{{rows}} rader x {{columns}} kolonner",
     "drift.chat.empty.noWorkspace": "Legg til eller velg et arbeidsområde til venstre for å starte.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift jobber i en mappe på datamaskinen din. Velg en prosjektmappe, så åpnes chatten der.",
     "drift.chat.empty.promptHint": "Begynn å skrive nedenfor. Enter sender, Shift+Enter gir linjeskift.",
     "drift.chat.empty.quote1": "Maneter har ingen hjerne og klarer seg likevel. Du fikser dette.",
     "drift.chat.empty.quote2": "Små diffs, rolig sjø.",
@@ -675,6 +677,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} godtar ikke {{kind}}-vedlegg ({{filename}})",
     "drift.composer.openThread": "Åpne den tråden",
     "drift.composer.pendingInThread": "i {{thread}}",
+    "drift.composer.addWorkspace": "Legg til et arbeidsområde for å begynne å chatte",
     "drift.composer.selectWorkspace": "Velg et arbeidsområde for å starte",
     "drift.composer.thinkingLevel": "Resonneringsnivå",
     "drift.slash.account.auto": "Automatisk",

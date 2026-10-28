@@ -637,6 +637,8 @@ export const drift = {
     "drift.attachment.processing": "読み込み中...",
     "drift.attachment.table": "{{rows}} 行 x {{columns}} 列",
     "drift.chat.empty.noWorkspace": "開始するには、左側でワークスペースを追加または選択してください。",
+    "drift.chat.empty.firstWorkspace":
+        "Drift はコンピューター上のフォルダーの中で動作します。プロジェクトのフォルダーを選ぶと、そこでチャットが開きます。",
     "drift.chat.empty.promptHint": "下に入力してください。Enterで送信、Shift+Enterで改行します。",
     "drift.chat.empty.quote1": "クラゲには脳がないのに、ちゃんと進んでいます。あなたなら大丈夫。",
     "drift.chat.empty.quote2": "小さな差分、穏やかな海。",
@@ -674,6 +676,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}}は{{kind}}添付ファイルを受け付けません ({{filename}})",
     "drift.composer.openThread": "そのスレッドを開く",
     "drift.composer.pendingInThread": "{{thread}}内",
+    "drift.composer.addWorkspace": "ワークスペースを追加してチャットを開始",
     "drift.composer.selectWorkspace": "ワークスペースを選択して開始",
     "drift.composer.thinkingLevel": "思考レベル",
     "drift.slash.account.auto": "自動",

@@ -639,6 +639,8 @@ export const drift = {
     "drift.attachment.processing": "Okunuyor...",
     "drift.attachment.table": "{{rows}} satır x {{columns}} sütun",
     "drift.chat.empty.noWorkspace": "Başlamak için soldan bir çalışma alanı ekleyin veya seçin.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift bilgisayarınızdaki bir klasörün içinde çalışır. Bir proje klasörü seçin, sohbet orada açılsın.",
     "drift.chat.empty.promptHint": "Aşağıya yazmaya başlayın. Enter gönderir, Shift+Enter yeni satıra geçer.",
     "drift.chat.empty.quote1": "Denizanalarının beyni yok ama yine de yollarını buluyorlar. Sen de yaparsın.",
     "drift.chat.empty.quote2": "Küçük diff'ler, sakin denizler.",
@@ -676,6 +678,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}}, {{kind}} eklerini kabul etmiyor ({{filename}})",
     "drift.composer.openThread": "O konuyu aç",
     "drift.composer.pendingInThread": "{{thread}} içinde",
+    "drift.composer.addWorkspace": "Sohbete başlamak için bir çalışma alanı ekleyin",
     "drift.composer.selectWorkspace": "Başlamak için bir çalışma alanı seçin",
     "drift.composer.thinkingLevel": "Düşünme düzeyi",
     "drift.slash.account.auto": "Otomatik",

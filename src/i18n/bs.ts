@@ -636,6 +636,8 @@ export const drift = {
     "drift.attachment.processing": "Čitanje...",
     "drift.attachment.table": "{{rows}} redova x {{columns}} kolona",
     "drift.chat.empty.noWorkspace": "Dodajte ili odaberite radni prostor lijevo za početak.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift radi unutar foldera na vašem računaru. Odaberite folder projekta i chat se otvara u njemu.",
     "drift.chat.empty.promptHint": "Počnite pisati ispod. Enter šalje, Shift+Enter prelazi u novi red.",
     "drift.chat.empty.quote1": "Meduze nemaju mozak, a ipak se snalaze. Možete vi to.",
     "drift.chat.empty.quote2": "Male razlike, mirno more.",
@@ -673,6 +675,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} ne prihvata {{kind}} priloge ({{filename}})",
     "drift.composer.openThread": "Otvori taj razgovor",
     "drift.composer.pendingInThread": "u razgovoru {{thread}}",
+    "drift.composer.addWorkspace": "Dodajte radni prostor da započnete razgovor",
     "drift.composer.selectWorkspace": "Odaberite radni prostor za početak",
     "drift.composer.thinkingLevel": "Nivo razmišljanja",
     "drift.slash.account.auto": "Automatski",

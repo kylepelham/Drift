@@ -18,8 +18,8 @@ import { useEngine } from "../engine";
 import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
 import {
-    addWorkspace,
     archiveSession,
+    pickWorkspace,
     removedWorkspaces,
     selectWorkspace,
     updateWorkspace,
@@ -66,11 +66,6 @@ export function Sidebar() {
     let resizeStartX = 0;
     let resizeStartWidth = untrack(width);
     let resizeScale = 1;
-
-    async function add() {
-        const path = await pickFolder();
-        if (path) await addWorkspace(path);
-    }
 
     async function moveSessionTo(state: SessionMenuState, destination: Workspace) {
         const selected = selectedSession();
@@ -241,7 +236,7 @@ export function Sidebar() {
                         class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                         title={t("drift.sidebar.addWorkspace")}
                         onClick={() =>
-                            void add().catch((cause: unknown) =>
+                            void pickWorkspace().catch((cause: unknown) =>
                                 actionFailed(engine, t("drift.sidebar.addWorkspace"), cause),
                             )
                         }

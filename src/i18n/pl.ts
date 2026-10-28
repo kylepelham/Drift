@@ -643,6 +643,8 @@ export const drift = {
     "drift.attachment.processing": "Odczytywanie...",
     "drift.attachment.table": "{{rows}} wierszy x {{columns}} kolumn",
     "drift.chat.empty.noWorkspace": "Aby rozpocząć, dodaj lub wybierz obszar roboczy po lewej.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift działa w folderze na Twoim komputerze. Wybierz folder projektu, a czat otworzy się w nim.",
     "drift.chat.empty.promptHint": "Zacznij pisać poniżej. Enter wysyła, Shift+Enter wstawia nowy wiersz.",
     "drift.chat.empty.quote1": "Meduzy nie mają mózgu, a jakoś sobie radzą. Dasz radę.",
     "drift.chat.empty.quote2": "Małe różnice, spokojne morze.",
@@ -680,6 +682,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} nie obsługuje załączników {{kind}} ({{filename}})",
     "drift.composer.openThread": "Otwórz ten wątek",
     "drift.composer.pendingInThread": "w {{thread}}",
+    "drift.composer.addWorkspace": "Dodaj obszar roboczy, aby zacząć czat",
     "drift.composer.selectWorkspace": "Wybierz obszar roboczy, aby rozpocząć",
     "drift.composer.thinkingLevel": "Poziom rozumowania",
     "drift.slash.account.auto": "Automatycznie",

@@ -638,6 +638,8 @@ export const drift = {
     "drift.attachment.processing": "Læser...",
     "drift.attachment.table": "{{rows}} rækker x {{columns}} kolonner",
     "drift.chat.empty.noWorkspace": "Tilføj eller vælg et arbejdsområde til venstre for at begynde.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift arbejder i en mappe på din computer. Vælg en projektmappe, så åbner chatten der.",
     "drift.chat.empty.promptHint": "Begynd at skrive nedenfor. Enter sender, Shift+Enter skifter linje.",
     "drift.chat.empty.quote1": "Vandmænd har ingen hjerne og klarer sig alligevel. Du kan godt.",
     "drift.chat.empty.quote2": "Små diffs, roligt hav.",
@@ -675,6 +677,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} accepterer ikke {{kind}}-vedhæftninger ({{filename}})",
     "drift.composer.openThread": "Åbn den tråd",
     "drift.composer.pendingInThread": "i {{thread}}",
+    "drift.composer.addWorkspace": "Tilføj et arbejdsområde for at begynde at chatte",
     "drift.composer.selectWorkspace": "Vælg et arbejdsområde for at begynde",
     "drift.composer.thinkingLevel": "Tænkeniveau",
     "drift.slash.account.auto": "Automatisk",

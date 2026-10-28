@@ -652,6 +652,8 @@ export const drift = {
     "drift.attachment.processing": "Lecture...",
     "drift.attachment.table": "{{rows}} lignes x {{columns}} colonnes",
     "drift.chat.empty.noWorkspace": "Ajoutez ou sélectionnez un espace de travail à gauche pour commencer.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift travaille dans un dossier de votre ordinateur. Choisissez le dossier d'un projet et la discussion s'y ouvre.",
     "drift.chat.empty.promptHint": "Commencez à saisir ci-dessous. Entrée envoie, Maj+Entrée passe à la ligne.",
     "drift.chat.empty.quote1": "Les méduses n'ont pas de cerveau et s'en sortent très bien. Vous aussi.",
     "drift.chat.empty.quote2": "Petits diffs, mer calme.",
@@ -689,6 +691,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} n'accepte pas les pièces jointes {{kind}} ({{filename}})",
     "drift.composer.openThread": "Ouvrir cette discussion",
     "drift.composer.pendingInThread": "dans {{thread}}",
+    "drift.composer.addWorkspace": "Ajoutez un espace de travail pour commencer à discuter",
     "drift.composer.selectWorkspace": "Sélectionnez un espace de travail pour commencer",
     "drift.composer.thinkingLevel": "Niveau de réflexion",
     "drift.slash.account.auto": "Automatique",

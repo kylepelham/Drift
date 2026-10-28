@@ -643,6 +643,8 @@ export const drift = {
     "drift.attachment.processing": "Reading...",
     "drift.attachment.table": "{{rows}} rows x {{columns}} columns",
     "drift.chat.empty.noWorkspace": "Add or select a workspace on the left to start.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift works inside a folder on your computer. Pick a project folder and the chat opens there.",
     "drift.chat.empty.promptHint": "Start typing below. Enter sends, Shift+Enter breaks the line.",
     "drift.chat.empty.quote1": "Jellyfish have no brain and still get around. You've got this.",
     "drift.chat.empty.quote2": "Small diffs, calm seas.",
@@ -680,6 +682,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} does not accept {{kind}} attachments ({{filename}})",
     "drift.composer.openThread": "Open that thread",
     "drift.composer.pendingInThread": "in {{thread}}",
+    "drift.composer.addWorkspace": "Add a workspace to start chatting",
     "drift.composer.selectWorkspace": "Select a workspace to start",
     "drift.composer.thinkingLevel": "Thinking level",
     "drift.slash.account.auto": "Auto",

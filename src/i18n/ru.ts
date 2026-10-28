@@ -642,6 +642,8 @@ export const drift = {
     "drift.attachment.processing": "Чтение...",
     "drift.attachment.table": "{{rows}} строк x {{columns}} столбцов",
     "drift.chat.empty.noWorkspace": "Добавьте или выберите рабочее пространство слева, чтобы начать.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift работает внутри папки на вашем компьютере. Выберите папку проекта, и чат откроется в ней.",
     "drift.chat.empty.promptHint": "Начните вводить текст ниже. Enter отправляет, Shift+Enter переносит строку.",
     "drift.chat.empty.quote1": "У медуз нет мозга, и они всё равно справляются. Вы тоже справитесь.",
     "drift.chat.empty.quote2": "Маленькие диффы, спокойное море.",
@@ -679,6 +681,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} не принимает вложения {{kind}} ({{filename}})",
     "drift.composer.openThread": "Открыть эту ветку",
     "drift.composer.pendingInThread": "в ветке {{thread}}",
+    "drift.composer.addWorkspace": "Добавьте рабочее пространство, чтобы начать чат",
     "drift.composer.selectWorkspace": "Выберите рабочее пространство, чтобы начать",
     "drift.composer.thinkingLevel": "Уровень рассуждений",
     "drift.slash.account.auto": "Авто",

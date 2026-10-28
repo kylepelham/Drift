@@ -71,6 +71,10 @@ thinking indicators, and pending asks stay accurate for all of them at once. Swi
 workspaces (`EngineProvider.setDirectory`) loads that workspace's conversation list once per
 connection; session-keyed state persists.
 
+With no workspace at all (a first run), the empty chat says Drift works inside a folder and
+offers Add workspace, and the composer reads "Add a workspace to start chatting" and opens the
+folder picker when clicked, instead of a field that took no input.
+
 Workspace menus and editing live in `workspace-dialogs.tsx`; date headings and avatar
 initials live in `workspace-presentation.ts`. The list keeps its worker status logic,
 including queued background workers' outlined dots and absence of a running timer.
@@ -471,6 +475,10 @@ the logo and its search, archive and add buttons; the chat header is the title b
 the thread title, search, context meter and window controls. Empty header space drags the
 window and double-click maximizes it; double-clicking the title renames the thread. The
 companion and the phone keep the sidebar's Workspaces heading and no window controls.
+
+The logo is one shape in the theme's accent. The installed icons are drawn in the default accent
+(`#f3a25f`); while Drift runs, `app-icon.ts` paints the logo in the current accent and sets it as
+the window's icon (`set_window_icon`), so the taskbar follows the theme too.
 
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity

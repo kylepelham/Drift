@@ -1,5 +1,6 @@
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
 import { IconBranch, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
@@ -22,7 +23,6 @@ import { ComposerSlashMenu } from "./composer-slash-menu";
 import { ComposerAttention } from "./composer-attention";
 import { createWindowFileDrop } from "./composer-drop";
 import { appendDictation } from "../voice/transcript";
-import { activeWorkspace } from "../state/workspaces";
 import { stopReadAloud } from "../voice/read-aloud";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
@@ -34,6 +34,7 @@ import { ComposerSend } from "./composer-send";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
+import { actionFailed } from "./workspaces";
 import { shellInvoke } from "../shell";
 import { useEngine } from "../engine";
 import {
@@ -174,7 +175,10 @@ export function Composer() {
     };
     const online = () => engine.state.connection === "online";
     const ready = () => online() && !!activeWorkspace();
+    // A first run has no folder to chat in: the composer says so and opens the picker when clicked.
+    const firstWorkspace = () => workspacesReady() && workspaces().length === 0;
     const placeholder = () => {
+        if (firstWorkspace()) return t("drift.composer.addWorkspace");
         if (!activeWorkspace()) return t("drift.composer.selectWorkspace");
         if (!online()) return t("drift.composer.connecting");
         return busy() ? `${t("drift.prompt.steer")}...` : t("prompt.placeholder.simple");
@@ -472,7 +476,7 @@ export function Composer() {
                     </div>
                 </Show>
                 <DictationStatus />
-                <div ref={areaFrame} class="w-full">
+                <div ref={areaFrame} class="relative w-full">
                     <textarea
                         ref={area}
                         role={slash.active() ? "combobox" : undefined}
@@ -502,6 +506,18 @@ export function Composer() {
                         }}
                         onKeyDown={onKey}
                     />
+                    <Show when={firstWorkspace()}>
+                        <button
+                            type="button"
+                            class="absolute inset-0 cursor-pointer"
+                            aria-label={t("drift.composer.addWorkspace")}
+                            onClick={() =>
+                                void pickWorkspace().catch((cause: unknown) =>
+                                    actionFailed(engine, t("drift.sidebar.addWorkspace"), cause),
+                                )
+                            }
+                        />
+                    </Show>
                 </div>
                 <div class="composer-actions flex min-w-0 items-center gap-1 px-2.5 pb-2">
                     <div class="composer-options relative flex min-w-0 flex-1 items-center gap-1">

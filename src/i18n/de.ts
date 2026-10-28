@@ -649,6 +649,8 @@ export const drift = {
     "drift.attachment.processing": "Wird gelesen...",
     "drift.attachment.table": "{{rows}} Zeilen x {{columns}} Spalten",
     "drift.chat.empty.noWorkspace": "Links einen Arbeitsbereich hinzufügen oder auswählen, um zu beginnen.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift arbeitet in einem Ordner auf deinem Computer. Wähle einen Projektordner, und der Chat öffnet sich dort.",
     "drift.chat.empty.promptHint":
         "Unten mit der Eingabe beginnen. Enter sendet, Shift+Enter erzeugt einen Zeilenumbruch.",
     "drift.chat.empty.quote1": "Quallen haben kein Gehirn und kommen trotzdem voran. Du schaffst das.",
@@ -687,6 +689,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}} akzeptiert keine {{kind}}-Anhänge ({{filename}})",
     "drift.composer.openThread": "Diesen Thread öffnen",
     "drift.composer.pendingInThread": "in {{thread}}",
+    "drift.composer.addWorkspace": "Arbeitsbereich hinzufügen, um zu chatten",
     "drift.composer.selectWorkspace": "Arbeitsbereich auswählen, um zu beginnen",
     "drift.composer.thinkingLevel": "Denkniveau",
     "drift.slash.account.auto": "Automatisch",

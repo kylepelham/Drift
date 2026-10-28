@@ -26,6 +26,7 @@ import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
 import { rightPanelOpen } from "./state/panels";
 import { settingsOpen } from "./state/settings";
+import { bindAppIcon } from "./state/app-icon";
 import { bindPathCopy } from "./ui/path-copy";
 import { StartupSplash } from "./ui/startup";
 import { McpServersModal } from "./ui/mcp";
@@ -46,6 +47,7 @@ const SettingsDialog = lazy(() => import("./ui/settings").then((module) => ({ de
 
 export function App() {
     bindTheme();
+    bindAppIcon();
     bindTextSizes();
     bindCodePreferences();
     bindLanguage();

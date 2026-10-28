@@ -629,6 +629,8 @@ export const drift = {
     "drift.attachment.processing": "읽는 중...",
     "drift.attachment.table": "{{rows}}행 x {{columns}}열",
     "drift.chat.empty.noWorkspace": "시작하려면 왼쪽에서 작업 공간을 추가하거나 선택하세요.",
+    "drift.chat.empty.firstWorkspace":
+        "Drift는 컴퓨터의 폴더 안에서 작업합니다. 프로젝트 폴더를 고르면 그곳에서 채팅이 열립니다.",
     "drift.chat.empty.promptHint": "아래에 입력하세요. Enter로 전송하고 Shift+Enter로 줄을 바꿉니다.",
     "drift.chat.empty.quote1": "해파리는 뇌가 없어도 잘 다닙니다. 당신도 할 수 있어요.",
     "drift.chat.empty.quote2": "작은 diff, 잔잔한 바다.",
@@ -666,6 +668,7 @@ export const drift = {
     "drift.composer.modelUnsupported": "{{model}}은(는) {{kind}} 첨부 파일을 지원하지 않습니다 ({{filename}})",
     "drift.composer.openThread": "해당 스레드 열기",
     "drift.composer.pendingInThread": "{{thread}}에서",
+    "drift.composer.addWorkspace": "채팅을 시작하려면 작업 공간을 추가하세요",
     "drift.composer.selectWorkspace": "작업 공간을 선택하여 시작",
     "drift.composer.thinkingLevel": "사고 수준",
     "drift.slash.account.auto": "자동",

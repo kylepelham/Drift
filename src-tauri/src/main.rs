@@ -81,6 +81,18 @@ fn open_webview_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+/// The window and taskbar icon in the theme's accent, painted by the webview as RGBA pixels.
+#[tauri::command]
+fn set_window_icon(window: tauri::WebviewWindow, rgba: Vec<u8>, size: u32) -> Result<(), String> {
+    if rgba.len() as u64 != u64::from(size) * u64::from(size) * 4 {
+        return Err(format!("{} bytes is not a {size}x{size} RGBA icon", rgba.len()));
+    }
+
+    window
+        .set_icon(tauri::image::Image::new_owned(rgba, size, size))
+        .map_err(|error| error.to_string())
+}
+
 fn main() {
     startup::mark("process-start");
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
@@ -128,6 +140,7 @@ fn main() {
             prompts::prompt_reset,
             show_main_window,
             open_webview_devtools,
+            set_window_icon,
             commands::session_search,
             commands::storage_stats,
             commands::storage_prune,
