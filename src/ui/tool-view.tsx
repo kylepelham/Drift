@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
-import { backgroundRun, delegatedChildId, delegatedTaskStatus } from "./tool-delegation";
+import { backgroundRun, delegatedChildId, delegatedTaskStatus, delegates } from "./tool-delegation";
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
@@ -106,7 +106,8 @@ export function ToolView(props: { part: ToolPart }) {
     const engine = useEngine();
     const state = () => toolDisplay(props.part);
     const info = () => toolInfo(props.part);
-    const delegated = () => props.part.name === "task" || props.part.name === "spawn_thread";
+    // A refused call (continuing a worker that is still running) started nothing: it reads as a failed call.
+    const delegated = () => delegates(props.part);
 
     // Hoisted: the eager memo below runs before a const accessor would leave its dead zone.
     function spawnedId() {

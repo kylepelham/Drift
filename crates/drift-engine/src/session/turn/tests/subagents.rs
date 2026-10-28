@@ -94,6 +94,11 @@ async fn a_finished_subagent_can_be_continued_with_what_it_already_saw() {
         "same transcript, same agent"
     );
     assert_eq!(
+        h.engine.store.session(&child_id).unwrap().unwrap().title,
+        "Follow up (@general subagent)",
+        "a continued subagent is named for the job it now does"
+    );
+    assert_eq!(
         h.engine.store.task_for_session(&child_id).unwrap().unwrap().id,
         tasks[1].id,
         "the latest task speaks for the session"

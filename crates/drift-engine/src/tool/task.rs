@@ -104,7 +104,7 @@ impl Tool for Task {
                 generation,
             };
             let Launch { task, child, created } = match &resumed {
-                Some(earlier) => ctx.engine.store.resume_task(new, &earlier.session_id)?,
+                Some(earlier) => ctx.engine.store.resume_task(new, &earlier.session_id, &title)?,
                 None => {
                     let child = NewSession {
                         workspace_id: &parent.workspace_id,
@@ -120,9 +120,10 @@ impl Tool for Task {
             if !created {
                 return replay(ctx, task).await;
             }
-            if resumed.is_none() {
-                ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
-            }
+            ctx.engine.hub.publish(match resumed {
+                None => Event::SessionCreated { session: child.clone() },
+                Some(_) => Event::SessionUpdated { session: child.clone() },
+            });
             ctx.engine.publish_task(&task.id);
             ctx.engine.permissions.inherit(&child.id, &parent.id);
             // The parent's reasoning level carries over; a model that does not offer it runs at its default.

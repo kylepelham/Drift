@@ -70,7 +70,8 @@ impl Store {
 
     /// Records a launch that continues `session_id`, an earlier worker's transcript, or returns the one
     /// this call already made. The worker's conversation goes on; only the task row is new.
-    pub fn resume_task(&self, new: NewTask, session_id: &str) -> rusqlite::Result<Launch> {
+    /// Records a continuation of an earlier worker, which takes this call's `title` as the job it now does.
+    pub fn resume_task(&self, new: NewTask, session_id: &str, title: &str) -> rusqlite::Result<Launch> {
         transaction(&self.lock(), |conn| {
             if let Some(task) = query_one(
                 conn,
@@ -84,6 +85,8 @@ impl Store {
                     created: false,
                 });
             }
+            conn.prepare_cached("UPDATE session SET title = ?2 WHERE id = ?1")?
+                .execute(rusqlite::params![session_id, title])?;
             let child = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
             let task = insert_task(conn, &new, session_id)?;
 

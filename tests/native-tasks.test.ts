@@ -82,6 +82,25 @@ test("a background task row follows its worker, not the call that launched it", 
     }
 });
 
+test("continuing a worker that is still running is a failed call, not a failed worker", async () => {
+    const { delegatedChildId, delegates } = await import("../src/ui/tool-delegation");
+    const [state, set] = createEngineState();
+    putTasks(set, state, "parent", [task("a")]);
+    const refused: ToolPart = {
+        ...receipt("b"),
+        status: "error",
+        input: { description: "Follow up", prompt: "more", task_id: "a", run_in_background: true },
+        output: "a is still running; wait for its result, or stop it, before continuing it",
+        metadata: undefined,
+    };
+
+    expect(delegates(refused)).toBe(false);
+    expect(delegatedChildId(state, refused)).toBeNull();
+    expect(delegatedChildId(state, { ...refused, status: "done" })).toBe("worker_a");
+    // A worker that ran and failed still links to its transcript.
+    expect(delegates({ ...refused, metadata: { sessionId: "worker_a" } } as ToolPart)).toBe(true);
+});
+
 test("a running foreground call is matched to its task by call id before its metadata lands", async () => {
     const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();

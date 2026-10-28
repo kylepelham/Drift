@@ -226,7 +226,10 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   still running) records a new task on the same hidden session (`Store::resume_task`), so the
   subagent keeps everything it saw and the prompt only needs the follow-up; its agent stays as it
   was. Every result ends with `(task_id: ...)` so the model can do so; the UI's card hides that
-  line. `task_for_session` answers with the newest task of a session.
+  line. `task_for_session` answers with the newest task of a session. The session takes the new
+  call's description as its title, so the sidebar names the job it is doing now. A call to continue
+  one still running is refused before anything starts; the UI shows it as an ordinary failed call,
+  not as that worker, which carries on under its own row.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.

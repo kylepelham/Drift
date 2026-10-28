@@ -309,7 +309,7 @@ test("a running delegated row recovers its child when parallel task metadata is 
     expect(delegatedChildId(state, part)).toBeNull();
 });
 
-test("a continued task call without metadata resolves its task id to the session it ran in", async () => {
+test("a continued task call without metadata resolves its task id to the session it runs in", async () => {
     const { delegatedChildId } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     putSession(set, {
@@ -322,17 +322,19 @@ test("a continued task call without metadata resolves its task id to the session
     } as never);
     set("tasks", "parent", [{ id: "task_cleanup", sessionId: "ses_cleanup", callId: "first" }] as never);
 
-    // The engine refused the continuation, so the call kept no metadata naming the session.
-    const continued = (taskId: string) =>
+    // Still running, the continuation has no metadata naming the session yet.
+    const continued = (taskId: string, status = "running") =>
         ({
             name: "task",
             sessionId: "parent",
-            status: "error",
+            status,
             input: { description: "Finish the cleanup", prompt: "Carry on", task_id: taskId },
-            output: `${taskId} is still running; wait for its result, or stop it, before continuing it`,
+            output: status === "error" ? `${taskId} is still running; wait for its result, or stop it` : undefined,
         }) as never;
     expect(delegatedChildId(state, continued("task_cleanup"))).toBe("ses_cleanup");
     expect(delegatedChildId(state, continued("task_gone"))).toBeNull();
+    // One the engine refused never reached the worker, so it is not that worker's row.
+    expect(delegatedChildId(state, continued("task_cleanup", "error"))).toBeNull();
 });
 
 test("a delegated row with a session opens it whether running or finished", async () => {
