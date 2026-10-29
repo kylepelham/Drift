@@ -79,6 +79,7 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
         temperature: None,
         cache_key: None,
         connection: None,
+        turn: None,
         effort_marks: Vec::new(),
         claude: Default::default(),
         cache_hour: false,

@@ -220,6 +220,8 @@ pub struct Request {
     /// The session itself, which keys a provider's live connection and its continuation; two
     /// sessions never share one, whatever cache they share.
     pub connection: Option<String>,
+    /// The prompt that started the turn this request belongs to, which a provider may keep on one backend.
+    pub turn: Option<String>,
     /// Reasoning effort changes inside the conversation, each in effect after the message it follows,
     /// so the top-level effort and the cached prefix stay as they were (`Model::effort_updates`).
     pub effort_marks: Vec<EffortMark>,

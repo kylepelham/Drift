@@ -48,11 +48,11 @@ async fn conversations_credentials_and_mode_headers_never_share_a_connection() {
 }
 
 #[tokio::test]
-async fn a_subscription_handshake_carries_its_account_session_region_and_beta() {
+async fn a_subscription_handshake_carries_its_account_session_region_route_and_beta() {
     use base64::Engine as _;
 
     let h = fixture(Server::default(), None).await;
-    let claims = json!({ "chatgpt_compute_residency": "eu" }).to_string();
+    let claims = json!({ "chatgpt_compute_residency": "us" }).to_string();
     let credential = Credential::OAuth {
         access: format!(
             "h.{}.s",
@@ -70,8 +70,10 @@ async fn a_subscription_handshake_carries_its_account_session_region_and_beta() 
     assert!(headers["authorization"].to_str().unwrap().starts_with("Bearer "));
     assert_eq!(headers["chatgpt-account-id"], "account");
     assert_eq!(headers["session-id"], "session");
-    assert_eq!(headers["x-openai-internal-codex-residency"], "eu");
+    assert_eq!(headers["x-openai-internal-codex-residency"], "us");
     assert_eq!(headers["originator"], "opencode");
+    assert!(headers["user-agent"].to_str().unwrap().starts_with("opencode/"));
+    assert_eq!(headers["x-codex-routing-hint"], "model=gpt-6-sol");
     assert_eq!(headers["openai-beta"], "responses_websockets=2026-02-06");
     assert!(
         frames[0].body.get("max_output_tokens").is_none(),

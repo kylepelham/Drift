@@ -32,6 +32,10 @@ pub(super) fn body(request: &Request, subscription: bool) -> Value {
     }
     if let Some(Reasoning::Effort { level }) = &request.reasoning {
         body["reasoning"] = json!({ "effort": level, "summary": "auto" });
+        // Codex's default today; pinned so earlier turns' reasoning stays in context if the default changes.
+        if subscription {
+            body["reasoning"]["context"] = json!("all_turns");
+        }
     }
     if let Some(verbosity) = request.verbosity {
         body["text"] = json!({ "verbosity": verbosity });

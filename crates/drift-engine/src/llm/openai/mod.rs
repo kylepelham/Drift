@@ -4,6 +4,7 @@ pub mod codex;
 pub mod oauth;
 mod request;
 mod stream;
+mod turn_state;
 mod websocket;
 
 use futures_util::StreamExt;
@@ -79,9 +80,10 @@ impl OpenAi {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let http = self.http_request(request, credential)?;
+        let turn = turn_state::Turn::of(request).filter(|_| subscription);
         // A socket refuses a PDF in any request after its first ("requires preparation"); SSE takes them all.
         if self.sse_only || carries_pdf(request) {
-            return self.stream_http(http.json(&body(request, subscription))).await;
+            return self.stream_http(http.json(&body(request, subscription)), turn).await;
         }
 
         // The SSE request's URL and headers also authenticate the WebSocket upgrade.
@@ -95,6 +97,7 @@ impl OpenAi {
             session: request.connection.clone(),
             timeouts: self.timeouts,
             subscription,
+            turn: turn.clone(),
         };
 
         let client = super::http::websocket_client();
@@ -102,7 +105,7 @@ impl OpenAi {
             return Ok(stream);
         }
 
-        self.stream_http(http.json(&prepared.body)).await
+        self.stream_http(http.json(&prepared.body), turn).await
     }
 
     /// The authenticated `POST /responses`, with the mode's headers, before its body.
@@ -119,20 +122,7 @@ impl OpenAi {
         http = match credential {
             Credential::ApiKey { key } => http.bearer_auth(key),
             Credential::OAuth { access, account, .. } => {
-                let mut http = http.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
-                if let Some(account) = account {
-                    http = http.header("chatgpt-account-id", account);
-                }
-                // Codex groups requests from the same conversation with this session header.
-                if let Some(session) = &request.cache_key {
-                    http = http.header("session-id", session);
-                }
-                // An account bound to a region must say so, or the backend refuses it.
-                if let Some(residency) = residency(access) {
-                    http = http.header("x-openai-internal-codex-residency", residency);
-                }
-
-                http
+                codex_headers(signed_by_subscription(http, access, account.as_deref()), request)
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
@@ -140,7 +130,11 @@ impl OpenAi {
         Ok(super::mode_headers(http, request, Vec::new()))
     }
 
-    async fn stream_http(&self, http: reqwest::RequestBuilder) -> Result<ChunkStream, Error> {
+    async fn stream_http(
+        &self,
+        http: reqwest::RequestBuilder,
+        turn: Option<turn_state::Turn>,
+    ) -> Result<ChunkStream, Error> {
         let response = super::http::send(http, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
@@ -148,6 +142,9 @@ impl OpenAi {
             let text = super::http::bounded_body(response, &self.timeouts).await;
 
             return Err(api_error(status.as_u16(), &text).with_headers(&headers));
+        }
+        if let Some(turn) = &turn {
+            turn.note(response.headers());
         }
 
         let limits = super::limits::Limits::from_headers(response.headers()).map(|limits| Ok(Chunk::Limits(limits)));
@@ -174,13 +171,48 @@ pub(crate) fn signed_by_subscription(
     access: &str,
     account: Option<&str>,
 ) -> reqwest::RequestBuilder {
-    let mut request = request.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
+    let mut request = request
+        .bearer_auth(access)
+        .header("originator", CODEX_ORIGINATOR)
+        .header("user-agent", codex_user_agent());
     if let Some(account) = account {
         request = request.header("chatgpt-account-id", account);
     }
-    match residency(access) {
+    // Codex names a residency only to keep an account in the US; it never sends another region.
+    match residency(access).filter(|residency| residency == "us") {
         Some(residency) => request.header("x-openai-internal-codex-residency", residency),
         None => request,
+    }
+}
+
+/// Codex's form, `originator/version (os; arch) client`, so the agent and the originator agree.
+fn codex_user_agent() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+
+    format!("{CODEX_ORIGINATOR}/{version} ({os}; {arch}) Drift/{version}")
+}
+
+/// A conversation's request to Codex: its session, the model it routes to, and the turn's routing pin.
+fn codex_headers(mut http: reqwest::RequestBuilder, request: &Request) -> reqwest::RequestBuilder {
+    // Codex groups requests from the same conversation with this session header.
+    if let Some(session) = &request.cache_key {
+        http = http.header("session-id", session);
+    }
+    let tier = request
+        .mode
+        .as_ref()
+        .and_then(|mode| mode.body.get("service_tier"))
+        .and_then(Value::as_str);
+    let hint = match tier {
+        Some(tier) => format!("model={};tier={tier}", request.model),
+        None => format!("model={}", request.model),
+    };
+    http = http.header("x-codex-routing-hint", hint);
+
+    match turn_state::Turn::of(request).and_then(|turn| turn.token()) {
+        Some(token) => http.header(turn_state::HEADER, token),
+        None => http,
     }
 }
 
@@ -273,17 +305,21 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn a_codex_request_carries_its_session_and_residency() {
+        async fn a_codex_request_names_its_client_session_route_and_turn_pin_as_codex_does() {
             use base64::Engine as _;
 
             let _ = rustls::crypto::ring::default_provider().install_default();
-            let seen: std::sync::Arc<std::sync::Mutex<Option<axum::http::HeaderMap>>> = Default::default();
+            let seen: std::sync::Arc<std::sync::Mutex<Vec<axum::http::HeaderMap>>> = Default::default();
             let recorded = seen.clone();
             let app = axum::Router::new().fallback(axum::routing::post(move |headers: axum::http::HeaderMap| {
-                *recorded.lock().unwrap() = Some(headers);
-                async {
+                let pin = format!("pin-{}", recorded.lock().unwrap().len());
+                recorded.lock().unwrap().push(headers);
+                async move {
                     (
-                        [("content-type", "text/event-stream")],
+                        [
+                            ("content-type", "text/event-stream".to_string()),
+                            ("x-codex-turn-state", pin),
+                        ],
                         "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{}}}\n\n",
                     )
                 }
@@ -293,46 +329,55 @@ mod tests {
             let url = format!("http://{}", listener.local_addr().unwrap());
             tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-            let access = format!(
-                "h.{}.s",
-                base64::engine::general_purpose::URL_SAFE_NO_PAD
-                    .encode(json!({ "chatgpt_compute_residency": "eu" }).to_string())
-            );
-            let credential = Credential::OAuth {
-                access,
+            let signed_in = |residency: &str| Credential::OAuth {
+                access: format!(
+                    "h.{}.s",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .encode(json!({ "chatgpt_compute_residency": residency }).to_string())
+                ),
                 refresh: String::new(),
                 expires_at: 0,
                 account: Some("acct".into()),
             };
-            let request = Request {
-                cache_key: Some("ses_1".into()),
-                connection: Some("ses_1".into()),
-                effort_marks: Vec::new(),
-                claude: Default::default(),
-                cache_hour: false,
-                cache_conversation: true,
-                cache_writes_billed: false,
-                deferred_tools: Vec::new(),
-                tool_references: Default::default(),
+            let in_turn = |started: &str| Request {
+                cache_key: Some("ses_pin".into()),
+                connection: Some("ses_pin".into()),
+                turn: Some(started.into()),
                 ..request()
             };
+            let provider = OpenAi::sse(&url);
+            for (credential, request) in [
+                (signed_in("eu"), in_turn("msg_1")),
+                (signed_in("us"), in_turn("msg_1")),
+                (signed_in("us"), in_turn("msg_2")),
+            ] {
+                let stream = provider.stream(&request, &credential).await.unwrap();
+                let _ = stream.collect::<Vec<_>>().await;
+            }
 
-            let _ = OpenAi::new(&url)
-                .stream(&request, &credential)
-                .await
-                .unwrap()
-                .collect::<Vec<_>>()
-                .await;
-
-            let headers = seen.lock().unwrap().clone().unwrap();
+            let sent = seen.lock().unwrap().clone();
+            let header =
+                |index: usize, name: &str| sent[index].get(name).map(|value| value.to_str().unwrap().to_string());
+            assert_eq!(header(0, "session-id").as_deref(), Some("ses_pin"));
+            assert_eq!(header(0, "chatgpt-account-id").as_deref(), Some("acct"));
             assert_eq!(
-                (
-                    headers["session-id"].to_str().unwrap(),
-                    headers["x-openai-internal-codex-residency"].to_str().unwrap()
-                ),
-                ("ses_1", "eu")
+                header(0, "x-codex-routing-hint"),
+                Some(format!("model={}", request().model))
             );
-            assert_eq!(headers["chatgpt-account-id"], "acct");
+            let agent = header(0, "user-agent").unwrap();
+            assert!(
+                agent.starts_with("opencode/") && agent.ends_with(&format!("Drift/{}", env!("CARGO_PKG_VERSION"))),
+                "{agent}"
+            );
+
+            // Codex names only a US residency.
+            assert_eq!(header(0, "x-openai-internal-codex-residency"), None);
+            assert_eq!(header(1, "x-openai-internal-codex-residency").as_deref(), Some("us"));
+
+            // The turn's first answer pins its later requests; the next turn starts unpinned.
+            assert_eq!(header(0, "x-codex-turn-state"), None);
+            assert_eq!(header(1, "x-codex-turn-state").as_deref(), Some("pin-0"));
+            assert_eq!(header(2, "x-codex-turn-state"), None);
         }
     }
 
@@ -358,6 +403,17 @@ mod tests {
                     "file_data": "data:application/pdf;base64,JVBERi0="
                 })
             );
+        }
+
+        #[test]
+        fn a_subscription_keeps_reasoning_from_every_turn_and_an_api_key_sends_no_context() {
+            let reasoning = Request {
+                reasoning: Some(Reasoning::Effort { level: "high".into() }),
+                ..request()
+            };
+
+            assert_eq!(body(&reasoning, true)["reasoning"]["context"], "all_turns");
+            assert!(body(&reasoning, false)["reasoning"].get("context").is_none());
         }
 
         #[test]
@@ -444,6 +500,7 @@ mod tests {
                 temperature: None,
                 cache_key: Some("ses_1".into()),
                 connection: Some("ses_1".into()),
+                turn: None,
                 effort_marks: Vec::new(),
                 claude: Default::default(),
                 cache_hour: false,

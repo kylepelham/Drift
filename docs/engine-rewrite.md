@@ -1981,10 +1981,31 @@ code until he picks.
   step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
   one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
   blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
-- A Codex (ChatGPT sign-in) request also carries `session-id` (the session, so the backend keeps a
-  conversation's requests together) and, when the access token's claims bind the account to a
-  region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
-  as upstream's Codex plugin sends them.
+- A Codex (ChatGPT sign-in) request also carries what Codex's own client sends:
+  - `user-agent: opencode/<version> (<os>; <arch>) Drift/<version>`, Codex's
+    `originator/version (os; arch) client` form, so the agent agrees with `originator: opencode`.
+  - `session-id`, the session, so the backend keeps a conversation's requests together.
+  - `x-openai-internal-codex-residency: us` only when the access token claims
+    `chatgpt_compute_residency: us`. Codex has no other residency value and never names another
+    region.
+  - `x-codex-routing-hint: model=<model>`, with `;tier=<service_tier>` when the mode sets one.
+  - `x-codex-turn-state`, the sticky routing pin. The backend names one on its answer to a turn's
+    first request (the SSE response headers, or the WebSocket's 101). The turn's later requests send
+    it back so they land on the same backend. A turn is the prompt that started it (`Request.turn`,
+    which a steer changes). The first pin of a turn stays for the whole turn, a new turn starts
+    without one, and `openai::turn_state` remembers one pin per conversation.
+  - `reasoning.context: all_turns` beside the effort. It is the backend's default today (a probe
+    showed earlier turns' reasoning counted with or without it); pinning it keeps that if the
+    default changes.
+- Codex features Drift does not adopt on the ChatGPT route:
+  - Responses Lite (`X-OpenAI-Internal-Codex-Responses-Lite`) requires `parallel_tool_calls: false`,
+    which would serialize every tool batch.
+  - Mid-response `response.interrupt` is refused (`interrupt_not_supported`) outside Lite, so Stop
+    still closes the stream.
+  - Server-side compaction (`compaction_trigger`) returns encrypted compaction only that model can
+    read, and a Drift session switches models.
+  - A PDF goes over SSE (see the WebSocket transport below) rather than being rendered to images or text as Codex does; the
+    backend reads PDFs itself over SSE, and a converter would cost a dependency and fidelity.
 - OpenAI Responses (API keys and the Codex backend alike) go over a WebSocket (`openai::websocket`).
   Each conversation keeps one connection, keyed by its session, endpoint and every request header,
   so credentials, accounts and modes never share one; a request without a session gets its own.
