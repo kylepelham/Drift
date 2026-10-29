@@ -112,11 +112,21 @@ test("a running call that names no agent still links to its worker, by its recor
         metadata: undefined,
     };
 
-    set("sessions", "worker_a", { id: "worker_a", parentId: "parent", title: "do a (@general subagent)" } as never);
+    set("sessions", "worker_a", {
+        id: "worker_a",
+        parentId: "parent",
+        visibility: "hidden",
+        title: "do a (@general subagent)",
+    } as never);
     set("childIds", "parent", ["worker_a"]);
     expect(delegatedChildId(state, running)).toBe("worker_a");
     putTasks(set, state, "parent", [task("a", { sessionId: "worker_b", mode: "foreground" })]);
     expect(delegatedChildId(state, running)).toBe("worker_b");
+
+    // A new call with the same description never opens the earlier call's worker.
+    const again: ToolPart = { ...running, id: "part_again", callId: "call_again" };
+    putTasks(set, state, "parent", [task("a", { sessionId: "worker_a", mode: "foreground" })]);
+    expect(delegatedChildId(state, again)).toBeNull();
 });
 
 test("a running foreground call is matched to its task by call id before its metadata lands", async () => {

@@ -1,4 +1,4 @@
-import { childrenOf, taskActive, taskForCall } from "../engine/store";
+import { childrenOf, taskActive, taskForCall, taskForWorker } from "../engine/store";
 import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 
 import type { EngineState, TaskRecord } from "../engine/store";
@@ -35,7 +35,10 @@ export function delegatedChildId(state: EngineState, part: ToolPart) {
     // Before the record arrives, the child is found by the title the engine gives it; `general` is its default agent.
     const agent = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "general";
     const title = `${input.description} (@${agent} subagent)`;
-    const matches = childrenOf(state, part.sessionId).filter((session) => session.title === title);
+    // An earlier worker with the same description belongs to another call; only one not yet recorded can be this call's.
+    const matches = childrenOf(state, part.sessionId).filter(
+        (session) => session.title === title && !taskForWorker(state, session.id),
+    );
     return matches.length === 1 ? matches[0].id : null;
 }
 
