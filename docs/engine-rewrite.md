@@ -3123,6 +3123,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
   because running without its rules would drop its denies; the UI shows the problem when the
   workspace config loads.
+- **Base prompts** (`session/prompts/<family>.txt` plus `shared.txt`, one per prompt family the
+  catalog assigns). The GPT prompt (`codex.txt`) carries the lines opencode v2 gives only its
+  `gpt-6-astra` prompt: act on "can you" and "help me", no partial result to save tokens, no
+  tests for small reversible changes or that restate the code, no unprompted warnings or
+  checklists, skills only on a real match, main point first without "X, not Y" framing. Drift has
+  one GPT prompt, picked from the catalog rather than a model id, so they apply to every GPT
+  model. The Claude prompt matches the surrounding comment density, as opencode v2's Anthropic
+  prompt does. The `explore` description asks the caller for a thoroughness (quick, medium, very
+  thorough), which its own prompt already adapts to.
 - **Instruction baseline** (`session::turn::instructions`, after opencode v2's instruction deltas).
   The system prompt is built from keyed sources (`prompt::sources`), most shared first: the base
   prompt with the shared rules (`base:<family>`), a subagent's own prompt (`agent`), the skills

@@ -4,7 +4,7 @@ Runs a command in {shell} from the workspace root and returns its combined outpu
 - Quote paths that contain spaces. In one command, {chain}; run independent commands as separate calls.
 - To run in a subdirectory, pass `workdir` rather than starting with `cd`.
 {limits}
-- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it, which you can `read` or `grep`.
+- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it, which you can `read` or `grep`. Rely on that rather than piping through `head` or `tail`, unless filtering is the point.
 - Give a short `description` of what the command does; it is shown to the user while it runs.
 
 Git:

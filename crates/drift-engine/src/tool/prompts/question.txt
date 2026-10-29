@@ -2,5 +2,6 @@ Asks the user one or more questions. Use it when a decision matters and the requ
 
 - By default the call returns at once and you carry on; the user's answer arrives later as its own message. Do the work that does not depend on it, and if nothing else can be done, finish your turn and wait. Set async to false only when you cannot take another step without the answer; the call then waits for it.
 - Do not ask what you can find out by reading the code. Do not ask for permission to proceed on clear requests.
-- Give options where they exist; the user can still type a different answer unless custom is false.
+- Give options where they exist; the user can still type a different answer unless custom is false, so do not add an option for one.
+- When you recommend an option, put it first and end its label with "(Recommended)".
 - Ask everything you need in one call rather than one question per turn.
