@@ -2,6 +2,8 @@ import { createStore } from "solid-js/store";
 import { backendInvoke } from "../backend";
 import { t } from "./i18n";
 
+import type { MessageEntry } from "../engine/store";
+
 type UsageWindowKind = "session" | "weekly" | "monthly" | "period";
 export type UsageWindow = { kind: UsageWindowKind; label: string | null; usedPercent: number; resetsAt: number | null };
 export type ProviderUsage = { status: "ok" | "expired" | "unsubscribed"; plan: string | null; windows: UsageWindow[] };
@@ -59,15 +61,39 @@ function merged(reported: ReportedAccount[], previous: AccountUsage[] | null): A
     });
 }
 
-/** The account a turn would use: the first with no window at its limit, else the first. */
-export function activeAccount(entry: UsageEntry | undefined): AccountUsage | undefined {
-    const accounts = entry?.accounts ?? [];
-    const available = accounts.find((account) => {
-        const usage = account.usage;
-        return usage?.status === "ok" && usage.windows.every((window) => window.usedPercent < 100);
-    });
+/** The chat's own accounts: the one the user set it to use, and the one that sent its latest reply. */
+export type ChatAccounts = { pinned?: string | null; last?: string | null };
 
-    return available ?? accounts[0];
+function hasRoom(account: AccountUsage) {
+    const usage = account.usage;
+    return usage?.status === "ok" && usage.windows.every((window) => window.usedPercent < 100);
+}
+
+/** Usage that says the account cannot take a turn; unknown usage does not. */
+function spent(account: AccountUsage) {
+    return !!account.usage && !hasRoom(account);
+}
+
+/**
+ * The account the chat's next turn would use, as the engine picks it: the pinned one while it has usage left, else the
+ * one the chat is on while it has, else the first with usage left, else the one the chat is on, else the first.
+ */
+export function activeAccount(entry: UsageEntry | undefined, chat: ChatAccounts = {}): AccountUsage | undefined {
+    const accounts = entry?.accounts ?? [];
+    const named = (key: string | null | undefined) => accounts.find((account) => account.key === key);
+    const own = [named(chat.pinned), named(chat.last)].find((account) => account && !spent(account));
+
+    return own ?? accounts.find(hasRoom) ?? named(chat.last) ?? accounts[0];
+}
+
+/** The account that sent the chat's latest reply from this provider. */
+export function lastAccount(entries: MessageEntry[], provider: string): string | undefined {
+    for (let index = entries.length - 1; index >= 0; index--) {
+        const info = entries[index]!.info;
+        if (info.role === "assistant" && info.model?.provider === provider && info.account) return info.account;
+    }
+
+    return undefined;
 }
 
 export function usageTone(percent: number): UsageTone {

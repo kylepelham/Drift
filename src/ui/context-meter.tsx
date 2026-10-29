@@ -8,6 +8,7 @@ import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import {
     activeAccount,
+    lastAccount,
     planLabel,
     refreshUsage,
     resetLabel,
@@ -79,7 +80,9 @@ export function ContextMeter(props: { sessionId: string }) {
                 <Show when={hovered()}>
                     <div class="pop-in w-80 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none">
                         <ContextSection sessionId={props.sessionId} />
-                        <Show when={model()?.providerID}>{(provider) => <UsageSection provider={provider()} />}</Show>
+                        <Show when={model()?.providerID}>
+                            {(provider) => <UsageSection provider={provider()} sessionId={props.sessionId} />}
+                        </Show>
                     </div>
                 </Show>
             </div>
@@ -237,26 +240,40 @@ export function AccountLimits(props: { entry: UsageEntry | undefined; account: A
     );
 }
 
-/** The provider's usage as a turn would meet it: the account in use, which is the first with usage left. */
-export function UsageSection(props: { provider: string }) {
+/** The provider's usage as this chat's next turn would meet it, on the account it would use. */
+export function UsageSection(props: { provider: string; sessionId: string }) {
     const engine = useEngine();
     const entry = () => usageFor(props.provider);
-    const account = () => activeAccount(entry());
+    const account = () =>
+        activeAccount(entry(), {
+            pinned: engine.state.sessions[props.sessionId]?.account,
+            last: lastAccount(engine.state.transcripts[props.sessionId] ?? [], props.provider),
+        });
     const providerName = () =>
         engine.state.providers.find((provider) => provider.id === props.provider)?.name ?? props.provider;
+    // With several accounts, name the one shown so the user can tell whose limits these are.
+    const accountName = () => {
+        const accounts = entry()?.accounts ?? [];
+        const shown = account();
+        if (accounts.length < 2 || !shown) return undefined;
+
+        return shown.label ?? t("drift.provider.accounts.unnamed", { number: accounts.indexOf(shown) + 1 });
+    };
     const plan = () => account()?.usage?.plan;
 
     return (
         <Show when={entry()?.accounts !== null}>
             <div class="space-y-2 border-t border-edge px-3 py-2 text-xs" data-usage-limits>
                 <div class="flex items-center justify-between gap-2 text-ink-muted">
-                    <span>
+                    <span class="shrink-0">
                         {t("drift.usage.title")}
                         <Show when={plan()}>{(name) => ` · ${planLabel(name())}`}</Show>
                     </span>
                     <span class="flex min-w-0 items-center gap-1.5 text-ink-faint">
                         <ProviderIcon id={props.provider} class="size-3.5 shrink-0" />
-                        <span class="truncate">{providerName()}</span>
+                        <span class="truncate" title={accountName()}>
+                            {accountName() ?? providerName()}
+                        </span>
                     </span>
                 </div>
                 <AccountLimits entry={entry()} account={account()} />

@@ -42,7 +42,9 @@ export function DebugPanel() {
                 <div class="debug-panel-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
                     <div class="border-b border-edge/60 select-text">
                         <ContextSection sessionId={selectedSession()!} />
-                        <Show when={provider()}>{(id) => <UsageSection provider={id()} />}</Show>
+                        <Show when={provider()}>
+                            {(id) => <UsageSection provider={id()} sessionId={selectedSession()!} />}
+                        </Show>
                     </div>
                     <For each={entries()}>{(entry) => <DebugRow entry={entry} />}</For>
                 </div>

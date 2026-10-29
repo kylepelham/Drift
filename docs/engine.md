@@ -149,8 +149,11 @@ optional label, percent used, and reset time in epoch milliseconds). Tokens neve
 webview or a remote device. An expired sign-in is renewed through the engine's own refresh,
 behind the same per-account lock a turn uses, so a rotating refresh token is never spent twice;
 when renewal fails that account says the sign-in has expired. An account whose request failed
-keeps the usage it showed before. The popover shows the account a turn would use: the first
-with no window at its limit, else the first.
+keeps the usage it showed before. The popover shows the account the chat's next turn would use,
+as the engine picks it (`activeAccount` in `src/state/usage-limits.ts`): the account the chat is
+set to use (`session.account`) while it has usage left, else the one that sent its latest reply
+from that provider (`message.account`, which the engine stays on) while it has, else the first
+with no window at its limit, else the first. With several accounts it names the one shown.
 The frontend asks at most once a minute per provider, when the popover opens or a
 session goes idle. **Settings > Usage limits** lists every linked provider that reports
 limits, one block per account under the provider when it has several (its label, else

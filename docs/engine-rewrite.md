@@ -2157,7 +2157,7 @@ code until he picks.
   - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
     moved up or down, or signed out, and signing in again adds another. Settings > Usage shows each
     account's plan usage (the shell's `provider_usage`, through `Engine::account_credentials`), and
-    the composer's usage popover shows the first account with usage left.
+    the context meter's usage popover shows the account the chat's next turn would use.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
   generated text, reasoning or tool-call block to its last content event. Initial request waits,
