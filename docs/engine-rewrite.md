@@ -359,6 +359,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   turn, then every message from `tailFrom` on, skipping older boundaries and summaries (the new
   summary covers them). A failed or aborted summary, or one without text, is ignored, so the
   previous view stands.
+- **Summary prompt** (`config/prompts/compaction.txt`, after opencode v2's): goal, state including
+  where the work stands in version control, at most 15 files that matter for what remains, open
+  work with the user's unanswered requests verbatim, and costly details. It leaves out the system
+  prompt, AGENTS.md and the environment, which the next request carries anyway, and updates an
+  earlier summary instead of appending to it, so repeated compactions do not keep growing.
 - **Publication**: the summary's text and its `done` state are one transaction
   (`Store::complete_summary`). If that write fails the summary is marked failed, no completion is
   published, and the error returns to the caller (counted against automatic compaction).
@@ -480,7 +485,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   their results come first in that request. Before a turn ends it checks, under the same lock that
   admission holds, for a prompt newer than the last one it answered; if there is one it carries on
   with a fresh step budget, otherwise it stops taking prompts, so none can land unanswered. A Stop
-  still ends the turn; the steered prompt stays in the transcript for the next one. A session held
+  still ends the turn; the steered prompt stays in the transcript for the next one. The shared
+  system prompt tells every model family that such a message steers the task in progress and
+  replaces it only when it clearly cancels it. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`. A turn still planning (waiting on MCP
   servers, renewing a sign-in, running plugin prompt hooks) is not such a job: the prompt joins it
