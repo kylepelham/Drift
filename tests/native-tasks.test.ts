@@ -101,6 +101,34 @@ test("continuing a worker that is still running is a failed call, not a failed w
     expect(delegates({ ...refused, metadata: { sessionId: "worker_a" } } as ToolPart)).toBe(true);
 });
 
+test("a running call that names no agent still links to its worker, by its record or the default agent's title", async () => {
+    const { delegatedChildId } = await import("../src/ui/tool-delegation");
+    const [state, set] = createEngineState();
+    const running: ToolPart = {
+        ...receipt("a"),
+        status: "running",
+        input: { description: "do a", prompt: "go" },
+        output: undefined,
+        metadata: undefined,
+    };
+
+    set("sessions", "worker_a", {
+        id: "worker_a",
+        parentId: "parent",
+        visibility: "hidden",
+        title: "do a (@general subagent)",
+    } as never);
+    set("childIds", "parent", ["worker_a"]);
+    expect(delegatedChildId(state, running)).toBe("worker_a");
+    putTasks(set, state, "parent", [task("a", { sessionId: "worker_b", mode: "foreground" })]);
+    expect(delegatedChildId(state, running)).toBe("worker_b");
+
+    // A new call with the same description never opens the earlier call's worker.
+    const again: ToolPart = { ...running, id: "part_again", callId: "call_again" };
+    putTasks(set, state, "parent", [task("a", { sessionId: "worker_a", mode: "foreground" })]);
+    expect(delegatedChildId(state, again)).toBeNull();
+});
+
 test("a running foreground call is matched to its task by call id before its metadata lands", async () => {
     const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();

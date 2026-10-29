@@ -1,4 +1,4 @@
-import { childrenOf, taskActive, taskForCall } from "../engine/store";
+import { childrenOf, taskActive, taskForCall, taskForWorker } from "../engine/store";
 import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 
 import type { EngineState, TaskRecord } from "../engine/store";
@@ -23,14 +23,22 @@ export function delegatedChildId(state: EngineState, part: ToolPart) {
     if (sessionId) return sessionId;
     if (part.name !== "task") return null;
 
+    // A running call has no metadata yet; the engine's record of this call names its worker.
+    const task = taskForCall(state, part.sessionId, part.callId, part.metadata?.taskId);
+    if (task) return task.sessionId;
+
     const input = toolInput(part) as { description?: unknown; subagent_type?: unknown; task_id?: unknown };
     // A continued subagent is named by its task id, which is not a session id.
     if (typeof input?.task_id === "string" && input.task_id) return sessionOfTask(state, part.sessionId, input.task_id);
-    if (typeof input?.description !== "string" || typeof input.subagent_type !== "string") return null;
+    if (typeof input?.description !== "string") return null;
 
-    // Parallel tasks can create their child before the running tool part persists its session metadata.
-    const title = `${input.description} (@${input.subagent_type} subagent)`;
-    const matches = childrenOf(state, part.sessionId).filter((session) => session.title === title);
+    // Before the record arrives, the child is found by the title the engine gives it; `general` is its default agent.
+    const agent = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "general";
+    const title = `${input.description} (@${agent} subagent)`;
+    // An earlier worker with the same description belongs to another call; only one not yet recorded can be this call's.
+    const matches = childrenOf(state, part.sessionId).filter(
+        (session) => session.title === title && !taskForWorker(state, session.id),
+    );
     return matches.length === 1 ? matches[0].id : null;
 }
 
