@@ -2004,6 +2004,11 @@ code until he picks.
     second, which showed as a failed attempt and a retry every two minutes). A silent server is not
     that case and stays a timeout. A close reports its code and reason. Stopping a turn drops its
     stream, which closes that socket, so a half-read response never serves the next request.
+  - A request that carries a PDF goes over SSE. The Codex backend reads a PDF only in the first
+    request on a socket; in any later one, continuation or full input alike, it answers
+    `unsupported_parameter` ("This input file format requires preparation that is not supported").
+    Over SSE the same history, reasoning items included, reads it (verified live 2026-10-29; a
+    webfetch of a PDF mid-turn failed every time before this).
   - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
     requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. A failure
     within ten minutes of a rest ending doubles the next rest, up to an hour, so a conversation whose

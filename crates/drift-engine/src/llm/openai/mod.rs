@@ -51,6 +51,14 @@ impl Default for OpenAi {
     }
 }
 
+fn carries_pdf(request: &Request) -> bool {
+    let blocks = request.messages.iter().flat_map(|message| &message.blocks);
+
+    blocks
+        .into_iter()
+        .any(|block| matches!(block, super::Block::Pdf { .. }))
+}
+
 impl OpenAi {
     pub fn new(base_url: &str) -> Self {
         Self {
@@ -71,7 +79,8 @@ impl OpenAi {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let http = self.http_request(request, credential)?;
-        if self.sse_only {
+        // A socket refuses a PDF in any request after its first ("requires preparation"); SSE takes them all.
+        if self.sse_only || carries_pdf(request) {
             return self.stream_http(http.json(&body(request, subscription))).await;
         }
 
