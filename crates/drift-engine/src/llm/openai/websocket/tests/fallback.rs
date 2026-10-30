@@ -29,6 +29,23 @@ async fn an_sse_only_host_is_never_offered_a_websocket() {
 }
 
 #[tokio::test]
+async fn a_request_carrying_a_pdf_goes_over_sse_because_a_socket_refuses_one_after_its_first() {
+    let h = fixture(Server::default(), None).await;
+    let mut with_pdf = continued(request());
+    with_pdf.messages.push(ChatMessage {
+        role: Role::User,
+        blocks: vec![Block::Pdf {
+            base64: "JVBERi0=".into(),
+        }],
+    });
+
+    collect(&h.provider, &request(), &key()).await;
+    collect(&h.provider, &with_pdf, &key()).await;
+
+    assert_eq!((h.server.posts(), h.server.connections()), (1, 1));
+}
+
+#[tokio::test]
 async fn refused_credentials_are_reported_not_retried_over_sse() {
     let h = fixture(Server::default(), Some(StatusCode::UNAUTHORIZED)).await;
 

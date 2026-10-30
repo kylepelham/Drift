@@ -40,6 +40,8 @@ pub(super) struct Prepared {
     pub timeouts: Timeouts,
     /// A ChatGPT sign-in, whose Codex backend needs a beta header on the upgrade.
     pub subscription: bool,
+    /// The turn on a ChatGPT sign-in, which keeps the routing pin the upgrade's answer names.
+    pub turn: Option<super::turn_state::Turn>,
 }
 
 /// Open connections, keyed by conversation and credentials.

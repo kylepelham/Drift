@@ -404,6 +404,7 @@ mod tests {
                 temperature: Some(0.5),
                 cache_key: None,
                 connection: None,
+                turn: None,
                 effort_marks: Vec::new(),
                 claude: Default::default(),
                 cache_hour: false,

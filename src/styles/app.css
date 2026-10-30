@@ -431,15 +431,6 @@ textarea {
     display: none;
 }
 
-/* Each file's lines scroll sideways on their own; a bar under every file would box them in. */
-.review-lines {
-    scrollbar-width: none;
-}
-
-.review-lines::-webkit-scrollbar {
-    display: none;
-}
-
 /* The browser's tabs narrow before they scroll, so a bar would only show in the rare overflow. */
 .browser-tabs {
     scrollbar-width: none;

@@ -2,6 +2,7 @@ import { estimateContextBreakdown } from "../src/engine/context-breakdown";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import {
     activeAccount,
+    lastAccount,
     refreshUsage,
     resetLabel,
     resetTitle,
@@ -149,6 +150,30 @@ test("the meter shows the first account with usage left, else the first", () => 
     expect(activeAccount(entry(account("f", used())))?.key).toBe("f");
     expect(activeAccount(entry())).toBeUndefined();
     expect(activeAccount(undefined)).toBeUndefined();
+
+    // A chat shows the account it is on, and the one it is set to use while that has usage left.
+    const other = account("g", used(10));
+    const unknown = account("h", null);
+    expect(activeAccount(entry(free, other), { last: "g" })).toBe(other);
+    expect(activeAccount(entry(free, other, unknown), { last: "h" })).toBe(unknown);
+    expect(activeAccount(entry(free, other), { pinned: "g", last: "b" })).toBe(other);
+    expect(activeAccount(entry(free, spent, other), { pinned: "a", last: "g" })).toBe(other);
+    expect(activeAccount(entry(free, spent), { last: "a" })).toBe(free);
+    expect(activeAccount(entry(spent, account("e", used(100))), { last: "e" })?.key).toBe("e");
+    expect(activeAccount(entry(free, other), { pinned: "gone", last: "gone" })).toBe(free);
+});
+
+test("a chat is on the account that sent its latest reply from that provider", () => {
+    const reply = (provider: string, account?: string) =>
+        ({
+            info: { role: "assistant", model: { provider, model: "m" }, account },
+            parts: [],
+        }) as unknown as MessageEntry;
+    const prompt = { info: { role: "user", account: "x" }, parts: [] } as unknown as MessageEntry;
+
+    expect(lastAccount([reply("openai", "a"), reply("anthropic", "b"), prompt], "openai")).toBe("a");
+    expect(lastAccount([reply("openai", "a"), reply("openai", "c"), reply("openai")], "openai")).toBe("c");
+    expect(lastAccount([prompt, reply("anthropic", "b")], "openai")).toBeUndefined();
 });
 
 function entry(role: "user" | "assistant", parts: unknown[], extra: Record<string, unknown> = {}): MessageEntry {
@@ -199,7 +224,8 @@ test("the context meter shows usage limits and the breakdown, and remote access 
     expect(keys.length).toBeGreaterThan(5);
     expect(keys.filter((key) => !(key in english))).toEqual([]);
     expect(meter).toContain("<UsageSection provider=");
-    expect(meter).toContainCode("const account = () => activeAccount(entry());");
+    expect(meter).toContain("activeAccount(entry(), {");
+    expect(meter).toContain("last: lastAccount(engine.state.transcripts[props.sessionId] ?? [], props.provider)");
     expect(meter).toContainCode("<AccountLimits entry={entry()} account={account()} />");
     expect(meter).toContain("<ProviderIcon id={props.provider}");
     expect(meter).not.toContain("detailedBreakdown");

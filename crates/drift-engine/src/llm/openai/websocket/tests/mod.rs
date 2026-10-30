@@ -265,6 +265,7 @@ fn request() -> Request {
         temperature: None,
         cache_key: Some("session".into()),
         connection: Some("session".into()),
+        turn: None,
         effort_marks: Vec::new(),
         claude: Default::default(),
         cache_hour: false,

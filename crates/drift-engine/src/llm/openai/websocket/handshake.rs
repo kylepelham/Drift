@@ -31,6 +31,9 @@ pub(super) async fn connect(client: &reqwest::Client, prepared: &Prepared) -> Re
     }
 
     validate(&response, &key)?;
+    if let Some(turn) = &prepared.turn {
+        turn.note(response.headers());
+    }
 
     let upgraded = tokio::time::timeout(prepared.timeouts.headers, response.upgrade())
         .await

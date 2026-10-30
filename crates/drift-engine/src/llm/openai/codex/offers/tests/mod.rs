@@ -14,7 +14,7 @@ mod catalog;
 mod refresh;
 
 fn credential(user: &str, account: &str) -> Credential {
-    let claims = json!({ "sub": user, "chatgpt_compute_residency": "eu" }).to_string();
+    let claims = json!({ "sub": user, "chatgpt_compute_residency": "us" }).to_string();
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims);
 
     Credential::OAuth {
@@ -101,7 +101,7 @@ async fn server(body: Value, status: StatusCode, calls: Arc<AtomicUsize>) -> (St
             assert!(headers["authorization"].to_str().unwrap().starts_with("Bearer "));
             assert_eq!(headers["chatgpt-account-id"], "account");
             assert_eq!(headers["originator"], crate::llm::openai::CODEX_ORIGINATOR);
-            assert_eq!(headers["x-openai-internal-codex-residency"], "eu");
+            assert_eq!(headers["x-openai-internal-codex-residency"], "us");
 
             (status, axum::Json(body))
         }

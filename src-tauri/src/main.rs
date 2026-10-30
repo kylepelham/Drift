@@ -18,6 +18,7 @@ mod session_search;
 mod startup;
 mod storage;
 mod store;
+mod taskbar;
 mod ui_state;
 mod updater;
 mod usage_limits;
@@ -81,7 +82,7 @@ fn open_webview_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
-/// The window and taskbar icon in the theme's accent, painted by the webview as RGBA pixels.
+/// The window and taskbar icon in the accent shade for the taskbar, painted by the webview as RGBA pixels.
 #[tauri::command]
 fn set_window_icon(window: tauri::WebviewWindow, rgba: Vec<u8>, size: u32) -> Result<(), String> {
     if rgba.len() as u64 != u64::from(size) * u64::from(size) * 4 {
@@ -141,6 +142,7 @@ fn main() {
             show_main_window,
             open_webview_devtools,
             set_window_icon,
+            taskbar::taskbar_light,
             commands::session_search,
             commands::storage_stats,
             commands::storage_prune,
@@ -237,6 +239,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     std::thread::spawn(updater::clear_finished_installers);
+    taskbar::watch(app.handle());
     startup::mark("setup-complete");
 
     // Recover if the preload script never observes paint or cannot invoke the reveal.

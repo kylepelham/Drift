@@ -359,6 +359,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   turn, then every message from `tailFrom` on, skipping older boundaries and summaries (the new
   summary covers them). A failed or aborted summary, or one without text, is ignored, so the
   previous view stands.
+- **Summary prompt** (`config/prompts/compaction.txt`, after opencode v2's): goal, state including
+  where the work stands in version control, at most 15 files that matter for what remains, open
+  work with the user's unanswered requests verbatim, and costly details. It leaves out the system
+  prompt, AGENTS.md and the environment, which the next request carries anyway, and updates an
+  earlier summary instead of appending to it, so repeated compactions do not keep growing.
 - **Publication**: the summary's text and its `done` state are one transaction
   (`Store::complete_summary`). If that write fails the summary is marked failed, no completion is
   published, and the error returns to the caller (counted against automatic compaction).
@@ -480,7 +485,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   their results come first in that request. Before a turn ends it checks, under the same lock that
   admission holds, for a prompt newer than the last one it answered; if there is one it carries on
   with a fresh step budget, otherwise it stops taking prompts, so none can land unanswered. A Stop
-  still ends the turn; the steered prompt stays in the transcript for the next one. A session held
+  still ends the turn; the steered prompt stays in the transcript for the next one. The shared
+  system prompt tells every model family that such a message steers the task in progress and
+  replaces it only when it clearly cancels it. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`. A turn still planning (waiting on MCP
   servers, renewing a sign-in, running plugin prompt hooks) is not such a job: the prompt joins it
@@ -1974,10 +1981,31 @@ code until he picks.
   step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
   one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
   blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
-- A Codex (ChatGPT sign-in) request also carries `session-id` (the session, so the backend keeps a
-  conversation's requests together) and, when the access token's claims bind the account to a
-  region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
-  as upstream's Codex plugin sends them.
+- A Codex (ChatGPT sign-in) request also carries what Codex's own client sends:
+  - `user-agent: opencode/<version> (<os>; <arch>) Drift/<version>`, Codex's
+    `originator/version (os; arch) client` form, so the agent agrees with `originator: opencode`.
+  - `session-id`, the session, so the backend keeps a conversation's requests together.
+  - `x-openai-internal-codex-residency: us` only when the access token claims
+    `chatgpt_compute_residency: us`. Codex has no other residency value and never names another
+    region.
+  - `x-codex-routing-hint: model=<model>`, with `;tier=<service_tier>` when the mode sets one.
+  - `x-codex-turn-state`, the sticky routing pin. The backend names one on its answer to a turn's
+    first request (the SSE response headers, or the WebSocket's 101). The turn's later requests send
+    it back so they land on the same backend. A turn is the prompt that started it (`Request.turn`,
+    which a steer changes). The first pin of a turn stays for the whole turn, a new turn starts
+    without one, and `openai::turn_state` remembers one pin per conversation.
+  - `reasoning.context: all_turns` beside the effort. It is the backend's default today (a probe
+    showed earlier turns' reasoning counted with or without it); pinning it keeps that if the
+    default changes.
+- Codex features Drift does not adopt on the ChatGPT route:
+  - Responses Lite (`X-OpenAI-Internal-Codex-Responses-Lite`) requires `parallel_tool_calls: false`,
+    which would serialize every tool batch.
+  - Mid-response `response.interrupt` is refused (`interrupt_not_supported`) outside Lite, so Stop
+    still closes the stream.
+  - Server-side compaction (`compaction_trigger`) returns encrypted compaction only that model can
+    read, and a Drift session switches models.
+  - A PDF goes over SSE (see the WebSocket transport below) rather than being rendered to images or text as Codex does; the
+    backend reads PDFs itself over SSE, and a converter would cost a dependency and fidelity.
 - OpenAI Responses (API keys and the Codex backend alike) go over a WebSocket (`openai::websocket`).
   Each conversation keeps one connection, keyed by its session, endpoint and every request header,
   so credentials, accounts and modes never share one; a request without a session gets its own.
@@ -2004,6 +2032,11 @@ code until he picks.
     second, which showed as a failed attempt and a retry every two minutes). A silent server is not
     that case and stays a timeout. A close reports its code and reason. Stopping a turn drops its
     stream, which closes that socket, so a half-read response never serves the next request.
+  - A request that carries a PDF goes over SSE. The Codex backend reads a PDF only in the first
+    request on a socket; in any later one, continuation or full input alike, it answers
+    `unsupported_parameter` ("This input file format requires preparation that is not supported").
+    Over SSE the same history, reasoning items included, reads it (verified live 2026-10-29; a
+    webfetch of a PDF mid-turn failed every time before this).
   - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
     requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. A failure
     within ten minutes of a rest ending doubles the next rest, up to an hour, so a conversation whose
@@ -2124,7 +2157,7 @@ code until he picks.
   - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
     moved up or down, or signed out, and signing in again adds another. Settings > Usage shows each
     account's plan usage (the shell's `provider_usage`, through `Engine::account_credentials`), and
-    the composer's usage popover shows the first account with usage left.
+    the context meter's usage popover shows the account the chat's next turn would use.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
   generated text, reasoning or tool-call block to its last content event. Initial request waits,
@@ -3090,6 +3123,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
   because running without its rules would drop its denies; the UI shows the problem when the
   workspace config loads.
+- **Base prompts** (`session/prompts/<family>.txt` plus `shared.txt`, one per prompt family the
+  catalog assigns). The GPT prompt (`codex.txt`) carries the lines opencode v2 gives only its
+  `gpt-6-astra` prompt: act on "can you" and "help me", no partial result to save tokens, no
+  tests for small reversible changes or that restate the code, no unprompted warnings or
+  checklists, skills only on a real match, main point first without "X, not Y" framing. Drift has
+  one GPT prompt, picked from the catalog rather than a model id, so they apply to every GPT
+  model. The Claude prompt matches the surrounding comment density, as opencode v2's Anthropic
+  prompt does. The `explore` description asks the caller for a thoroughness (quick, medium, very
+  thorough), which its own prompt already adapts to.
 - **Instruction baseline** (`session::turn::instructions`, after opencode v2's instruction deltas).
   The system prompt is built from keyed sources (`prompt::sources`), most shared first: the base
   prompt with the shared rules (`base:<family>`), a subagent's own prompt (`agent`), the skills

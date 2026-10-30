@@ -620,7 +620,7 @@ fn builtin_agents() -> Vec<Agent> {
         ),
         read_only(agent(
             "explore",
-            "Fast read-only subagent for finding files and code and answering questions about a codebase.",
+            "Fast read-only subagent for finding files and code and answering questions about a codebase. Say how thorough to be: quick, medium or very thorough.",
             include_str!("prompts/explore.txt"),
             &["read", "glob", "grep", "bash", "webfetch", "websearch", "skill"],
             AgentKind::Subagent,

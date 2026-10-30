@@ -70,6 +70,7 @@ impl Engine {
                     .unwrap_or_else(|_| plan.session.id.clone()),
             ),
             connection: Some(plan.session.id.clone()),
+            turn: started.map(String::from),
             effort_marks,
             claude: plan.model.claude,
             cache_hour: self.hour_cache(plan),
