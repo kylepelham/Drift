@@ -90,6 +90,10 @@ test.skipIf(!browserInstalled())(
         fake.push({ body: sse.toolUse("browser", { action: "open", url: page }) }, { body: sse.text("Opened.") });
 
         await engine.call("POST", `/sessions/${session}/turns`, { parts: [{ type: "text", text: "open it" }], model });
+        const asked = await events.until((frame) => frame.type === "permission.asked", 30_000);
+        const request = asked.request as { id: string; pattern: string };
+        expect(request.pattern).toBe("data:");
+        await engine.call("POST", `/permissions/${request.id}/reply`, { reply: "always" });
         const started = await events.until(browserFrame("running"), 30_000);
         expect((started.browser as { sessionId: string }).sessionId).toBe(session);
 
