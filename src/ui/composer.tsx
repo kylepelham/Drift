@@ -103,8 +103,7 @@ export function Composer() {
     const setMentions = (mentions: string[]) => patchComposerDraft(scope(), { mentions });
 
     // Only finalized speech reaches the draft, so live text can never rewrite what was typed.
-    function appendVoice(segment: string) {
-        const key = scope();
+    function appendVoice(segment: string, key: string) {
         setHistoryNavigation(null);
         patchComposerDraft(key, { text: appendDictation(composerDraft(key).text, segment) });
     }
@@ -112,7 +111,8 @@ export function Composer() {
     // A cloud provider needs no download; a missing key is reported by the first phrase.
     function toggleVoice() {
         if (dictationProvider() === "local" && !modelInstalled(dictationModel())) return openSettings("Voice");
-        void toggleDictation(appendVoice, engine.actions.transcribeSpeech);
+        const key = scope();
+        void toggleDictation((segment) => appendVoice(segment, key), engine.actions.transcribeSpeech);
     }
 
     const addFiles = createAttachmentStager({
@@ -129,6 +129,7 @@ export function Composer() {
         const nextScope = scope();
         if (nextScope !== previousScope) {
             stopReadAloud();
+            stopDictation();
             const navigation = untrack(historyNavigation);
             if (navigation?.saved && composerDraft(navigation.scope) === navigation.displayed) {
                 setComposerDraft(navigation.scope, navigation.saved);
