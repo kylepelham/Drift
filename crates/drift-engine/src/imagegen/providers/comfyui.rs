@@ -36,7 +36,7 @@ pub(super) async fn generate(call: &Call<'_>, request: &ImageRequest<'_>) -> Res
         .as_str()
         .ok_or("ComfyUI did not queue the workflow")?;
     let saved = poll(|| finished(call, root, id)).await?;
-    let image = download(call.http, &format!("{root}/view?{saved}")).await?;
+    let image = download(&format!("{root}/view?{saved}"), Some(root)).await?;
 
     Ok(made(image, None, None))
 }

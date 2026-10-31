@@ -320,22 +320,116 @@ pub(super) async fn post(request: reqwest::RequestBuilder, body: &Value) -> Resu
     send(request.json(body)).await
 }
 
-/// The image at a URL an answer names, or inline when the URL is a data URL.
-pub(super) async fn download(http: &reqwest::Client, url: &str) -> Result<Image, Failure> {
+/// The image at a URL an answer names, or inline as a data URL. A private URL is fetched only from `root`.
+pub(super) async fn download(url: &str, root: Option<&str>) -> Result<Image, Failure> {
     if url.starts_with("data:") {
         return decoded(url);
     }
-    let response = http
-        .get(url)
-        .timeout(TIMEOUT)
-        .send()
-        .await
-        .map_err(|error| format!("the image could not be fetched: {error}"))?;
+    let start = reqwest::Url::parse(url).map_err(|_| refused())?;
+    let response = fetch_image(start, root).await?;
     if !response.status().is_success() {
         return Err(format!("the image could not be fetched: {}", response.status()).into());
     }
 
     sniffed(&capped(response).await?)
+}
+
+/// Redirects are followed here so each hop is checked; the shared client cannot change that policy.
+const MAX_REDIRECTS: usize = 10;
+
+fn refused() -> Failure {
+    "the image URL is not one that can be fetched".into()
+}
+
+fn image_client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            #[cfg(test)]
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("image client")
+        })
+        .clone()
+}
+
+async fn fetch_image(start: reqwest::Url, root: Option<&str>) -> Result<reqwest::Response, Failure> {
+    let client = image_client();
+    let mut url = start;
+    for _ in 0..MAX_REDIRECTS {
+        fetchable(&url, root)?;
+        let response = client
+            .get(url.clone())
+            .timeout(TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| format!("the image could not be fetched: {error}"))?;
+        if !response.status().is_redirection() {
+            return Ok(response);
+        }
+        url = next_url(&url, &response)?;
+    }
+
+    Err("the image could not be fetched: too many redirects".into())
+}
+
+fn next_url(from: &reqwest::Url, response: &reqwest::Response) -> Result<reqwest::Url, Failure> {
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(refused)?;
+
+    from.join(location).map_err(|_| refused())
+}
+
+fn fetchable(url: &reqwest::Url, root: Option<&str>) -> Result<(), Failure> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(refused());
+    }
+    if root.is_some_and(|root| same_origin(url, root)) {
+        return Ok(());
+    }
+    if private_url(url) { Err(refused()) } else { Ok(()) }
+}
+
+fn same_origin(url: &reqwest::Url, root: &str) -> bool {
+    let Ok(root) = reqwest::Url::parse(root) else {
+        return false;
+    };
+
+    url.scheme() == root.scheme()
+        && url.host() == root.host()
+        && url.port_or_known_default() == root.port_or_known_default()
+}
+
+fn private_url(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return true;
+    };
+    let host = host.trim_matches(['[', ']']).to_lowercase();
+    if let Ok(address) = host.parse::<std::net::IpAddr>() {
+        return private_ip(address);
+    }
+
+    host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || !host.contains('.')
+}
+
+fn private_ip(address: std::net::IpAddr) -> bool {
+    match address {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unicast_link_local()
+                || v6.is_unique_local()
+                || v6.to_ipv4_mapped().is_some_and(|mapped| private_ip(mapped.into()))
+        }
+    }
 }
 
 /// The most of a generated image read from a URL; far past any real one.

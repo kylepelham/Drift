@@ -42,5 +42,9 @@ pub(super) async fn generate(call: &Call<'_>, request: &ImageRequest<'_>) -> Res
     let url = first["url"].as_str().ok_or("the answer has no image")?;
     let revised = first["prompt"].as_str().filter(|said| *said != request.prompt);
 
-    Ok(made(download(call.http, url).await?, None, revised.map(str::to_string)))
+    Ok(made(
+        download(url, Some(root)).await?,
+        None,
+        revised.map(str::to_string),
+    ))
 }
