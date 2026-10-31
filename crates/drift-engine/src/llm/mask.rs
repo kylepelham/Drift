@@ -145,6 +145,7 @@ impl Masks {
             .iter_mut()
             .for_each(|message| hide_message(swap, message));
         hidden.tools.iter_mut().for_each(|tool| hide_tool(swap, tool));
+        hidden.deferred_tools.iter_mut().for_each(|tool| hide_tool(swap, tool));
 
         Cow::Owned(hidden)
     }
