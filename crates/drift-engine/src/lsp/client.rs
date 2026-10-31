@@ -147,9 +147,10 @@ impl Client {
 
     fn kill(&self) {
         self.alive.store(false, Ordering::SeqCst);
-        if let Some((child, tree)) = self.process.lock().unwrap().take() {
+        if let Some((mut child, tree)) = self.process.lock().unwrap().take() {
             tree.kill();
-            drop(child);
+            let _ = child.start_kill();
+            reap(child);
         }
         self.changed.notify_waiters();
         self.ready.send_modify(|_| {});
@@ -361,6 +362,24 @@ impl Drop for Client {
     fn drop(&mut self) {
         self.kill();
     }
+}
+
+/// Reaps the child. `Drop` can run with no runtime, where `spawn` would panic, so that path waits on its own.
+fn reap(mut child: Child) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let _ = child.wait().await;
+        });
+        return;
+    }
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_io().build() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let _ = child.wait().await;
+        });
+    });
 }
 
 /// What a server asking the client gets: settings it asks for are left at its defaults; anything else is acknowledged.

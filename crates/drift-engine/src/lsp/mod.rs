@@ -243,15 +243,11 @@ impl Servers {
         let _starting = gate.lock().await;
         // Recheck after taking the start lock because another caller may have started the server.
         if let Some(client) = running() {
+            self.forget_start(&slot);
             return Some(client);
         }
-        if self
-            .failed
-            .lock()
-            .unwrap()
-            .get(&slot)
-            .is_some_and(|at| at.elapsed() < RETRY)
-        {
+        if self.failed_recently(&slot) {
+            self.forget_start(&slot);
             return None;
         }
 
@@ -262,7 +258,8 @@ impl Servers {
 
         match started {
             Ok(client) => {
-                let replaced = self.replace(slot, client.clone());
+                let replaced = self.replace(slot.clone(), client.clone());
+                self.forget_start(&slot);
                 for old in replaced {
                     old.shutdown().await;
                 }
@@ -270,10 +267,27 @@ impl Servers {
                 Some(client)
             }
             Err(_) => {
-                self.failed.lock().unwrap().insert(slot, Instant::now());
+                self.note_failure(slot.clone());
+                self.forget_start(&slot);
                 None
             }
         }
+    }
+
+    fn forget_start(&self, slot: &Slot) {
+        self.starting.lock().unwrap().remove(slot);
+    }
+
+    fn failed_recently(&self, slot: &Slot) -> bool {
+        let mut failed = self.failed.lock().unwrap();
+        failed.retain(|_, at| at.elapsed() < RETRY);
+        failed.contains_key(slot)
+    }
+
+    fn note_failure(&self, slot: Slot) {
+        let mut failed = self.failed.lock().unwrap();
+        failed.retain(|_, at| at.elapsed() < RETRY);
+        failed.insert(slot, Instant::now());
     }
 
     /// Keeps `client` in `slot`, handing back any server of that name and root started from commands since changed.
