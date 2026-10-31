@@ -322,7 +322,7 @@ impl Config {
         self.formatters.extend(file.formatters);
         self.checks.extend(file.checks);
         self.apply_lsp(file.lsp, project);
-        self.timeouts.extend(file.timeouts);
+        self.timeouts = merge_timeouts(std::mem::take(&mut self.timeouts), file.timeouts);
         if let Some(setup) = file.worktree.setup {
             self.worktree_setup = setup;
         }
@@ -662,6 +662,24 @@ fn builtin_agents() -> Vec<Agent> {
             AgentKind::Action,
         ),
     ]
+}
+
+/// A later file replaces only the fields it sets, so an unset idle limit keeps the one from home.
+fn merge_timeouts(
+    mut current: BTreeMap<String, RouteTimeouts>,
+    incoming: BTreeMap<String, RouteTimeouts>,
+) -> BTreeMap<String, RouteTimeouts> {
+    for (route, next) in incoming {
+        let entry = current.entry(route).or_default();
+        if next.headers_seconds.is_some() {
+            entry.headers_seconds = next.headers_seconds;
+        }
+        if next.idle_seconds.is_some() {
+            entry.idle_seconds = next.idle_seconds;
+        }
+    }
+
+    current
 }
 
 pub(crate) fn parse_model(text: &str) -> Option<ModelRef> {
