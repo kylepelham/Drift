@@ -6,7 +6,7 @@ use drift_engine::voice::MAX_AUDIO_BYTES;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
 use std::fmt::Write as _;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, State};
@@ -14,6 +14,8 @@ use tauri::{Emitter, Manager, State};
 const HOST: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 const PROGRESS_EVENT: &str = "voice-model-progress";
 const PROGRESS_STEP: u64 = 2 * 1024 * 1024;
+/// A slow CPU phrase still finishes inside this; a hung sidecar does not keep the worker.
+const WHISPER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 #[derive(Debug, thiserror::Error)]
 enum VoiceError {
@@ -362,17 +364,53 @@ fn run_whisper(
         use std::os::windows::process::CommandExt;
         command.creation_flags(crate::CREATE_NO_WINDOW);
     }
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
 
-    let output = command.output();
+    let spawned = command.spawn();
+    if spawned.is_err() {
+        let _ = std::fs::remove_file(&wav);
+    }
+    let mut child = spawned?;
+    let finished = wait_child(&mut child, WHISPER_TIMEOUT);
     let _ = std::fs::remove_file(&wav);
-    let output = output?;
-    if !output.status.success() {
+    let status = finished?;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_end(&mut stdout)?;
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_end(&mut stderr)?;
+    }
+    if !status.success() {
         return Err(VoiceError::Transcription(
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            String::from_utf8_lossy(&stderr).trim().to_string(),
         ));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(String::from_utf8_lossy(&stdout).trim().to_string())
+}
+
+fn wait_child(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> Result<std::process::ExitStatus, VoiceError> {
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if started.elapsed() > timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(VoiceError::Transcription("timed out".into()));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// The sidecar reads files rather than a stream.

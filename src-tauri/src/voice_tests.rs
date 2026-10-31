@@ -74,3 +74,26 @@ fn voice_errors_keep_the_command_boundary_text() {
         assert_eq!(error.to_string(), message);
     }
 }
+
+#[test]
+fn a_hung_transcription_is_killed() {
+    let mut command = if cfg!(windows) {
+        let mut command = std::process::Command::new("powershell");
+        command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]);
+        command
+    } else {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        command
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().expect("sleeper");
+    let started = std::time::Instant::now();
+    let error = wait_child(&mut child, std::time::Duration::from_millis(200)).unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(matches!(error, VoiceError::Transcription(message) if message == "timed out"));
+    assert!(child.try_wait().unwrap().is_some());
+}
