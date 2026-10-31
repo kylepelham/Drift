@@ -2051,9 +2051,10 @@ code until he picks.
   5.4 plus the ones Codex names (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`, ...), never a
   `-pro` model or bare `gpt-5.6`, all at no per-token cost, and the 5.5 and 5.6 lines with a 400k
   window and a 272k prompt cap, so compaction runs before the backend's own limit. Signing in or
-  out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
-  model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
-  never an API-only model.
+  out publishes `catalog.updated` so the picker reloads. Titles run on the cheapest plain model the
+  account's own Codex list names (`Offers::small_model`), since the backend refuses anything it does
+  not list (it dropped `gpt-5.4-mini` in October 2026); with no list fetched yet, on the
+  conversation's own model.
 - A ChatGPT sign-in's catalog follows its account's Codex model list (`codex::offers`), fetched with
   Drift's `client_version` (the backend refuses the list without one). Startup and sign-in fetch it
   in the background; a single-flight cache lasts 15 minutes, retries a failed fetch after a minute,
