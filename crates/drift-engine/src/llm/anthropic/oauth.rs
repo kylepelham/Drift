@@ -274,20 +274,21 @@ mod tests {
     }
 
     #[test]
-    fn expiry_is_strictly_past() {
-        let live = Credential::OAuth {
+    fn a_token_counts_as_expired_a_minute_before_its_end() {
+        let token = |expires_at| Credential::OAuth {
             access: "a".into(),
             refresh: "r".into(),
-            expires_at: crate::id::now_ms() + 10_000,
+            expires_at,
             account: None,
         };
-        let dead = Credential::OAuth {
-            access: "a".into(),
-            refresh: "r".into(),
-            expires_at: 1,
-            account: None,
-        };
+        let live = token(crate::id::now_ms() + 10 * 60_000);
+        let ending = token(crate::id::now_ms() + 10_000);
+        let dead = token(1);
         assert!(!live.is_expired());
+        assert!(
+            ending.is_expired(),
+            "refreshed before a request, not refused during one"
+        );
         assert!(dead.is_expired());
         assert!(!Credential::ApiKey { key: "k".into() }.is_expired());
     }

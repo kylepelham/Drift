@@ -71,6 +71,50 @@ async fn calls_keep_the_models_order_across_a_write() {
 }
 
 #[tokio::test]
+async fn writes_to_one_file_keep_their_order_while_writes_to_others_join_them() {
+    let h = harness().await;
+    rule(&h, "edit", "*", Decision::Allow);
+    std::fs::write(h._dir.join("ws/a.txt"), "one\n").unwrap();
+    h.provider
+        .push(
+            [
+                call_block(
+                    "t1",
+                    "edit",
+                    r#"{"path": "a.txt", "old_string": "one", "new_string": "two"}"#,
+                ),
+                call_block("t2", "write", r#"{"path": "b.txt", "content": "b\n"}"#),
+                call_block(
+                    "t3",
+                    "edit",
+                    r#"{"path": "a.txt", "old_string": "two", "new_string": "three"}"#,
+                ),
+                call_block("t4", "read", r#"{"path": "a.txt"}"#),
+                vec![Chunk::Stop(StopReason::ToolUse)],
+            ]
+            .concat(),
+        )
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
+    until_idle(&h).await;
+
+    let statuses: Vec<_> = transcript(&h)[1]
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::ToolCall { status, output, .. } => Some((*status, output.clone().unwrap_or_default())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        statuses[..3].iter().all(|(status, _)| *status == ToolStatus::Done),
+        "{statuses:?}"
+    );
+    assert_eq!(statuses[3], (ToolStatus::Done, "1: three".into()));
+    assert_eq!(std::fs::read_to_string(h._dir.join("ws/b.txt")).unwrap(), "b\n");
+}
+
+#[tokio::test]
 async fn a_call_id_the_provider_repeats_is_renamed_so_every_call_keeps_its_own() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();

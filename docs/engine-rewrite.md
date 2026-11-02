@@ -2240,7 +2240,7 @@ code until he picks.
     at once. Switching mid-conversation rewrote the whole prompt on the other account.
   - Old tool results are cleared (`session::turn::clearing`, after Claude Code's microcompact): a
     step whose cache is cold marks older results `metadata.cleared` and the request sends
-    "[Old tool result content cleared; run the call again if you need it]" in their place, without
+    "[Old tool result content cleared; if you need it again, fetch only the part you need, such as a grep or a ranged read]" in their place, without
     their images. The newest 10 results, results of 2,000 characters or less, and `skill`, `task`,
     `task_output`, `question`, `todowrite` and `read_thread` stay, and nothing is cleared unless
     at least 80,000 characters go. The parts are saved without an event: the transcript still shows
@@ -2387,7 +2387,7 @@ code until he picks.
   call; background workers and other sessions run alongside. The shadow-index lock serialises
   snapshot captures per workspace only; two sessions or workers editing one source file take turns
   through `tool::lock` (below).
-- The reply's leading run of `read`, `grep` and `glob` calls starts while the reply still streams
+- The reply's leading run of `read`, `grep`, `glob` and `webfetch` calls starts while the reply still streams
   (`session::early`), each as soon as its block closes, provided its arguments fit the schema and
   every rule allows it without asking. The first call to any other tool ends the run, since a read
   after a write, a command or a subagent must see what that did. The step still admits each call

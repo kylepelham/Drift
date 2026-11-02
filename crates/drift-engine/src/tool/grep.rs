@@ -56,7 +56,7 @@ impl Tool for Grep {
             .collect()
     }
 
-    fn starts_early(&self) -> bool {
+    fn starts_early(&self, _input: &Value) -> bool {
         true
     }
 

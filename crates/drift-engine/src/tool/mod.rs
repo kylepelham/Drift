@@ -142,6 +142,11 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// The most of one result put in front of the model; past it, its start and end stay, with all of it in a file.
+    fn result_bytes(&self) -> usize {
+        spool::MAX_RESULT_BYTES
+    }
+
     /// A result that still reports failure, for tools whose failures carry metadata the UI needs.
     fn failed(&self, _output: &Output) -> bool {
         false
@@ -158,8 +163,9 @@ pub trait Tool: Send + Sync {
         false
     }
 
-    /// May run speculatively while streaming; the ordering and result rules are in docs/engine-rewrite.md.
-    fn starts_early(&self) -> bool {
+    /// Whether this call may run speculatively while streaming; the ordering and result rules are in
+    /// docs/engine-rewrite.md.
+    fn starts_early(&self, _input: &Value) -> bool {
         false
     }
 

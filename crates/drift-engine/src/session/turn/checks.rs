@@ -6,10 +6,66 @@ use super::*;
 const CHECK_BUDGET: Duration = Duration::from_secs(90);
 
 impl Engine {
+    /// Asks the language servers once about every file the step wrote, after its formatters ran, and adds each
+    /// file's errors to the last call that wrote it. Stop cancels the wait.
+    pub(super) async fn report_diagnostics(&self, scope: &CallScope<'_>) {
+        let mut files = scope.wrote.lock().unwrap().files.clone();
+        files.sort();
+        files.dedup();
+        if files.is_empty() {
+            return;
+        }
+
+        let servers = self.hooks.lsp_config(&scope.plan.config.lsp);
+        let found = tokio::select! {
+            found = self.lsp.report(&scope.plan.workspace, &files, &servers) => found,
+            () = scope.abort.cancelled() => return,
+        };
+        if found.is_empty() {
+            return;
+        }
+
+        let mut rows = std::mem::take(&mut scope.wrote.lock().unwrap().rows);
+        let mut by_row: Vec<Vec<crate::lsp::Found>> = vec![Vec::new(); rows.len()];
+        for entry in found {
+            let writer = rows.iter().rposition(|row| {
+                matches!(&row.part, Part::ToolCall { metadata: Some(metadata), .. }
+                    if metadata.file_paths().any(|file| Path::new(file) == entry.file))
+            });
+            if let Some(writer) = writer {
+                by_row[writer].push(entry);
+            }
+        }
+
+        let workspace = &scope.plan.workspace;
+        for (row, found) in rows.iter_mut().zip(by_row).filter(|(_, found)| !found.is_empty()) {
+            let Part::ToolCall { output, metadata, .. } = &mut row.part else {
+                continue;
+            };
+            let mut text = output.take().unwrap_or_default();
+            let mut meta = metadata.take().unwrap_or_default();
+            if let Some(note) = crate::lsp::note(&found, workspace) {
+                crate::tool::add_note(&mut text, &mut meta, &note);
+            }
+            meta.diagnostics = Some(crate::lsp::metadata(&found, workspace));
+            *output = Some(text);
+            *metadata = Some(meta);
+
+            if self.store.save_part(row).is_ok() {
+                self.hub.publish(Event::PartUpdated { part: row.clone() });
+            }
+        }
+
+        scope.wrote.lock().unwrap().rows = rows;
+    }
+
     /// Runs workspace checks once over the step's written files and attaches their reports to its last writing call.
     pub(super) async fn check_step(&self, scope: &CallScope<'_>) {
-        let StepWrites { mut files, last } = std::mem::take(&mut *scope.wrote.lock().unwrap());
-        let Some(row) = last.filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty()) else {
+        let StepWrites { mut files, mut rows } = std::mem::take(&mut *scope.wrote.lock().unwrap());
+        let Some(row) = rows
+            .pop()
+            .filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty())
+        else {
             return;
         };
 
@@ -100,12 +156,13 @@ impl Engine {
         recorded: Result<changes::Recorded, changes::Lost>,
     ) {
         let workspace = &scope.plan.workspace;
-        let (changes, unrecorded, lost) = match recorded {
-            Ok(recorded) => (recorded.changes, Vec::new(), None),
+        let (changes, unrecorded, lost, at) = match recorded {
+            Ok(recorded) => (recorded.changes, Vec::new(), None, Some(recorded.at)),
             Err(lost) => (
                 Vec::new(),
                 lost.unrecorded,
                 Some(lost.note).filter(|note| !note.is_empty()),
+                None,
             ),
         };
         let changed: Vec<String> = changes
@@ -152,10 +209,12 @@ impl Engine {
                 .extend(unrecorded.iter().cloned());
         }
         if !changes.is_empty() {
-            // Appending check rewrites after the call's changes makes undo restore check rewrites first.
+            // Appending check rewrites after the call's changes makes undo restore check rewrites first. They are
+            // stamped when the checks finished, after every write of the step, which may have settled after this one.
             meta.changes
                 .get_or_insert_default()
                 .extend(changes.iter().cloned().map(Into::into));
+            meta.at = at;
         }
 
         *metadata = Some(meta);
@@ -184,7 +243,9 @@ impl StepWrites {
         }
 
         self.files.extend(files);
-        self.last = Some(row.clone());
+        // Writes to separate files settle in any order; the checks' report belongs to the model's last one.
+        let at = self.rows.partition_point(|noted| noted.id < row.id);
+        self.rows.insert(at, row.clone());
     }
 }
 

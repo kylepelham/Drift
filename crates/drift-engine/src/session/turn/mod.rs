@@ -370,12 +370,12 @@ struct CallScope<'a> {
     early: Mutex<early::Early>,
 }
 
-/// What a step's calls wrote, for the checks that run once the step's calls are done.
+/// What a step's calls wrote, for the language servers and checks that run once the step's calls are done.
 #[derive(Default)]
 struct StepWrites {
     files: Vec<PathBuf>,
-    /// The step's last writing call, whose result carries what the checks found.
-    last: Option<PartRow>,
+    /// The step's writing calls in the model's order; the last carries what the checks found.
+    rows: Vec<PartRow>,
 }
 
 struct Streamed {

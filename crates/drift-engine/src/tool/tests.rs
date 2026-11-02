@@ -317,7 +317,7 @@ fn descriptions_promise_only_what_the_tools_do() {
     }
     let fetch = include_str!("prompts/webfetch.txt");
     assert!(
-        fetch.contains(&kilobytes(spool::MAX_RESULT_BYTES))
+        fetch.contains(&kilobytes(spool::SHORT_RESULT_BYTES))
             && fetch.contains(&kilobytes(spool::HEAD_BYTES))
             && fetch.contains(&megabytes(webfetch::MAX_BYTES)),
         "{fetch}"

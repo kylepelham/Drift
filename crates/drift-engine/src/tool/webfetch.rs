@@ -18,6 +18,15 @@ impl Tool for WebFetch {
         &["webfetch"]
     }
 
+    fn result_bytes(&self) -> usize {
+        super::spool::SHORT_RESULT_BYTES
+    }
+
+    /// A fetch only reads, and a page takes long enough that starting it while the reply streams pays.
+    fn starts_early(&self, _input: &Value) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "webfetch".into(),

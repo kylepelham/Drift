@@ -70,9 +70,12 @@ pub fn ambient(provider: &str) -> Option<Option<String>> {
     }
 }
 
+/// A token this close to its end is refreshed before a request, not after the provider refuses it mid-turn.
+const EXPIRY_MARGIN_MS: i64 = 60_000;
+
 impl Credential {
     pub fn is_expired(&self) -> bool {
-        matches!(self, Self::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms())
+        matches!(self, Self::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms() + EXPIRY_MARGIN_MS)
     }
 }
 

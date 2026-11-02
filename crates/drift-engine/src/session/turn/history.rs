@@ -116,7 +116,8 @@ impl Engine {
         }
     }
 
-    /// Formats what a mutating call wrote; the model hears when a formatter changed it. Checks wait for the step's end.
+    /// Formats what a mutating call wrote; the model hears when a formatter changed it. Language servers and checks
+    /// wait for the step's end.
     pub(super) async fn after_write(
         &self,
         scope: &CallScope<'_>,
@@ -160,23 +161,7 @@ impl Engine {
         let mut metadata = metadata;
         if !formatted.is_empty() {
             crate::tool::add_note(&mut text, &mut metadata, &reformatted_note(&formatted));
-        }
-
-        // Language servers read the files after formatting; Stop cancels their report wait.
-        let servers = self.hooks.lsp_config(&config.lsp);
-        let found = tokio::select! {
-            found = self.lsp.report(&scope.plan.workspace, &files, &servers) => found,
-            () = scope.abort.cancelled() => Vec::new(),
-        };
-        if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {
-            crate::tool::add_note(&mut text, &mut metadata, &note);
-        }
-
-        if !formatted.is_empty() {
             metadata.formatted = Some(formatted);
-        }
-        if !found.is_empty() {
-            metadata.diagnostics = Some(crate::lsp::metadata(&found, &scope.plan.workspace));
         }
 
         (text, metadata)

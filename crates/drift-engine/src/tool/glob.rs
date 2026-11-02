@@ -47,7 +47,7 @@ impl Tool for Glob {
             .collect()
     }
 
-    fn starts_early(&self) -> bool {
+    fn starts_early(&self, _input: &Value) -> bool {
         true
     }
 
@@ -89,32 +89,47 @@ impl Tool for Glob {
 
 type Found = Vec<(std::path::PathBuf, SystemTime)>;
 
-/// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all. A Stop ends the walk.
+/// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all. The walk runs on
+/// several threads, as grep's does; a Stop ends it.
 fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, usize), ToolError> {
+    use ignore::WalkState;
+
     let glob = FileGlob::new(root, pattern).map_err(|error| ToolError(format!("invalid glob: {error}")))?;
-    let mut found: Found = Vec::new();
-    let mut total = 0;
+    let matched = std::sync::Mutex::new(Vec::new());
 
-    for entry in super::walk(root).flatten() {
-        if stop.is_cancelled() {
-            return Err(ToolError("stopped".into()));
-        }
-        if !entry.file_type().is_some_and(|kind| kind.is_file()) || !glob.matches(entry.path()) {
-            continue;
-        }
+    super::walker(root).build_parallel().run(|| {
+        let (glob, matched) = (&glob, &matched);
+        Box::new(move |entry| {
+            if stop.is_cancelled() {
+                return WalkState::Quit;
+            }
+            let Ok(entry) = entry else {
+                return WalkState::Continue;
+            };
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) || !glob.matches(entry.path()) {
+                return WalkState::Continue;
+            }
 
-        total += 1;
-        let modified = entry
-            .metadata()
-            .ok()
-            .and_then(|meta| meta.modified().ok())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        let at = found.partition_point(|(_, kept)| *kept >= modified);
-        if at < MAX_RESULTS {
-            found.insert(at, (entry.into_path(), modified));
-            found.truncate(MAX_RESULTS);
-        }
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            matched.lock().unwrap().push((entry.into_path(), modified));
+            WalkState::Continue
+        })
+    });
+    if stop.is_cancelled() {
+        return Err(ToolError("stopped".into()));
     }
+
+    let mut found: Found = matched.into_inner().unwrap();
+    let total = found.len();
+    // Threads meet files in no fixed order, so equal times fall back to the path.
+    found.sort_by(|(path, modified), (other, other_modified)| {
+        other_modified.cmp(modified).then_with(|| path.cmp(other))
+    });
+    found.truncate(MAX_RESULTS);
 
     Ok((found, total))
 }
