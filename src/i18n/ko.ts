@@ -1154,8 +1154,17 @@ export const drift = {
     "drift.provider.signInWith": "{{method}}로 로그인",
     "drift.provider.accounts.title": "계정",
     "drift.provider.accounts.hint":
-        "Drift는 첫 번째 계정을 사용하고, 계정이 5시간 또는 주간 한도에 도달하면 다음 계정으로 전환합니다.",
+        "Drift는 첫 번째 계정을 사용하고, 계정이 5시간 또는 주간 한도에 도달하면 다음 계정으로 전환합니다. API 키는 로그인 계정 뒤에 대체 수단으로 추가됩니다.",
     "drift.provider.accounts.unnamed": "계정 {{number}}",
+    "drift.provider.accounts.unnamedKey": "API 키 {{number}}",
+    "drift.provider.accounts.apiKey": "API 키",
+    "drift.provider.accounts.addKey": "키 추가",
+    "drift.provider.accounts.fastOnly": "Fast 모드 전용",
+    "drift.provider.accounts.fastOnlyHint":
+        "이 키는 Fast 모드 비용만 지불합니다. Fast 모델은 어떤 로그인 계정보다 먼저 이 키를 사용하고, 다른 모델은 절대 사용하지 않습니다. Max 또는 Ultra 요금제에 연결된 Console 조직의 키는 해당 요금제의 월간 API 크레딧을 사용합니다.",
+    "drift.provider.slowed": "지금은 Fast 모드를 사용할 수 있는 Claude 계정이 없어 이 대화는 일반 속도로 계속됩니다.",
+    "drift.provider.slowedUltra":
+        "지금은 Fast 모드를 사용할 수 있는 Claude 계정이 없어 이 대화는 일반 속도로 계속됩니다. Ultra 요금제에는 매월 $200의 API 크레딧이 포함되어 있습니다. 이를 Fast 모드에 사용하려면 설정 > 제공자 > Anthropic에서 요금제에 연결된 Console 조직의 API 키를 추가하고 Fast 모드 전용으로 표시하세요.",
     "drift.provider.accounts.inUse": "사용 중",
     "drift.provider.accounts.rename": "이름 바꾸기",
     "drift.provider.accounts.namePlaceholder": "계정 이름",

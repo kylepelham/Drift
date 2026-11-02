@@ -18,10 +18,22 @@ struct CallResult {
     title: Option<String>,
     text: String,
     metadata: ToolMetadata,
+    /// The most of the text the model gets, by the tool's own limit.
+    limit: usize,
+}
+
+/// Calls waiting to run together: reads, or writes to separate named files, never both.
+#[derive(Default)]
+struct Waiting {
+    calls: Vec<(PartRow, PreparedCall)>,
+    writes: bool,
+    /// The waiting writes' files, by their lock keys.
+    files: Vec<PathBuf>,
 }
 
 impl Engine {
-    /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
+    /// Calls run in the model's order. Consecutive reads run together, as do consecutive writes to separate
+    /// named files; any other write waits for what came before it.
     pub(super) async fn run_calls(
         self: &Arc<Self>,
         plan: &Plan,
@@ -41,38 +53,62 @@ impl Engine {
             early: Mutex::new(early),
         };
 
-        let mut reads = Vec::new();
-
+        let mut waiting = Waiting::default();
         for mut row in rows {
             let call = match self.prepare_call(&scope, &mut row).await {
                 Ok(call) => call,
                 Err(Outcome::Aborted) => return Outcome::Aborted,
                 Err(_) => continue,
             };
-            // Judged on the input that runs, so a plugin's rewrite into a write is never run beside reads.
-            if !call.tool.call_mutates(&call.input) {
-                reads.push((row, call));
-                continue;
-            }
-            if self.run_reads(&scope, std::mem::take(&mut reads)).await == Outcome::Aborted {
-                return Outcome::Aborted;
-            }
-            if self.run_call(&scope, row, call).await == Outcome::Aborted {
+            if self.queue(&scope, &mut waiting, row, call).await == Outcome::Aborted {
                 return Outcome::Aborted;
             }
         }
 
-        let outcome = self.run_reads(&scope, reads).await;
+        let outcome = self.run_waiting(&scope, &mut waiting).await;
         if outcome == Outcome::Allowed {
+            self.report_diagnostics(&scope).await;
             self.check_step(&scope).await;
         }
 
         outcome
     }
 
-    async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<(PartRow, PreparedCall)>) -> Outcome {
+    /// Adds a call to the ones waiting when it may run beside them, else runs those first. A write that names no
+    /// files runs on its own.
+    async fn queue(
+        self: &Arc<Self>,
+        scope: &CallScope<'_>,
+        waiting: &mut Waiting,
+        row: PartRow,
+        call: PreparedCall,
+    ) -> Outcome {
+        // Judged on the input that runs, so a plugin's rewrite into a write is never run beside reads.
+        let writes = call.tool.call_mutates(&call.input);
+        let named = writes.then(|| named_files(&call)).flatten();
+        let joins = match &named {
+            _ if waiting.calls.is_empty() => !writes || named.is_some(),
+            Some(named) => waiting.writes && !named.iter().any(|file| waiting.files.contains(file)),
+            None => !writes && !waiting.writes,
+        };
+        if !joins && self.run_waiting(scope, waiting).await == Outcome::Aborted {
+            return Outcome::Aborted;
+        }
+        if writes && named.is_none() {
+            return self.run_call(scope, row, call).await;
+        }
+
+        waiting.writes = writes;
+        waiting.files.extend(named.into_iter().flatten());
+        waiting.calls.push((row, call));
+        Outcome::Allowed
+    }
+
+    async fn run_waiting(self: &Arc<Self>, scope: &CallScope<'_>, waiting: &mut Waiting) -> Outcome {
+        let calls = std::mem::take(&mut waiting.calls);
+        waiting.files.clear();
         let outcomes =
-            futures_util::future::join_all(reads.into_iter().map(|(row, call)| self.run_call(scope, row, call))).await;
+            futures_util::future::join_all(calls.into_iter().map(|(row, call)| self.run_call(scope, row, call))).await;
 
         if outcomes.contains(&Outcome::Aborted) {
             Outcome::Aborted
@@ -272,6 +308,7 @@ impl Engine {
         result: Result<Output, ToolError>,
         writes: bool,
     ) -> CallResult {
+        let limit = call.tool.result_bytes();
         let output = match result {
             Ok(output) => output,
             Err(error) => {
@@ -280,6 +317,7 @@ impl Engine {
                     title: None,
                     text: error.0,
                     metadata: ToolMetadata::null(),
+                    limit,
                 };
             }
         };
@@ -301,6 +339,7 @@ impl Engine {
             title,
             text,
             metadata,
+            limit,
         }
     }
 
@@ -318,7 +357,7 @@ impl Engine {
             .join("tool-output")
             .join(&scope.plan.session.id)
             .join(format!("{}.result.log", crate::tool::call_file_name(call_id)));
-        let (text, spilled) = crate::tool::spool::bound(text, spill);
+        let (text, spilled) = crate::tool::spool::bound(text, spill, result.limit);
         if let Some(file) = spilled {
             let spill_metadata = ToolMetadata {
                 result_file: Some(file.to_string_lossy().into_owned()),
@@ -350,6 +389,13 @@ impl Engine {
         );
         self.release_claims(&claimant);
     }
+}
+
+/// The files a write names up front, by their lock keys; `None` for one that may change anything, or nothing in
+/// the workspace (a browser action), which keeps its place in the model's order.
+fn named_files(call: &PreparedCall) -> Option<Vec<PathBuf>> {
+    let touches = call.tool.touches(&call.context, &call.input)?;
+    (!touches.is_empty()).then(|| touches.iter().map(|path| crate::tool::lock::path_key(path)).collect())
 }
 
 fn invalid_input(tool: &dyn Tool, input: &Value) -> Option<String> {

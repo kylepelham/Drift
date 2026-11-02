@@ -244,6 +244,10 @@ impl Tool for McpTool {
         Some(&self.server)
     }
 
+    fn result_bytes(&self) -> usize {
+        crate::tool::spool::SHORT_RESULT_BYTES
+    }
+
     /// A server's read-only mark is its own claim, enough to skip an ask; a read-only agent relies on
     /// it only for a server the user trusts in its settings, and only while the definition this
     /// connection was opened from is the one they trusted.

@@ -50,3 +50,37 @@ fn only_a_refused_or_spent_payer_hands_over() {
     }
     assert!(!Failure::from("timed out").moves_on());
 }
+
+#[test]
+fn a_private_image_url_is_refused_unless_it_is_the_provider() {
+    let blocked = |url: &str| super::fetchable(&reqwest::Url::parse(url).unwrap(), None).is_err();
+    assert!(blocked("http://169.254.169.254/latest/meta-data"));
+    assert!(blocked("http://127.0.0.1:9/secret"));
+    assert!(blocked("http://localhost/x"));
+    assert!(blocked("http://printer.local/x"));
+    assert!(blocked("http://intranet/x"));
+    assert!(blocked("file:///etc/passwd"));
+    assert!(super::fetchable(&reqwest::Url::parse("https://cdn.example/a.png").unwrap(), None).is_ok());
+    let local = reqwest::Url::parse("http://127.0.0.1:8188/view").unwrap();
+    assert!(super::fetchable(&local, Some("http://127.0.0.1:8188")).is_ok());
+    assert!(super::fetchable(&local, Some("http://127.0.0.1:9999")).is_err());
+}
+
+#[tokio::test]
+async fn a_redirect_to_a_private_host_is_not_followed() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = [0; 512];
+        let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+        let body =
+            "HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/latest/meta-data\r\nContent-Length: 0\r\n\r\n";
+        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, body.as_bytes()).await;
+    });
+
+    let error = super::download(&format!("http://{addr}/image.png"), Some(&format!("http://{addr}")))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("not one that can be fetched"), "{error}");
+}

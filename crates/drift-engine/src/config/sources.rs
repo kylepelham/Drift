@@ -410,18 +410,7 @@ impl Fetcher {
                     return Err(SourceError::HttpStatus { url, status });
                 }
 
-                let bytes = response.bytes().await.map_err(|source| SourceError::Fetch {
-                    url: url.clone(),
-                    source,
-                })?;
-                if bytes.len() > limit {
-                    return Err(SourceError::TooLarge {
-                        location: url,
-                        mib: limit / 1024 / 1024,
-                    });
-                }
-
-                Ok(bytes.to_vec())
+                capped_http(response, &url, limit).await
             }
         }
     }
@@ -451,6 +440,28 @@ impl Fetcher {
             .build()
             .map_err(SourceError::Client)
     }
+}
+
+async fn capped_http(mut response: reqwest::Response, url: &str, limit: usize) -> Result<Vec<u8>, SourceError> {
+    let too_large = || SourceError::TooLarge {
+        location: url.to_string(),
+        mib: limit / 1024 / 1024,
+    };
+    if response.content_length().is_some_and(|size| size > limit as u64) {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|source| SourceError::Fetch {
+        url: url.to_string(),
+        source,
+    })? {
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -557,5 +568,31 @@ mod tests {
         }
         assert!(folder.file("../secrets.json", None).is_err());
         assert!(matches!(folder.file("dist/guard.wasm", None), Ok(Location::File(_))));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_http_body_is_refused_without_buffering_it() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0; 256];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+            let body = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nxxxxxxxx";
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, body).await;
+        });
+        let dir = crate::platform::temp::test_run().join(format!("drift-source-cap-{}", crate::random_hex(4)));
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let credentials = Arc::new(crate::llm::credentials::Credentials::open(&dir, true));
+        let fetcher = Fetcher::new(reqwest::Client::new(), credentials);
+        let mut listed = source(SourceKind::Url, "http://127.0.0.1", "");
+        listed.allow_http = true;
+        let location = Location::Http {
+            url: format!("http://{addr}/big"),
+            headers: vec![],
+        };
+        let error = fetcher.read(&listed, location, 4).await.unwrap_err();
+        assert!(matches!(error, SourceError::TooLarge { .. }), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

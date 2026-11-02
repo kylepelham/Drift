@@ -1181,8 +1181,18 @@ export const drift = {
     "drift.provider.signInWith": "Entrar com {{method}}",
     "drift.provider.accounts.title": "Contas",
     "drift.provider.accounts.hint":
-        "O Drift usa a primeira conta e passa para a próxima quando uma atinge o limite de 5 horas ou semanal.",
+        "O Drift usa a primeira conta e passa para a próxima quando uma atinge o limite de 5 horas ou semanal. As chaves de API vêm depois dos seus logins, como reserva.",
     "drift.provider.accounts.unnamed": "Conta {{number}}",
+    "drift.provider.accounts.unnamedKey": "Chave de API {{number}}",
+    "drift.provider.accounts.apiKey": "Chave de API",
+    "drift.provider.accounts.addKey": "Adicionar chave",
+    "drift.provider.accounts.fastOnly": "Somente modo Fast",
+    "drift.provider.accounts.fastOnlyHint":
+        "Esta chave paga somente o modo Fast: os modelos Fast a usam antes de qualquer login, e os outros modelos nunca. Uma chave da organização do Console vinculada a um plano Max ou Ultra gasta os créditos de API mensais desse plano.",
+    "drift.provider.slowed":
+        "Nenhuma conta do Claude pode usar o modo Fast agora, então esta conversa continua em velocidade normal.",
+    "drift.provider.slowedUltra":
+        "Nenhuma conta do Claude pode usar o modo Fast agora, então esta conversa continua em velocidade normal. Seu plano Ultra inclui US$ 200 em créditos de API por mês: para gastá-los no modo Fast, adicione uma chave de API da organização do Console vinculada ao seu plano em Configurações > Provedores > Anthropic e marque-a como Somente modo Fast.",
     "drift.provider.accounts.inUse": "Em uso",
     "drift.provider.accounts.rename": "Renomear",
     "drift.provider.accounts.namePlaceholder": "Nome da conta",

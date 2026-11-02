@@ -139,8 +139,14 @@ const REASONS = {
 
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
     const engine = useEngine();
-    const reply = (response: PermissionResponse) =>
-        void engine.actions.replyPermission(props.permission.sessionId, props.permission.id, response);
+    const reply = (response: PermissionResponse) => {
+        void engine.actions
+            .replyPermission(props.permission.sessionId, props.permission.id, response)
+            .catch((cause: unknown) => {
+                const message = cause instanceof Error && cause.message ? cause.message : t("common.requestFailed");
+                engine.actions.notice({ message, variant: "error" });
+            });
+    };
     const diff = () => props.permission.diff;
     const filename = () => props.permission.pattern;
 

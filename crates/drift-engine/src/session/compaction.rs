@@ -25,6 +25,8 @@ const TAIL_TURNS: usize = 2;
 /// opencode caps the tail at 8k tokens; Drift keeps its earlier 15k cap for large windows.
 const TAIL_MIN_TOKENS: u64 = 2_000;
 const TAIL_MAX_TOKENS: u64 = 15_000;
+/// About what one returned image costs once a provider scales it down.
+const RETURNED_IMAGE_TOKENS: usize = 1_600;
 /// Character limit for each tool result in a summary request; images and PDFs are replaced by a mention.
 const SUMMARY_TOOL_CHARS: usize = 2_000;
 const SUMMARY_MAX_TOKENS: u32 = 8_192;
@@ -783,7 +785,7 @@ fn split_turn(messages: &[&MessageWithParts], turn: usize, budget: usize) -> Opt
     let mut size = 0;
     let mut chosen = None;
     for index in (turn + 1..messages.len()).rev() {
-        size += estimate(&messages[index..=index]);
+        size = estimate(&messages[index..=index]).saturating_add(size);
         if size > budget {
             break;
         }
@@ -797,9 +799,8 @@ fn split_turn(messages: &[&MessageWithParts], turn: usize, budget: usize) -> Opt
 
 /// Roughly four characters a token; close enough to budget a tail.
 fn estimate(messages: &[&MessageWithParts]) -> usize {
-    let chars: usize = messages
-        .iter()
-        .flat_map(|message| message.parts.iter())
+    let parts = || messages.iter().flat_map(|message| message.parts.iter());
+    let chars: usize = parts()
         .map(|row| match &row.part {
             Part::Text { text }
             | Part::Nudge { text }
@@ -815,8 +816,32 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::Compaction { .. } | Part::EffortUpdate { .. } | Part::Command { .. } | Part::Unknown { .. } => 0,
         })
         .sum();
+    let returned = parts()
+        .map(|row| returned_tokens(&row.part))
+        .fold(0, usize::saturating_add);
 
-    chars / 4
+    (chars / 4).saturating_add(returned)
+}
+
+/// Files a call returned go out beside its result. A PDF's cost is unknown here and can be huge, so it never fits.
+fn returned_tokens(part: &Part) -> usize {
+    let Part::ToolCall { metadata, .. } = part else {
+        return 0;
+    };
+    if convert::is_cleared(metadata.as_deref()) {
+        return 0;
+    }
+
+    crate::tool::image::stored(metadata.as_deref())
+        .iter()
+        .map(|file| {
+            if file.mime.starts_with("image/") {
+                RETURNED_IMAGE_TOKENS
+            } else {
+                usize::MAX
+            }
+        })
+        .fold(0, usize::saturating_add)
 }
 
 #[cfg(test)]

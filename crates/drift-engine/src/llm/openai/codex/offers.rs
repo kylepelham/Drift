@@ -11,7 +11,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::llm::Credential;
-use crate::llm::catalog::{Model, ProviderInfo};
+use crate::llm::catalog::{Catalog, Model, ProviderInfo};
+use crate::session::types::ModelRef;
 
 mod catalog;
 mod list;
@@ -69,6 +70,16 @@ impl State {
             .filter(|cached| cached.fresh())
             .map(|cached| &cached.offers)
     }
+
+    /// The account's last fetched list even past its freshness; a failed fetch leaves an empty one, which says nothing.
+    fn known_offers(&self, credential: &Credential) -> Option<&BTreeMap<String, Offer>> {
+        let identity = identity(credential)?;
+
+        self.cached
+            .get(&identity)
+            .map(|cached| &cached.offers)
+            .filter(|offers| !offers.is_empty())
+    }
 }
 
 impl Offers {
@@ -117,6 +128,33 @@ impl Offers {
         let program_offered = !daybreak || offer.is_some_and(|offer| offer.program.is_some());
 
         Some(tier_offered && program_offered)
+    }
+
+    /// What small jobs (titles) run on under a ChatGPT sign-in to OpenAI: the cheapest plain model this account's own
+    /// list names, else the conversation's own model, which the backend already takes. `None` for anything else.
+    pub(crate) fn small_model(&self, catalog: &Catalog, like: &ModelRef, credential: &Credential) -> Option<ModelRef> {
+        if like.provider != "openai" || !matches!(credential, Credential::OAuth { .. }) {
+            return None;
+        }
+        let state = self.state.read().unwrap();
+        let listed = state.known_offers(credential);
+        let price = |model: &Model| model.cost.input + model.cost.output;
+        let cheapest = catalog
+            .providers
+            .get("openai")
+            .into_iter()
+            .flat_map(|provider| provider.models.values())
+            .filter(|model| model.mode.is_none() && model.cost.input > 0.0)
+            .filter(|model| listed.is_some_and(|listed| listed.contains_key(&model.id)))
+            .min_by(|a, b| price(a).total_cmp(&price(b)));
+
+        Some(cheapest.map_or_else(
+            || like.clone(),
+            |model| ModelRef {
+                provider: "openai".into(),
+                model: model.id.clone(),
+            },
+        ))
     }
 
     /// Puts this account's own Daybreak program in `model`'s request body; accounts can be in different programs.

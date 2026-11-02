@@ -36,5 +36,5 @@ pub(super) async fn generate(call: &Call<'_>, request: &ImageRequest<'_>) -> Res
         return Err("fal's safety checker withheld the image".into());
     }
 
-    Ok(made(download(call.http, url).await?, None, None))
+    Ok(made(download(url, Some(root)).await?, None, None))
 }

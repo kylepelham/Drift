@@ -249,3 +249,56 @@ fn the_kept_tail_scales_with_the_conversations_model() {
     assert_eq!(tail_budget(&model(1_000_000, 64_000)), 15_000, "never more than 15k");
     assert_eq!(tail_budget(&model(0, 0)), 2_000, "an unknown window keeps the least");
 }
+
+fn step(id: &str, role: Role, part: serde_json::Value) -> MessageWithParts {
+    let mut message = used(0).remove(0);
+    message.info.id = id.into();
+    message.info.role = role;
+    message.parts = vec![crate::session::types::PartRow {
+        id: format!("p{id}"),
+        message_id: id.into(),
+        session_id: "s".into(),
+        provider_signature: None,
+        part: serde_json::from_value(part).unwrap(),
+    }];
+
+    message
+}
+
+#[test]
+fn a_returned_pdf_is_never_kept_in_the_tail_so_the_summary_drops_it() {
+    let call = |id: &str, images: serde_json::Value| {
+        step(
+            id,
+            Role::Assistant,
+            json!({ "type": "tool_call", "callId": id, "name": "webfetch", "input": {}, "status": "done",
+                    "output": "it follows this result.", "metadata": { "images": images } }),
+        )
+    };
+    let transcript = [
+        step("1", Role::User, json!({ "type": "text", "text": "read the TPM spec" })),
+        call("2", json!([])),
+        call("3", json!([{ "mime": "application/pdf", "hash": "h" }])),
+        call("4", json!([])),
+        call("5", json!([])),
+    ];
+    let messages: Vec<&MessageWithParts> = transcript.iter().collect();
+
+    assert_eq!(
+        tail_start(&messages, 15_000),
+        Some(3),
+        "the tail starts after the PDF, which a 2 MB file would otherwise ride along with every summary"
+    );
+
+    let images = [
+        step("1", Role::User, json!({ "type": "text", "text": "look at these" })),
+        call("2", json!([])),
+        call(
+            "3",
+            json!([{ "mime": "image/png", "hash": "a" }, { "mime": "image/png", "hash": "b" }]),
+        ),
+    ];
+    let messages: Vec<&MessageWithParts> = images.iter().collect();
+    assert_eq!(tail_start(&messages, 15_000), Some(1), "a few screenshots still fit");
+    assert_eq!(tail_start(&messages, 3_000), None, "but they count against the budget");
+}

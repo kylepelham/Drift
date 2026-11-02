@@ -82,6 +82,47 @@ async fn a_subscription_handshake_carries_its_account_session_region_route_and_b
 }
 
 #[tokio::test]
+async fn a_codex_turn_pin_keeps_the_turns_connection_and_its_chain_into_the_next_turn() {
+    let h = fixture(
+        Server {
+            turn_state: Some("pin"),
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+    let credential = Credential::OAuth {
+        access: "h.e30.s".into(),
+        refresh: String::new(),
+        expires_at: i64::MAX,
+        account: Some("account".into()),
+    };
+
+    let mut first = request();
+    first.connection = Some("pinned_turns".into());
+    first.turn = Some("msg_1".into());
+    let second = continued(first.clone());
+    let mut next = continued(second.clone());
+    next.turn = Some("msg_2".into());
+    for request in [&first, &second, &next] {
+        assert!(
+            collect(&h.provider, request, &credential)
+                .await
+                .iter()
+                .all(Result::is_ok)
+        );
+    }
+
+    assert_eq!(
+        h.server.connections(),
+        1,
+        "the pin a turn's later requests carry opens no socket of its own"
+    );
+    assert_eq!(h.server.body(1)["previous_response_id"], "resp_1");
+    assert_eq!(h.server.body(2)["previous_response_id"], "resp_2");
+}
+
+#[tokio::test]
 async fn a_quiet_connection_answers_pings_while_tools_run_and_stays_open() {
     let h = fixture(
         Server {

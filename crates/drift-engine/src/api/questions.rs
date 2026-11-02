@@ -51,6 +51,9 @@ pub(super) fn answer_error(error: AnswerError) -> ApiError {
             "answered",
             "this question was already answered differently",
         ),
+        AnswerError::Incomplete => {
+            ApiError::new(StatusCode::BAD_REQUEST, "incomplete", "every question needs an answer")
+        }
         AnswerError::Turn(error) => error.into(),
     }
 }

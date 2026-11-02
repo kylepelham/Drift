@@ -22,6 +22,9 @@ pub(super) struct StreamState {
     /// The item opened last, for a delta that names none.
     last: String,
     called_tools: bool,
+    /// Refusal text, emitted once when the response ends. The assembler keeps only the latest.
+    refusal: String,
+    refused: bool,
 }
 
 impl StreamState {
@@ -39,6 +42,8 @@ impl StreamState {
             | "response.reasoning_summary_text.delta"
             | "response.reasoning_text.delta"
             | "response.function_call_arguments.delta" => self.delta(kind, value),
+            "response.refusal.delta" => self.refusal_delta(value),
+            "response.refusal.done" => self.refusal_done(value),
             "response.reasoning_summary_part.added" if value["summary_index"].as_u64().unwrap_or(0) > 0 => {
                 vec![Chunk::ReasoningDelta("\n\n".into())]
             }
@@ -110,6 +115,12 @@ impl StreamState {
     /// The chunk that opens an item of a kind Drift shows.
     fn start(&mut self, item: &Value) -> Vec<Chunk> {
         match item["type"].as_str().unwrap_or_default() {
+            "message" if refusal_only(item) => {
+                if let Some(text) = refusal_of(item) {
+                    self.note_refusal(&text);
+                }
+                Vec::new()
+            }
             "message" => vec![Chunk::TextStart],
             "reasoning" => vec![Chunk::ReasoningStart],
             "function_call" => {
@@ -134,9 +145,16 @@ impl StreamState {
         if kind == "tool_search_call" {
             return self.search_call(item);
         }
+        if let Some(text) = refusal_of(item) {
+            self.note_refusal(&text);
+        }
 
         let key = self.key(item["id"].as_str(), event);
         let begun = self.begun.remove(&key);
+        if refusal_only(item) && !begun {
+            self.streamed.remove(&key);
+            return Vec::new();
+        }
         let nameless = kind == "function_call" && item["name"].as_str().is_none_or(str::is_empty);
         if !SHOWN.contains(&kind) || (!begun && nameless) {
             return Vec::new();
@@ -181,32 +199,123 @@ impl StreamState {
     }
 
     pub(super) fn finished(&self, response: &Value, incomplete: bool) -> Vec<Chunk> {
+        let mut refusal = self.refusal.clone();
+        let mut refused = self.refused;
+        if refusal.is_empty()
+            && let Some(text) = refusal_in(response)
+        {
+            refusal = text;
+            refused = true;
+        }
+        let reason = response["incomplete_details"]["reason"].as_str().unwrap_or("");
+        if incomplete && reason == "content_filter" {
+            refused = true;
+        }
         let usage = &response["usage"];
         let count = |path: &[&str]| path.iter().fold(usage, |value, key| &value[*key]).as_u64().unwrap_or(0);
         let cache_read = count(&["input_tokens_details", "cached_tokens"]);
         // GPT-5.6 and later bill what they write to the cache, at more than plain input.
         let cache_write = count(&["input_tokens_details", "cache_write_tokens"]);
-        let reason = &response["incomplete_details"]["reason"];
-        let stop = if incomplete && reason == "max_output_tokens" {
-            StopReason::MaxTokens
-        } else if incomplete && reason == "content_filter" {
-            StopReason::Refused
-        } else if self.called_tools {
-            StopReason::ToolUse
-        } else {
-            StopReason::EndTurn
-        };
+        let stop = stop_reason(incomplete, reason, refused, self.called_tools);
+        let mut chunks = vec![Chunk::Usage(Usage {
+            input: count(&["input_tokens"]).saturating_sub(cache_read + cache_write),
+            output: count(&["output_tokens"]),
+            cache_read,
+            cache_write,
+        })];
+        if refused {
+            chunks.push(Chunk::Refusal(crate::session::types::Refusal {
+                explanation: (!refusal.is_empty()).then_some(refusal),
+                ..Default::default()
+            }));
+        }
+        chunks.push(Chunk::Stop(stop));
 
-        vec![
-            Chunk::Usage(Usage {
-                input: count(&["input_tokens"]).saturating_sub(cache_read + cache_write),
-                output: count(&["output_tokens"]),
-                cache_read,
-                cache_write,
-            }),
-            Chunk::Stop(stop),
-        ]
+        chunks
     }
+
+    fn refusal_delta(&mut self, event: &Value) -> Vec<Chunk> {
+        self.refused = true;
+        if let Some(delta) = event["delta"].as_str() {
+            self.refusal.push_str(delta);
+        }
+
+        Vec::new()
+    }
+
+    fn refusal_done(&mut self, event: &Value) -> Vec<Chunk> {
+        self.refused = true;
+        if let Some(text) = event["refusal"].as_str().filter(|text| !text.is_empty()) {
+            self.refusal = text.to_string();
+        }
+
+        Vec::new()
+    }
+
+    fn note_refusal(&mut self, text: &str) {
+        self.refused = true;
+        if self.refusal.is_empty() && !text.is_empty() {
+            self.refusal = text.to_string();
+        }
+    }
+}
+
+fn stop_reason(incomplete: bool, reason: &str, refused: bool, called_tools: bool) -> StopReason {
+    if refused {
+        return StopReason::Refused;
+    }
+    if incomplete && reason == "max_output_tokens" {
+        return StopReason::MaxTokens;
+    }
+    if called_tools {
+        return StopReason::ToolUse;
+    }
+
+    StopReason::EndTurn
+}
+
+fn refusal_of(item: &Value) -> Option<String> {
+    let from_parts: String = item["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|part| part["type"] == "refusal")
+        .filter_map(|part| part["refusal"].as_str().or_else(|| part["text"].as_str()))
+        .collect();
+    if !from_parts.is_empty() {
+        return Some(from_parts);
+    }
+
+    item["refusal"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn refusal_only(item: &Value) -> bool {
+    refusal_of(item).is_some() && !has_output_text(item)
+}
+
+fn has_output_text(item: &Value) -> bool {
+    item["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|part| part["type"] == "output_text" && part["text"].as_str().is_some_and(|text| !text.is_empty()))
+}
+
+fn refusal_in(response: &Value) -> Option<String> {
+    let mut text = String::new();
+    for item in response["output"].as_array().into_iter().flatten() {
+        if let Some(found) = refusal_of(item) {
+            text.push_str(&found);
+        }
+    }
+    if let Some(found) = response["refusal"].as_str() {
+        text.push_str(found);
+    }
+
+    (!text.is_empty()).then_some(text)
 }
 
 /// An item's whole content as its `output_item.done` gives it, for an item whose deltas never came.

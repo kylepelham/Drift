@@ -24,23 +24,37 @@ fn token_url() -> String {
     TOKEN_URL.into()
 }
 
-fn usage_url() -> Option<String> {
-    // The engine's tests never ask the real endpoint; they record what an account reported instead.
+fn oauth_api_url(path: &str) -> Option<String> {
+    // The engine's tests never ask the real endpoints; they record what an account reported instead.
     #[cfg(test)]
-    return None;
+    {
+        let _ = path;
+        None
+    }
 
     #[cfg(not(test))]
-    Some("https://api.anthropic.com/api/oauth/usage".into())
+    Some(format!("https://api.anthropic.com/api/oauth/{path}"))
 }
 
 /// What a subscription has used of its windows, as Settings > Usage shows it; `None` when it cannot be read.
 pub async fn usage(client: &reqwest::Client, access: &str) -> Option<Value> {
+    oauth_get(client, access, "usage").await
+}
+
+/// Whether the sign-in's plan is Max 20x (Ultra), whose monthly API credits a linked Console key can spend.
+pub async fn on_ultra(client: &reqwest::Client, access: &str) -> bool {
+    oauth_get(client, access, "profile")
+        .await
+        .is_some_and(|profile| profile["organization"]["rate_limit_tier"] == "default_claude_max_20x")
+}
+
+async fn oauth_get(client: &reqwest::Client, access: &str, path: &str) -> Option<Value> {
     let timeouts = crate::llm::http::Timeouts {
         headers: std::time::Duration::from_secs(10),
         idle: std::time::Duration::from_secs(10),
     };
     let request = client
-        .get(usage_url()?)
+        .get(oauth_api_url(path)?)
         .bearer_auth(access)
         .header("anthropic-beta", "oauth-2025-04-20");
 
@@ -260,20 +274,21 @@ mod tests {
     }
 
     #[test]
-    fn expiry_is_strictly_past() {
-        let live = Credential::OAuth {
+    fn a_token_counts_as_expired_a_minute_before_its_end() {
+        let token = |expires_at| Credential::OAuth {
             access: "a".into(),
             refresh: "r".into(),
-            expires_at: crate::id::now_ms() + 10_000,
+            expires_at,
             account: None,
         };
-        let dead = Credential::OAuth {
-            access: "a".into(),
-            refresh: "r".into(),
-            expires_at: 1,
-            account: None,
-        };
+        let live = token(crate::id::now_ms() + 10 * 60_000);
+        let ending = token(crate::id::now_ms() + 10_000);
+        let dead = token(1);
         assert!(!live.is_expired());
+        assert!(
+            ending.is_expired(),
+            "refreshed before a request, not refused during one"
+        );
         assert!(dead.is_expired());
         assert!(!Credential::ApiKey { key: "k".into() }.is_expired());
     }

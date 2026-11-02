@@ -105,6 +105,29 @@ async fn an_async_question_returns_at_once_and_its_answer_starts_a_turn_once() {
 }
 
 #[tokio::test]
+async fn an_empty_clarification_does_not_start_a_turn() {
+    let h = harness().await;
+    let request = asked(&h).await;
+    h.provider.push(text("should not run"));
+
+    for answers in [Some(vec![]), Some(vec![vec![]]), Some(vec![vec!["  ".into()]])] {
+        assert_eq!(
+            h.engine.answer_question(&request.id, answers).await,
+            Err(AnswerError::Incomplete)
+        );
+    }
+    assert_eq!(h.engine.questions.pending().len(), 1, "the card stays open");
+    assert!(answers(&h.engine.store.transcript(&h.session.id).unwrap()).is_empty());
+    assert_eq!(h.provider.responses_left(), 1, "no turn started");
+
+    h.engine.answer_question(&request.id, None).await.unwrap();
+    assert!(
+        h.engine.questions.pending().is_empty(),
+        "a dismissal still closes the card"
+    );
+}
+
+#[tokio::test]
 async fn the_turn_an_answer_starts_runs_at_the_sessions_reasoning_level() {
     let h = harness().await;
     let request = asked(&h).await;

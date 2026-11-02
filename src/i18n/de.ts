@@ -1187,8 +1187,18 @@ export const drift = {
     "drift.provider.signInWith": "Mit {{method}} anmelden",
     "drift.provider.accounts.title": "Konten",
     "drift.provider.accounts.hint":
-        "Drift nutzt das erste Konto und wechselt zum nächsten, sobald eines sein 5-Stunden- oder Wochenlimit erreicht.",
+        "Drift nutzt das erste Konto und wechselt zum nächsten, sobald eines sein 5-Stunden- oder Wochenlimit erreicht. API-Schlüssel kommen nach deinen Anmeldungen, als Reserve.",
     "drift.provider.accounts.unnamed": "Konto {{number}}",
+    "drift.provider.accounts.unnamedKey": "API-Schlüssel {{number}}",
+    "drift.provider.accounts.apiKey": "API-Schlüssel",
+    "drift.provider.accounts.addKey": "Schlüssel hinzufügen",
+    "drift.provider.accounts.fastOnly": "Nur Fast-Modus",
+    "drift.provider.accounts.fastOnlyHint":
+        "Dieser Schlüssel bezahlt nur den Fast-Modus: Fast-Modelle nutzen ihn vor jeder Anmeldung, andere Modelle nie. Ein Schlüssel aus der Console-Organisation, die mit einem Max- oder Ultra-Plan verknüpft ist, verbraucht das monatliche API-Guthaben dieses Plans.",
+    "drift.provider.slowed":
+        "Derzeit kann kein Claude-Konto den Fast-Modus nutzen, daher läuft diese Unterhaltung mit normaler Geschwindigkeit weiter.",
+    "drift.provider.slowedUltra":
+        "Derzeit kann kein Claude-Konto den Fast-Modus nutzen, daher läuft diese Unterhaltung mit normaler Geschwindigkeit weiter. Dein Ultra-Plan enthält jeden Monat $200 API-Guthaben: Um es für den Fast-Modus zu nutzen, füge unter Einstellungen > Anbieter > Anthropic einen API-Schlüssel aus der mit deinem Plan verknüpften Console-Organisation hinzu und markiere ihn als Nur Fast-Modus.",
     "drift.provider.accounts.inUse": "Aktiv",
     "drift.provider.accounts.rename": "Umbenennen",
     "drift.provider.accounts.namePlaceholder": "Kontoname",

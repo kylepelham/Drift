@@ -423,12 +423,12 @@ from the new default.
 
 Settings > General > Transcript shapes tool rows. A command row shows the model's
 `description` (the command itself when there is none). "Command output" chooses how its output
-shows: Always collapsed (only the row, open one by clicking it), Open while running (the default:
-live output opens once a command has run for five seconds, so quick ones never flash open, and
+shows: Always collapsed (the default: only the row, open one by clicking it), Open while running
+(live output opens once a command has run for five seconds, so quick ones never flash open, and
 folds again when it finishes), or Always open. The setting was a switch before; on reads as Open
 while running and off as Always open. "Group consecutive tool
-calls" is one multi-select list of kinds (commands, edits, fetches, MCP tools, other; commands on
-by default), labelled None, All or the kinds chosen: two or more consecutive calls of chosen kinds, across the steps of one turn,
+calls" is one multi-select list of kinds (commands, edits, fetches, MCP tools, other; all but edits
+on by default), labelled None, All or the kinds chosen: two or more consecutive calls of chosen kinds, across the steps of one turn,
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
 progress while one runs. Its time is the wall time at least one of its calls ran, ticking
 while any still runs: calls side by side count once, calls one after another add up, and the

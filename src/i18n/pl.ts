@@ -1175,8 +1175,18 @@ export const drift = {
     "drift.provider.signInWith": "Zaloguj się przez {{method}}",
     "drift.provider.accounts.title": "Konta",
     "drift.provider.accounts.hint":
-        "Drift używa pierwszego konta i przechodzi do następnego, gdy któreś osiągnie limit 5-godzinny lub tygodniowy.",
+        "Drift używa pierwszego konta i przechodzi do następnego, gdy któreś osiągnie limit 5-godzinny lub tygodniowy. Klucze API są używane po zalogowanych kontach, jako rezerwa.",
     "drift.provider.accounts.unnamed": "Konto {{number}}",
+    "drift.provider.accounts.unnamedKey": "Klucz API {{number}}",
+    "drift.provider.accounts.apiKey": "Klucz API",
+    "drift.provider.accounts.addKey": "Dodaj klucz",
+    "drift.provider.accounts.fastOnly": "Tylko tryb Fast",
+    "drift.provider.accounts.fastOnlyHint":
+        "Ten klucz płaci tylko za tryb Fast: modele Fast używają go przed każdym zalogowanym kontem, a inne modele nigdy. Klucz z organizacji Console połączonej z planem Max lub Ultra wykorzystuje miesięczne kredyty API tego planu.",
+    "drift.provider.slowed":
+        "Żadne konto Claude nie może teraz używać trybu Fast, więc ta rozmowa jest kontynuowana z normalną prędkością.",
+    "drift.provider.slowedUltra":
+        "Żadne konto Claude nie może teraz używać trybu Fast, więc ta rozmowa jest kontynuowana z normalną prędkością. Twój plan Ultra obejmuje co miesiąc $200 kredytów API: aby wykorzystać je na tryb Fast, dodaj w Ustawienia > Dostawcy > Anthropic klucz API z organizacji Console połączonej z Twoim planem i oznacz go jako Tylko tryb Fast.",
     "drift.provider.accounts.inUse": "W użyciu",
     "drift.provider.accounts.rename": "Zmień nazwę",
     "drift.provider.accounts.namePlaceholder": "Nazwa konta",

@@ -73,8 +73,11 @@ fn of_step(step: &Value, known: &Known) -> Vec<String> {
     }
 }
 
-/// A URL's host, `file` for local files, nothing for blank and internal pages.
+/// A URL's host, `file` for local files, a scheme token for pages that are not a host, nothing for blank pages.
 pub(super) fn host(url: &str) -> Option<String> {
+    if let Some(scheme) = asked_scheme(url) {
+        return Some(scheme);
+    }
     let parsed = reqwest::Url::parse(url).ok()?;
     match parsed.scheme() {
         "http" | "https" => parsed
@@ -83,6 +86,19 @@ pub(super) fn host(url: &str) -> Option<String> {
         "file" => Some("file".into()),
         _ => None,
     }
+}
+
+/// `data:`, `chrome:` and `edge:` are not hosts, but a navigation to one still has to be asked about.
+fn asked_scheme(url: &str) -> Option<String> {
+    ["data:", "chrome:", "edge:"]
+        .into_iter()
+        .find(|scheme| url.starts_with(scheme))
+        .map(str::to_string)
+}
+
+/// Dev servers and intranet names may run unasked. Scheme pages must not: a token without a dot looks private.
+pub(super) fn allow_unasked(host: &str) -> bool {
+    is_private(host) && asked_scheme(host).is_none()
 }
 
 /// The user's own machine or network: loopback, private addresses, and intranet names (one label, `.local` and
@@ -128,6 +144,22 @@ mod tests {
         assert_eq!(host("https://[::1]:8080/"), Some("::1".into()));
         assert_eq!(host("file:///C:/site/index.html"), Some("file".into()));
         assert_eq!(host("about:blank"), None);
+        assert!(allow_unasked("file"));
+    }
+
+    #[test]
+    fn internal_pages_ask_and_are_not_allowed_unasked() {
+        let known = Known {
+            current: None,
+            base: None,
+            sign_in: &[],
+            resolve: &crate::browser::with_scheme,
+        };
+        for url in ["data:text/html,hi", "chrome://settings", "edge://flags"] {
+            let hosts = of_step(&serde_json::json!({ "action": "navigate", "url": url }), &known);
+            assert!(!hosts.is_empty(), "{url}");
+            assert!(hosts.iter().all(|host| !allow_unasked(host)), "{url}: {hosts:?}");
+        }
     }
 
     #[test]

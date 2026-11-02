@@ -422,6 +422,8 @@ test("loaded stale tool states become interrupted without mutating live or compl
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
     const { groupParts, updatePartGroupSlots } = await import("../src/ui/message-groups");
+    // Only commands fold, so the shell, plugin and read rows stay apart whatever the shipped defaults are.
+    const onlyCommands = { commands: true, edits: false, fetches: false, mcp: false, other: false };
     // Bun loads Solid's server build in tests; the browser build checks keyed mounting without a DOM.
     // @ts-expect-error Solid's browser build shares the package's public types.
     const { createRoot, createSignal, mapArray, onCleanup } = (await import("solid-js/dist/solid.js")) as typeof Solid;
@@ -446,12 +448,15 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     createRoot((dispose) => {
         const slots = new Map();
         const initial = updatePartGroupSlots(
-            groupParts([
-                tool("shell", "bash", "running", "first"),
-                tool("plugin", "custom-stream", "running", "one"),
-                tool("read-1", "read", "running"),
-                tool("read-2", "read", "running"),
-            ] as never),
+            groupParts(
+                [
+                    tool("shell", "bash", "running", "first"),
+                    tool("plugin", "custom-stream", "running", "one"),
+                    tool("read-1", "read", "running"),
+                    tool("read-2", "read", "running"),
+                ] as never,
+                onlyCommands,
+            ),
             slots,
             createSlot,
         );
@@ -475,14 +480,17 @@ test("streamed tool replacements retain mounted group and plugin identities", as
 
         setGroups(
             updatePartGroupSlots(
-                groupParts([
-                    { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
-                    tool("plugin", "custom-stream", "completed", "two"),
-                    tool("shell", "bash", "running", "first\nsecond"),
-                    tool("read-0", "read", "completed"),
-                    tool("read-1", "read", "completed"),
-                    tool("read-2", "read", "completed"),
-                ] as never),
+                groupParts(
+                    [
+                        { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
+                        tool("plugin", "custom-stream", "completed", "two"),
+                        tool("shell", "bash", "running", "first\nsecond"),
+                        tool("read-0", "read", "completed"),
+                        tool("read-1", "read", "completed"),
+                        tool("read-2", "read", "completed"),
+                    ] as never,
+                    onlyCommands,
+                ),
                 slots,
                 createSlot,
             ),
@@ -508,12 +516,15 @@ test("streamed tool replacements retain mounted group and plugin identities", as
 
         setGroups(
             updatePartGroupSlots(
-                groupParts([
-                    tool("read-2", "read", "completed"),
-                    { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
-                    tool("read-0", "read", "completed"),
-                    tool("read-1", "read", "completed"),
-                ] as never),
+                groupParts(
+                    [
+                        tool("read-2", "read", "completed"),
+                        { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
+                        tool("read-0", "read", "completed"),
+                        tool("read-1", "read", "completed"),
+                    ] as never,
+                    onlyCommands,
+                ),
                 slots,
                 createSlot,
             ),
@@ -526,11 +537,14 @@ test("streamed tool replacements retain mounted group and plugin identities", as
 
         setGroups(
             updatePartGroupSlots(
-                groupParts([
-                    tool("read-2", "read", "completed"),
-                    tool("read-0", "read", "completed"),
-                    tool("read-1", "read", "completed"),
-                ] as never),
+                groupParts(
+                    [
+                        tool("read-2", "read", "completed"),
+                        tool("read-0", "read", "completed"),
+                        tool("read-1", "read", "completed"),
+                    ] as never,
+                    onlyCommands,
+                ),
                 slots,
                 createSlot,
             ),

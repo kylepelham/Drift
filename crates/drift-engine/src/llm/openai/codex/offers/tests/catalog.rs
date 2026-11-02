@@ -3,6 +3,42 @@
 use super::*;
 
 #[test]
+fn a_chatgpt_sign_in_titles_on_the_cheapest_model_its_own_list_names() {
+    let credential = credential("user", "account");
+    let mut provider = provider();
+    provider.models.get_mut("gpt-6-astra").unwrap().cost.input = 0.1;
+    let unlisted = {
+        let mut cheaper = model("gpt-5.4-mini");
+        cheaper.cost.input = 0.01;
+        cheaper
+    };
+    provider.models.insert(unlisted.id.clone(), unlisted);
+    let catalog = Catalog {
+        providers: BTreeMap::from([("openai".to_string(), provider)]),
+    };
+    let like = ModelRef {
+        provider: "openai".into(),
+        model: "gpt-6-sol".into(),
+    };
+
+    let chosen = cached(&credential).small_model(&catalog, &like, &credential).unwrap();
+    assert_eq!(
+        chosen.model, "gpt-6-astra",
+        "cheapest listed, never one the backend refuses"
+    );
+
+    let unknown = Offers::default().small_model(&catalog, &like, &credential).unwrap();
+    assert_eq!(unknown, like, "with no list, the conversation's own model");
+
+    let key = Credential::ApiKey { key: "k".into() };
+    assert_eq!(
+        cached(&credential).small_model(&catalog, &like, &key),
+        None,
+        "an API key chooses by price"
+    );
+}
+
+#[test]
 fn speed_modes_the_account_does_not_offer_are_removed_and_offered_ones_stay() {
     let credential = credential("user", "account");
     let mut provider = provider();

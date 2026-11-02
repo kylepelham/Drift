@@ -1149,8 +1149,17 @@ export const drift = {
     "drift.provider.signInWith": "ลงชื่อเข้าใช้ด้วย {{method}}",
     "drift.provider.accounts.title": "บัญชี",
     "drift.provider.accounts.hint":
-        "Drift ใช้บัญชีแรก และเปลี่ยนไปใช้บัญชีถัดไปเมื่อบัญชีใดถึงขีดจำกัด 5 ชั่วโมงหรือรายสัปดาห์",
+        "Drift ใช้บัญชีแรก และเปลี่ยนไปใช้บัญชีถัดไปเมื่อบัญชีใดถึงขีดจำกัด 5 ชั่วโมงหรือรายสัปดาห์ คีย์ API จะถูกใช้ต่อจากบัญชีที่ลงชื่อเข้าใช้ เป็นตัวสำรอง",
     "drift.provider.accounts.unnamed": "บัญชี {{number}}",
+    "drift.provider.accounts.unnamedKey": "คีย์ API {{number}}",
+    "drift.provider.accounts.apiKey": "คีย์ API",
+    "drift.provider.accounts.addKey": "เพิ่มคีย์",
+    "drift.provider.accounts.fastOnly": "เฉพาะโหมด Fast",
+    "drift.provider.accounts.fastOnlyHint":
+        "คีย์นี้จ่ายเฉพาะโหมด Fast: โมเดล Fast จะใช้คีย์นี้ก่อนบัญชีที่ลงชื่อเข้าใช้ทุกบัญชี และโมเดลอื่นจะไม่ใช้เลย คีย์จากองค์กร Console ที่เชื่อมกับแผน Max หรือ Ultra จะใช้เครดิต API รายเดือนของแผนนั้น",
+    "drift.provider.slowed": "ขณะนี้ไม่มีบัญชี Claude ใดใช้โหมด Fast ได้ การสนทนานี้จึงดำเนินต่อด้วยความเร็วปกติ",
+    "drift.provider.slowedUltra":
+        "ขณะนี้ไม่มีบัญชี Claude ใดใช้โหมด Fast ได้ การสนทนานี้จึงดำเนินต่อด้วยความเร็วปกติ แผน Ultra ของคุณมีเครดิต API $200 ทุกเดือน: หากต้องการใช้กับโหมด Fast ให้เพิ่มคีย์ API จากองค์กร Console ที่เชื่อมกับแผนของคุณใน การตั้งค่า > ผู้ให้บริการ > Anthropic แล้วทำเครื่องหมายเป็น เฉพาะโหมด Fast",
     "drift.provider.accounts.inUse": "กำลังใช้งาน",
     "drift.provider.accounts.rename": "เปลี่ยนชื่อ",
     "drift.provider.accounts.namePlaceholder": "ชื่อบัญชี",

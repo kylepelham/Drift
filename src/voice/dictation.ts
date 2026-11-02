@@ -50,7 +50,9 @@ let ticker: ReturnType<typeof setInterval> | undefined;
 let queue: Promise<void> = Promise.resolve();
 let onSegment: ((text: string) => void) | undefined;
 let cloud: CloudTranscriber | undefined;
-let failed: Float32Array[] = [];
+type KeptPhrase = { phrase: Float32Array; emit?: (text: string) => void };
+
+let failed: KeptPhrase[] = [];
 let startedAt = 0;
 let blocks = 0;
 
@@ -71,7 +73,7 @@ export function retryDictation() {
     failed = [];
     setKept(0);
     setError("");
-    for (const phrase of phrases) enqueue(phrase);
+    for (const held of phrases) deliver(held.phrase, held.emit);
 }
 
 export async function toggleDictation(emit: (text: string) => void, transcriber?: CloudTranscriber) {
@@ -150,28 +152,32 @@ function handleBlock(block: Float32Array) {
 
 // Phrases are transcribed one at a time so they reach the draft in the order they were spoken.
 function enqueue(phrase: Float32Array) {
+    deliver(phrase, onSegment);
+}
+
+function deliver(phrase: Float32Array, emit: ((text: string) => void) | undefined) {
     if (phraseSeconds(phrase) < minPhraseSeconds) return;
 
     setPending((count) => count + 1);
-    queue = queue.then(() => transcribe(phrase)).finally(() => setPending((count) => Math.max(0, count - 1)));
+    queue = queue.then(() => transcribe(phrase, emit)).finally(() => setPending((count) => Math.max(0, count - 1)));
 }
 
 // After a failure, later phrases wait behind the kept ones so a retry keeps the spoken order.
-async function transcribe(phrase: Float32Array) {
-    if (failed.length) return keep(phrase);
+async function transcribe(phrase: Float32Array, emit: ((text: string) => void) | undefined) {
+    if (failed.length) return keep(phrase, emit);
 
     try {
         const text = await recognize(phrase);
         const clean = cleanTranscript(text ?? "");
-        if (clean) onSegment?.(clean);
+        if (clean) emit?.(clean);
     } catch (cause) {
-        keep(phrase);
+        keep(phrase, emit);
         setError(cause instanceof Error ? cause.message : String(cause));
     }
 }
 
-function keep(phrase: Float32Array) {
-    failed.push(phrase);
+function keep(phrase: Float32Array, emit: ((text: string) => void) | undefined) {
+    failed.push({ phrase, emit });
     setKept(failed.length);
 }
 

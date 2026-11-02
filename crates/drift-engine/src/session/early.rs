@@ -79,13 +79,16 @@ impl Early {
             return;
         };
 
-        let tool = plan.offered(name).filter(|tool| tool.starts_early());
-        let Some(tool) = tool.filter(|_| !self.closed) else {
+        let Some(tool) = plan.offered(name).filter(|_| !self.closed) else {
             self.closed = true;
             return;
         };
         // Started on the input the step will run, repaired the same way.
         let input = &crate::tool::repair::repair(&tool.spec().input_schema, input);
+        if !tool.starts_early(input) {
+            self.closed = true;
+            return;
+        }
         if !input.is_object() || !crate::tool::schema::problems(&tool.spec().input_schema, input).is_empty() {
             return;
         }

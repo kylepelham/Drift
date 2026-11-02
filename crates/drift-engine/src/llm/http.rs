@@ -64,7 +64,9 @@ pub(super) fn websocket_client() -> reqwest::Client {
         .clone()
 }
 
-/// What every client shares: Drift's user agent, a bounded connect and TCP keepalive.
+/// What every client shares: Drift's user agent, a bounded connect and TCP keepalive. Idle connections are kept
+/// past reqwest's 90 seconds, so the request after a long build or test run does not connect and handshake again;
+/// a server that closes one first says so, and the pool drops it.
 fn builder() -> reqwest::ClientBuilder {
     // The shell installs TLS in release builds; test processes install it before their first client.
     #[cfg(test)]
@@ -74,6 +76,7 @@ fn builder() -> reqwest::ClientBuilder {
         .user_agent(USER_AGENT)
         .connect_timeout(CONNECT)
         .tcp_keepalive(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(5 * 60))
 }
 
 /// A non-streamed body (an error, a token exchange) is read no further than this: enough for any

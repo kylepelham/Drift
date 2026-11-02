@@ -70,9 +70,12 @@ pub fn ambient(provider: &str) -> Option<Option<String>> {
     }
 }
 
+/// A token this close to its end is refreshed before a request, not after the provider refuses it mid-turn.
+const EXPIRY_MARGIN_MS: i64 = 60_000;
+
 impl Credential {
     pub fn is_expired(&self) -> bool {
-        matches!(self, Self::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms())
+        matches!(self, Self::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms() + EXPIRY_MARGIN_MS)
     }
 }
 
@@ -422,11 +425,14 @@ fn hopeless(kind: &str, message: &str) -> bool {
 }
 
 /// What providers say, lowercased, when the signed-in account's plan does not include the model, whatever
-/// status and kind come with it: Anthropic answers 429 `rate_limit_error`, Codex 400.
-const PLAN_LACKS_MODEL: [&str; 3] = [
+/// status and kind come with it: Anthropic answers 429 `rate_limit_error`, Codex 400. An organization without
+/// Fast mode, or a key whose credits are spent, cannot serve a Fast model either.
+const PLAN_LACKS_MODEL: [&str; 5] = [
     "usage credits are required",
     "not supported when using codex with a chatgpt account",
     "not available on your plan",
+    "fast mode is not enabled",
+    "credit balance is too low",
 ];
 
 fn plan_lacks_model(message: &str) -> bool {

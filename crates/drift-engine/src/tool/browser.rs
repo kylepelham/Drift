@@ -81,7 +81,7 @@ impl Tool for Browser {
             .into_iter()
             .map(|host| {
                 let ask = Ask::new("browser", host.clone(), format!("Use the browser on {host}"));
-                if hosts::is_private(&host) {
+                if hosts::allow_unasked(&host) {
                     ask.allow_by_default()
                 } else {
                     ask

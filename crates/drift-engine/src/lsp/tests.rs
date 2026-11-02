@@ -475,6 +475,10 @@ async fn a_server_that_failed_at_one_root_is_still_tried_at_another() {
         failed.contains_key(&slot(&scripts)) && failed.contains_key(&slot(&web)),
         "each root tried for itself"
     );
+    assert!(
+        servers.starting.lock().unwrap().is_empty(),
+        "a finished start leaves no gate"
+    );
     drop(failed);
     std::fs::remove_dir_all(dir).ok();
 }

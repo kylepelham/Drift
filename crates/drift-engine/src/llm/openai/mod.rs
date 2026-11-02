@@ -876,6 +876,81 @@ mod tests {
         }
 
         #[test]
+        fn a_safety_refusal_is_a_refusal_not_an_empty_reply() {
+            let mut state = StreamState::default();
+            let feed = |state: &mut StreamState, value: Value| state.chunks(&value.to_string()).unwrap();
+            let said = "I can't help with that.";
+            let item = json!({
+                "type": "message",
+                "id": "msg_1",
+                "content": [{ "type": "refusal", "refusal": said }]
+            });
+
+            assert_eq!(
+                feed(
+                    &mut state,
+                    json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "msg_1" } })
+                ),
+                vec![Chunk::TextStart]
+            );
+            assert!(
+                feed(
+                    &mut state,
+                    json!({ "type": "response.refusal.delta", "item_id": "msg_1", "delta": said })
+                )
+                .is_empty()
+            );
+            assert!(
+                feed(
+                    &mut state,
+                    json!({ "type": "response.refusal.done", "item_id": "msg_1", "refusal": said })
+                )
+                .is_empty()
+            );
+            assert_eq!(
+                feed(&mut state, json!({ "type": "response.output_item.done", "item": item })),
+                vec![Chunk::BlockStop],
+                "the refusal is not also a message body"
+            );
+            let done = feed(
+                &mut state,
+                json!({ "type": "response.completed", "response": { "usage": { "input_tokens": 3, "output_tokens": 1 } } }),
+            );
+            let refusal = Chunk::Refusal(crate::session::types::Refusal {
+                explanation: Some(said.into()),
+                ..Default::default()
+            });
+            assert!(done.contains(&refusal), "{done:?}");
+            assert!(done.contains(&Chunk::Stop(StopReason::Refused)));
+            assert!(!done.iter().any(|chunk| matches!(chunk, Chunk::TextDelta(_))));
+
+            let mut whole = StreamState::default();
+            let bare = json!({ "type": "refusal", "id": "r1", "refusal": "No." });
+            assert!(
+                feed(&mut whole, json!({ "type": "response.output_item.done", "item": bare })).is_empty(),
+                "a refusal given whole does not open an empty text block"
+            );
+            let recovered = feed(
+                &mut whole,
+                json!({ "type": "response.completed", "response": { "usage": {} } }),
+            );
+            assert!(recovered.contains(&Chunk::Refusal(crate::session::types::Refusal {
+                explanation: Some("No.".into()),
+                ..Default::default()
+            })));
+            assert!(recovered.contains(&Chunk::Stop(StopReason::Refused)));
+            let filtered = feed(
+                &mut StreamState::default(),
+                json!({
+                    "type": "response.incomplete",
+                    "response": { "incomplete_details": { "reason": "content_filter" }, "usage": {} }
+                }),
+            );
+            assert!(filtered.iter().any(|chunk| matches!(chunk, Chunk::Refusal(_))));
+            assert!(filtered.contains(&Chunk::Stop(StopReason::Refused)));
+        }
+
+        #[test]
         fn an_item_is_followed_by_its_output_index_when_the_gateway_leaves_out_its_id() {
             let mut state = StreamState::default();
             let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();

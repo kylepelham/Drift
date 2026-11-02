@@ -68,49 +68,22 @@ impl Engine {
         self.registry_sources().into_iter().find(|source| source.id == id)
     }
 
-    /// Stores the sources and each one's token; a source dropped from the list loses its token too.
+    /// Stores the sources and each one's token only after the whole list is valid. A dropped source loses its token.
     pub fn set_registry_sources(&self, inputs: Vec<sources::SourceInput>) -> Result<(), RegistryError> {
         let before = self.registry_sources();
-        let mut sources = Vec::new();
-
-        for input in inputs {
-            let mut source = input.source;
-            if source.name.trim().is_empty() || source.url.trim().is_empty() {
-                return Err(RegistryError::MissingLocation);
-            }
-            if source.id.trim().is_empty() {
-                source.id = crate::random_hex(8);
-            }
-
-            let is_url = matches!(source.source, sources::SourceKind::Url);
-            if is_url
-                && !source.url.starts_with("https://")
-                && !(source.allow_http && source.url.starts_with("http://"))
-            {
-                return Err(RegistryError::InsecureUrl(source.url));
-            }
-
-            let token_key = sources::token_key(&source.id);
-            match input.token.as_deref().map(str::trim) {
-                Some("") => self
-                    .credentials
-                    .remove_secret(&token_key)
-                    .map_err(|error| RegistryError::Credentials(error.to_string()))?,
-                Some(token) => self
-                    .credentials
-                    .set_secret(&token_key, token)
-                    .map_err(|error| RegistryError::Credentials(error.to_string()))?,
-                None => {}
-            }
-            source.has_token = false;
-            sources.push(source);
+        let planned = inputs.into_iter().map(plan_source).collect::<Result<Vec<_>, _>>()?;
+        for (source, token) in &planned {
+            write_token(self, source, token)?;
         }
-
-        for gone in before.iter().filter(|old| !sources.iter().any(|new| new.id == old.id)) {
+        for gone in before
+            .iter()
+            .filter(|old| planned.iter().all(|(new, _)| new.id != old.id))
+        {
             let _ = self.credentials.remove_secret(&sources::token_key(&gone.id));
         }
-
+        let sources: Vec<_> = planned.into_iter().map(|(source, _)| source).collect();
         self.store.set_setting(REGISTRY_SOURCES_KEY, &sources)?;
+
         Ok(())
     }
 
@@ -194,5 +167,113 @@ impl Engine {
         }
 
         self.store.set_setting(DISABLED_SKILLS_KEY, &disabled)
+    }
+}
+
+enum TokenWrite {
+    Set(String),
+    Clear,
+    Keep,
+}
+
+fn plan_source(input: sources::SourceInput) -> Result<(sources::RegistrySource, TokenWrite), RegistryError> {
+    let mut source = input.source;
+    if source.name.trim().is_empty() || source.url.trim().is_empty() {
+        return Err(RegistryError::MissingLocation);
+    }
+    if source.id.trim().is_empty() {
+        source.id = crate::random_hex(8);
+    }
+    let is_url = matches!(source.source, sources::SourceKind::Url);
+    if is_url && !source.url.starts_with("https://") && !(source.allow_http && source.url.starts_with("http://")) {
+        return Err(RegistryError::InsecureUrl(source.url));
+    }
+    let token = match input.token.as_deref().map(str::trim) {
+        Some("") => TokenWrite::Clear,
+        Some(token) => TokenWrite::Set(token.to_string()),
+        None => TokenWrite::Keep,
+    };
+    source.has_token = false;
+
+    Ok((source, token))
+}
+
+fn write_token(engine: &Engine, source: &sources::RegistrySource, token: &TokenWrite) -> Result<(), RegistryError> {
+    let key = sources::token_key(&source.id);
+    match token {
+        TokenWrite::Clear => engine
+            .credentials
+            .remove_secret(&key)
+            .map_err(|error| RegistryError::Credentials(error.to_string()))?,
+        TokenWrite::Set(token) => engine
+            .credentials
+            .set_secret(&key, token)
+            .map_err(|error| RegistryError::Credentials(error.to_string()))?,
+        TokenWrite::Keep => {}
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RegistryError;
+    use crate::config::sources::{RegistryKind, RegistrySource, SourceInput, SourceKind};
+
+    fn input(id: &str, url: &str, token: Option<&str>) -> SourceInput {
+        SourceInput {
+            source: RegistrySource {
+                id: id.into(),
+                name: id.into(),
+                kind: RegistryKind::Plugins,
+                source: SourceKind::Url,
+                url: url.into(),
+                r#ref: String::new(),
+                path: String::new(),
+                has_token: false,
+                allow_http: false,
+                ca_pem: None,
+            },
+            token: token.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_later_insecure_url_does_not_apply_earlier_tokens() {
+        let dir = crate::platform::temp::test_run().join(format!("drift-registry-{}", crate::random_hex(4)));
+        let engine = crate::Engine::open_with(
+            &dir,
+            crate::Options {
+                file_credentials: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        engine
+            .set_registry_sources(vec![input("one", "https://one.example/r.json", Some("secret-one"))])
+            .unwrap();
+
+        let error = engine
+            .set_registry_sources(vec![
+                input("one", "https://one.example/r.json", Some("replaced")),
+                input("two", "http://two.example/r.json", Some("secret-two")),
+            ])
+            .unwrap_err();
+        assert!(matches!(error, RegistryError::InsecureUrl(_)));
+        assert_eq!(
+            engine
+                .credentials
+                .secret(&crate::config::sources::token_key("one"))
+                .as_deref(),
+            Some("secret-one")
+        );
+        assert!(
+            engine
+                .credentials
+                .secret(&crate::config::sources::token_key("two"))
+                .is_none()
+        );
+        assert_eq!(engine.registry_sources().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

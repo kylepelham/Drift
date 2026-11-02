@@ -66,7 +66,7 @@ pub(super) async fn generate(call: &Call<'_>, request: &ImageRequest<'_>) -> Res
     let first = &answer["data"][0];
     let image = match (first["b64_json"].as_str(), first["url"].as_str()) {
         (Some(data), _) => decoded(data)?,
-        (None, Some(url)) => download(call.http, url).await?,
+        (None, Some(url)) => download(url, Some(root)).await?,
         _ => return Err("the answer has no image".into()),
     };
 

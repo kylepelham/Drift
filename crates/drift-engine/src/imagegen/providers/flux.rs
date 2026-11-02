@@ -42,7 +42,7 @@ pub(super) async fn generate(call: &Call<'_>, request: &ImageRequest<'_>) -> Res
         .as_str()
         .ok_or("the answer has no polling URL")?;
     let result = poll(|| status(call, polling)).await?;
-    let image = download(call.http, &result).await?;
+    let image = download(&result, Some(root)).await?;
     let cost = submitted["cost"].as_f64().map(|credits| credits * DOLLARS_PER_CREDIT);
 
     Ok(made(image, cost, None))

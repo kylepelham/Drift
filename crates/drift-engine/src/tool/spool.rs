@@ -12,10 +12,12 @@ pub const MAX_SPOOLED_BYTES: u64 = 64 * 1024 * 1024;
 /// The most any tool result puts in front of the model. Tools that page (read) stay under it by
 /// themselves; anything else past it keeps its start and end, with the whole of it in a file.
 pub const MAX_RESULT_BYTES: usize = 64 * 1024;
+/// The most a fetched page or an MCP answer puts in front of the model: what a shell command keeps.
+pub const SHORT_RESULT_BYTES: usize = HEAD_BYTES + TAIL_BYTES;
 
-/// A tool result within [`MAX_RESULT_BYTES`], and the file holding all of it when it was cut.
-pub fn bound(text: String, path: PathBuf) -> (String, Option<PathBuf>) {
-    if text.len() <= MAX_RESULT_BYTES {
+/// A tool result within `limit`, and the file holding all of it when it was cut.
+pub fn bound(text: String, path: PathBuf, limit: usize) -> (String, Option<PathBuf>) {
+    if text.len() <= limit {
         return (text, None);
     }
 
@@ -197,10 +199,10 @@ mod tests {
     #[test]
     fn a_result_past_the_limit_is_cut_to_its_ends_and_kept_whole_on_disk() {
         let dir = crate::platform::temp::test_run().join(format!("drift-bound-{}", crate::random_hex(4)));
-        let (small, none) = bound("fine".into(), dir.join("small.log"));
+        let (small, none) = bound("fine".into(), dir.join("small.log"), MAX_RESULT_BYTES);
         assert_eq!((small.as_str(), none), ("fine", None));
         let big = format!("START{}END", "m".repeat(MAX_RESULT_BYTES * 3));
-        let (text, file) = bound(big.clone(), dir.join("big.log"));
+        let (text, file) = bound(big.clone(), dir.join("big.log"), MAX_RESULT_BYTES);
         assert!(text.len() <= HEAD_BYTES + TAIL_BYTES + 200 && text.starts_with("START") && text.ends_with("END"));
         assert_eq!(std::fs::read_to_string(file.unwrap()).unwrap(), big);
         std::fs::remove_dir_all(dir).ok();

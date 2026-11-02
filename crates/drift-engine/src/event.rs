@@ -111,6 +111,14 @@ pub enum Event {
         position: usize,
         reason: SwitchReason,
     },
+    /// No account can run the Fast model now, so the turn runs its normal speed. `ultra`: a sign-in is on Max 20x,
+    /// whose monthly API credits a Fast mode key from the linked Console organization can spend.
+    #[serde(rename = "provider.slowed", rename_all = "camelCase")]
+    ProviderSlowed {
+        session_id: String,
+        provider: String,
+        ultra: bool,
+    },
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },
     #[serde(rename = "mcp.removed")]

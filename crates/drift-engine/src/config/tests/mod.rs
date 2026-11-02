@@ -573,3 +573,25 @@ fn references_come_in_three_shapes_and_a_project_never_replaces_the_users() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_project_timeout_keeps_the_home_field_it_leaves_unset() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-timeout-{}", crate::random_hex(4)));
+    let (home, workspace) = (root.join("home"), root.join("ws"));
+    write(
+        &home,
+        ".config/drift/drift.json",
+        r#"{ "timeouts": { "openai": { "headersSeconds": 20, "idleSeconds": 90 } } }"#,
+    );
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "timeouts": { "openai": { "headersSeconds": 5 } } }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let route = config.timeouts.get("openai").copied().unwrap_or_default();
+    assert_eq!(route.headers_seconds, Some(5));
+    assert_eq!(route.idle_seconds, Some(90));
+    let _ = std::fs::remove_dir_all(&root);
+}

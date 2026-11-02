@@ -1,4 +1,4 @@
-import { IconArrowDown, IconArrowUp, IconCheck, IconShieldCheck, IconSquarePen, IconTrash } from "./icons";
+import { IconArrowDown, IconArrowUp, IconCheck, IconShieldCheck, IconSquarePen, IconTrash, IconZap } from "./icons";
 import { resetLabel, resetTitle } from "../state/usage-limits";
 import { createSignal, For, Show } from "solid-js";
 import { LimitRow } from "./context-meter";
@@ -12,7 +12,7 @@ import type { ProviderAccount } from "../engine/store";
 const iconButton =
     "flex size-7 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:text-ink disabled:opacity-40";
 
-/** A provider's sign-ins, first used first; Drift moves on to the next when one reaches its usage limit. */
+/** A provider's sign-ins and API keys, first used first; Drift moves on to the next when one reaches its usage limit. */
 export function ProviderAccounts(props: {
     providerId: string;
     providerName: string;
@@ -25,7 +25,11 @@ export function ProviderAccounts(props: {
     const [draft, setDraft] = createSignal("");
 
     const name = (account: ProviderAccount, index: number) =>
-        account.label ?? t("drift.provider.accounts.unnamed", { number: index + 1 });
+        account.label ??
+        t(account.signedIn ? "drift.provider.accounts.unnamed" : "drift.provider.accounts.unnamedKey", {
+            number: index + 1,
+        });
+    const toggled = (on: boolean) => ({ "border-ok/40 text-ok hover:text-ok": on });
 
     async function run(change: Promise<boolean>) {
         setBusy(true);
@@ -84,6 +88,12 @@ export function ProviderAccounts(props: {
                 />
             </Show>
 
+            <Show when={!account.signedIn}>
+                <span class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-muted">
+                    {t(account.fastOnly ? "drift.provider.accounts.fastOnly" : "drift.provider.accounts.apiKey")}
+                </span>
+            </Show>
+
             {/* The first account is the one requests go to. */}
             <Show when={index() === 0 && props.accounts.length > 1}>
                 <span class="shrink-0 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ok">
@@ -119,11 +129,11 @@ export function ProviderAccounts(props: {
             </Show>
 
             {/* Cyber Verification is rare, so it is an unobtrusive switch rather than a row of its own. */}
-            <Show when={props.providerId === "anthropic" && account.signedIn}>
+            <Show when={props.providerId === "anthropic"}>
                 <button
                     type="button"
                     class={iconButton}
-                    classList={{ "border-ok/40 text-ok hover:text-ok": account.cyberVerified }}
+                    classList={toggled(account.cyberVerified)}
                     title={`${t("drift.provider.accounts.cyberVerified")}: ${t("drift.provider.accounts.cyberVerifiedHint")}`}
                     aria-label={t("drift.provider.accounts.cyberVerified")}
                     aria-pressed={account.cyberVerified}
@@ -139,6 +149,25 @@ export function ProviderAccounts(props: {
                     }
                 >
                     <IconShieldCheck class="size-3.5" />
+                </button>
+            </Show>
+
+            <Show when={props.providerId === "anthropic" && !account.signedIn}>
+                <button
+                    type="button"
+                    class={iconButton}
+                    classList={toggled(account.fastOnly)}
+                    title={`${t("drift.provider.accounts.fastOnly")}: ${t("drift.provider.accounts.fastOnlyHint")}`}
+                    aria-label={t("drift.provider.accounts.fastOnly")}
+                    aria-pressed={account.fastOnly}
+                    disabled={busy()}
+                    onClick={() =>
+                        void run(
+                            engine.actions.setProviderAccountFastOnly(props.providerId, account.id, !account.fastOnly),
+                        )
+                    }
+                >
+                    <IconZap class="size-3.5" />
                 </button>
             </Show>
 

@@ -1145,8 +1145,17 @@ export const drift = {
     "drift.provider.signInWith": "تسجيل الدخول باستخدام {{method}}",
     "drift.provider.accounts.title": "الحسابات",
     "drift.provider.accounts.hint":
-        "يستخدم Drift الحساب الأول وينتقل إلى التالي عندما يبلغ أحدها حده لمدة 5 ساعات أو حده الأسبوعي.",
+        "يستخدم Drift الحساب الأول وينتقل إلى التالي عندما يبلغ أحدها حده لمدة 5 ساعات أو حده الأسبوعي. تأتي مفاتيح API بعد حساباتك المسجلة، كاحتياط.",
     "drift.provider.accounts.unnamed": "الحساب {{number}}",
+    "drift.provider.accounts.unnamedKey": "مفتاح API {{number}}",
+    "drift.provider.accounts.apiKey": "مفتاح API",
+    "drift.provider.accounts.addKey": "إضافة مفتاح",
+    "drift.provider.accounts.fastOnly": "وضع Fast فقط",
+    "drift.provider.accounts.fastOnlyHint":
+        "يدفع هذا المفتاح لوضع Fast وحده: تستخدمه نماذج Fast قبل أي حساب مسجل الدخول، ولا تستخدمه النماذج الأخرى أبدا. المفتاح من مؤسسة Console المرتبطة بخطة Max أو Ultra يستهلك أرصدة API الشهرية لتلك الخطة.",
+    "drift.provider.slowed": "لا يمكن لأي حساب Claude استخدام وضع Fast الآن، لذلك تستمر هذه المحادثة بالسرعة العادية.",
+    "drift.provider.slowedUltra":
+        "لا يمكن لأي حساب Claude استخدام وضع Fast الآن، لذلك تستمر هذه المحادثة بالسرعة العادية. تتضمن خطة Ultra لديك أرصدة API بقيمة 200 دولار كل شهر: لإنفاقها على وضع Fast، أضف مفتاح API من مؤسسة Console المرتبطة بخطتك في الإعدادات > المزودون > Anthropic وحدده كوضع Fast فقط.",
     "drift.provider.accounts.inUse": "قيد الاستخدام",
     "drift.provider.accounts.rename": "إعادة التسمية",
     "drift.provider.accounts.namePlaceholder": "اسم الحساب",

@@ -68,23 +68,53 @@ fn signing_in_as_someone_listed_replaces_their_account_in_place() {
 }
 
 #[test]
-fn an_api_key_replaces_every_sign_in_and_a_sign_in_replaces_a_key() {
+fn api_keys_join_sign_ins_as_their_fallback_and_sign_ins_go_ahead_of_them() {
     let (store, path) = store();
-    store.add_account("openai", &signed_in("a"), &person("ann")).unwrap();
+    let ann = store.add_account("openai", &signed_in("a"), &person("ann")).unwrap();
+
+    let key = store.add_key("openai", "sk-1").unwrap();
+    let second = store.add_key("openai", " sk-2 ").unwrap();
+    assert_eq!(
+        store.add_key("openai", "sk-1").unwrap(),
+        key,
+        "a key already listed keeps its place"
+    );
     let bob = store.add_account("openai", &signed_in("b"), &person("bob")).unwrap();
 
-    let key = Credential::ApiKey { key: "sk".into() };
-    store.add_account("openai", &key, &Profile::default()).unwrap();
-    assert_eq!(keys(&store, "openai"), ["openai"]);
-    assert_eq!(store.get("openai"), Some(key));
-    assert!(
-        store.account(&bob).is_none(),
-        "the replaced account's secret is deleted"
-    );
+    assert_eq!(keys(&store, "openai"), [ann, bob, key, second.clone()]);
+    assert_eq!(store.account(&second), Some(Credential::ApiKey { key: "sk-2".into() }));
 
-    store.add_account("openai", &signed_in("c"), &person("cat")).unwrap();
-    assert_eq!(keys(&store, "openai"), ["openai"]);
-    assert_eq!(store.get("openai"), Some(signed_in("c")));
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn a_key_with_no_sign_in_beside_it_replaces_the_key_there() {
+    let (store, path) = store();
+    store.add_key("xai", "old").unwrap();
+
+    store.add_key("xai", "new").unwrap();
+
+    assert_eq!(keys(&store, "xai"), ["xai"]);
+    assert_eq!(store.get("xai"), Some(Credential::ApiKey { key: "new".into() }));
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn a_fast_mode_key_is_never_the_fallback_nor_the_api_key() {
+    let (store, path) = store();
+    let ann = store.add_account("anthropic", &signed_in("a"), &person("ann")).unwrap();
+    let fast = store.add_key("anthropic", "sk-fast").unwrap();
+    assert!(store.set_fast_only("anthropic", &fast, true).unwrap());
+
+    assert!(store.fast_only(&fast));
+    assert_eq!(store.fast_keys_beside(&ann), [fast.as_str()]);
+    assert_eq!(store.resolve_account("anthropic", &[], |_| false).unwrap().0, Some(ann));
+    assert_eq!(store.api_key("anthropic", &[]), None);
+    assert_eq!(store.resolve("anthropic", &[]), Some(signed_in("a")));
+
+    assert!(store.set_fast_only("anthropic", &fast, false).unwrap());
+    assert_eq!(store.api_key("anthropic", &[]).as_deref(), Some("sk-fast"));
 
     std::fs::remove_file(path).ok();
 }

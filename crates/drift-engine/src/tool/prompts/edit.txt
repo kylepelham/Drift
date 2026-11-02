@@ -1,4 +1,4 @@
-Replaces text in a file by exact match. Read the file first, then copy `old_string` verbatim from the read output, including indentation.
+Replaces text in a file by exact match. Copy `old_string` verbatim, including indentation, from what a `read` or `grep` showed of the file; no fresh read is needed when you already have the text.
 
 - `read` shows each line as `N: text`. The `N: ` prefix is not in the file: copy only what follows it.
 - `old_string` must match exactly once. If it matches several places, add surrounding lines until it is unique, or set `replace_all` to change every occurrence (renames, for example).

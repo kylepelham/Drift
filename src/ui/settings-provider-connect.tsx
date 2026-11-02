@@ -174,15 +174,16 @@ export function ProviderConnect(props: {
                         disabled={pending() !== null || !key().trim()}
                         onClick={() => void connectApi()}
                     >
-                        {t(providerConnectLabel(pending() === "connect", props.connected))}
+                        {t(providerConnectLabel(pending() === "connect", props.connected, signedIn().length > 0))}
                     </button>
                 </div>
             </Show>
-            <Show when={method()?.type === "oauth" && signedIn().length > 0}>
+            {/* API keys are listed only beside sign-ins, where they are the fallback. */}
+            <Show when={signedIn().length > 0}>
                 <ProviderAccounts
                     providerId={props.providerId}
                     providerName={props.providerName}
-                    accounts={signedIn()}
+                    accounts={accounts()}
                     onNotice={props.onNotice}
                 />
             </Show>
@@ -309,8 +310,10 @@ function AuthorizationHint(props: {
     );
 }
 
-function providerConnectLabel(connecting: boolean, connected: boolean) {
+/** Beside sign-ins a key joins the list rather than replacing the one saved. */
+function providerConnectLabel(connecting: boolean, connected: boolean, beside: boolean) {
     if (connecting) return "provider.connect.status.inProgress";
+    if (beside) return "drift.provider.accounts.addKey";
 
     return connected ? "common.save" : "common.connect";
 }

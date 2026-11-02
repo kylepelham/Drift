@@ -85,7 +85,11 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
         cache_hour: false,
         cache_conversation: true,
         cache_writes_billed: false,
-        deferred_tools: Vec::new(),
+        deferred_tools: vec![ToolSpec {
+            name: "mcp_lookup".into(),
+            description: "token hunter2".into(),
+            input_schema: json!({ "default": "sk-live-123" }),
+        }],
         tool_references: Default::default(),
         no_tool_calls: false,
         verbosity: None,
@@ -97,7 +101,10 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
     };
 
     let hidden = masks().request(&request).into_owned();
-    let text = format!("{:?}", (&hidden.system, &hidden.messages, &hidden.tools));
+    let text = format!(
+        "{:?}",
+        (&hidden.system, &hidden.messages, &hidden.tools, &hidden.deferred_tools)
+    );
     assert_eq!(
         text.matches("hunter2").count(),
         2,

@@ -13,6 +13,7 @@ impl Engine {
         self.store.setting(STATE_KEY).ok().flatten().unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub(super) fn change_bundle_state(&self, id: &str, change: impl FnOnce(&mut State)) -> Result<State, BundleError> {
         let mut states = self.bundle_states();
         let state = states.entry(id.to_owned()).or_default();
@@ -102,10 +103,11 @@ impl Engine {
     /// The bundle's one switch: off, none of its parts apply and its servers stop; on, each part follows its own.
     pub async fn set_bundle_enabled(self: &Arc<Self>, id: &str, enabled: bool) -> Result<Vec<Bundle>, BundleError> {
         let installed = super::find(id)?;
-        let state = self.change_bundle_state(id, |state| state.off = !enabled)?;
-        self.apply_bundle_servers(&installed, &state).await?;
+        let previous = self.bundle_states().remove(id).unwrap_or_default();
+        let mut next = previous.clone();
+        next.off = !enabled;
 
-        Ok(self.bundles())
+        self.commit_servers(id, &installed, &previous, next).await
     }
 
     /// One part's switch; skills, commands, agents and programs apply from the next turn, a server at once.
@@ -118,18 +120,47 @@ impl Engine {
     ) -> Result<Vec<Bundle>, BundleError> {
         let installed = super::find(id)?;
         let key = super::part_key(kind, name);
-        let state = self.change_bundle_state(id, |state| {
-            if enabled {
-                state.parts_off.remove(&key);
-            } else {
-                state.parts_off.insert(key);
-            }
-        })?;
-        if kind == BundlePartKind::Server {
-            self.apply_bundle_servers(&installed, &state).await?;
+        let previous = self.bundle_states().remove(id).unwrap_or_default();
+        let mut next = previous.clone();
+        if enabled {
+            next.parts_off.remove(&key);
+        } else {
+            next.parts_off.insert(key);
+        }
+        if kind != BundlePartKind::Server {
+            self.store_bundle_state(id, &next)?;
+            return Ok(self.bundles());
+        }
+
+        self.commit_servers(id, &installed, &previous, next).await
+    }
+
+    /// Applies server switches first. The saved state changes only after that succeeds, and a failure puts the old switches back.
+    async fn commit_servers(
+        self: &Arc<Self>,
+        id: &str,
+        installed: &Installed,
+        previous: &State,
+        next: State,
+    ) -> Result<Vec<Bundle>, BundleError> {
+        if let Err(error) = self.apply_bundle_servers(installed, &next).await {
+            let _ = self.apply_bundle_servers(installed, previous).await;
+            return Err(error);
+        }
+        if let Err(error) = self.store_bundle_state(id, &next) {
+            let _ = self.apply_bundle_servers(installed, previous).await;
+            return Err(error);
         }
 
         Ok(self.bundles())
+    }
+
+    fn store_bundle_state(&self, id: &str, state: &State) -> Result<(), BundleError> {
+        let mut states = self.bundle_states();
+        states.insert(id.to_owned(), state.clone());
+        self.store.set_setting(STATE_KEY, &states)?;
+
+        Ok(())
     }
 
     /// Saves each server the bundle in `root` declares, with `${...}` filled in, and drops the ones it no longer declares.

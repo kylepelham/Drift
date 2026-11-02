@@ -1174,8 +1174,18 @@ export const drift = {
     "drift.provider.signInWith": "Войти с помощью {{method}}",
     "drift.provider.accounts.title": "Аккаунты",
     "drift.provider.accounts.hint":
-        "Drift использует первый аккаунт и переходит к следующему, когда один достигает 5-часового или недельного лимита.",
+        "Drift использует первый аккаунт и переходит к следующему, когда один достигает 5-часового или недельного лимита. API-ключи используются после ваших входов, как запасной вариант.",
     "drift.provider.accounts.unnamed": "Аккаунт {{number}}",
+    "drift.provider.accounts.unnamedKey": "API-ключ {{number}}",
+    "drift.provider.accounts.apiKey": "API-ключ",
+    "drift.provider.accounts.addKey": "Добавить ключ",
+    "drift.provider.accounts.fastOnly": "Только режим Fast",
+    "drift.provider.accounts.fastOnlyHint":
+        "Этот ключ оплачивает только режим Fast: модели Fast используют его раньше любого входа, а другие модели никогда. Ключ из организации Console, связанной с планом Max или Ultra, расходует ежемесячные API-кредиты этого плана.",
+    "drift.provider.slowed":
+        "Сейчас ни один аккаунт Claude не может использовать режим Fast, поэтому разговор продолжается с обычной скоростью.",
+    "drift.provider.slowedUltra":
+        "Сейчас ни один аккаунт Claude не может использовать режим Fast, поэтому разговор продолжается с обычной скоростью. Ваш план Ultra включает $200 API-кредитов в месяц: чтобы тратить их на режим Fast, добавьте в Настройки > Провайдеры > Anthropic API-ключ из организации Console, связанной с вашим планом, и отметьте его как Только режим Fast.",
     "drift.provider.accounts.inUse": "Используется",
     "drift.provider.accounts.rename": "Переименовать",
     "drift.provider.accounts.namePlaceholder": "Название аккаунта",

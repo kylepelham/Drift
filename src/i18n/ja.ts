@@ -1171,8 +1171,17 @@ export const drift = {
     "drift.provider.signInWith": "{{method}}でサインイン",
     "drift.provider.accounts.title": "アカウント",
     "drift.provider.accounts.hint":
-        "Drift は最初のアカウントを使い、5 時間または週の上限に達すると次のアカウントに切り替えます。",
+        "Drift は最初のアカウントを使い、5 時間または週の上限に達すると次のアカウントに切り替えます。API キーはサインインの後に、予備として使われます。",
     "drift.provider.accounts.unnamed": "アカウント {{number}}",
+    "drift.provider.accounts.unnamedKey": "API キー {{number}}",
+    "drift.provider.accounts.apiKey": "API キー",
+    "drift.provider.accounts.addKey": "キーを追加",
+    "drift.provider.accounts.fastOnly": "Fast モード専用",
+    "drift.provider.accounts.fastOnlyHint":
+        "このキーは Fast モードの支払いにのみ使われます。Fast モデルはどのサインインよりも先にこのキーを使い、ほかのモデルは使いません。Max または Ultra プランにリンクされた Console 組織のキーは、そのプランの毎月の API クレジットを使います。",
+    "drift.provider.slowed": "現在 Fast モードを使える Claude アカウントがないため、この会話は通常の速度で続きます。",
+    "drift.provider.slowedUltra":
+        "現在 Fast モードを使える Claude アカウントがないため、この会話は通常の速度で続きます。Ultra プランには毎月 $200 の API クレジットが含まれています。Fast モードに使うには、設定 > プロバイダー > Anthropic で、プランにリンクされた Console 組織の API キーを追加し、Fast モード専用にしてください。",
     "drift.provider.accounts.inUse": "使用中",
     "drift.provider.accounts.rename": "名前を変更",
     "drift.provider.accounts.namePlaceholder": "アカウント名",

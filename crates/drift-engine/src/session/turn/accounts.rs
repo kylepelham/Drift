@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::event::SwitchReason;
-use crate::llm::catalog::Model;
+use crate::llm::catalog::{Model, ModelMode};
 use crate::llm::limits::Limits;
 use crate::session::oneshot::{Failure, Resolved};
 use crate::session::types::Refusal;
@@ -34,7 +34,10 @@ impl Engine {
     /// Whether `account` can take a request for `model` now: it has usage left, was not refused the model,
     /// and, for a ChatGPT sign-in, its own model list offers the model's Daybreak program and speed tier.
     pub(in crate::session) fn account_serves(&self, account: &str, model: &Model) -> bool {
-        if !self.usable_account(account) || self.unserved.refused(account, &model.id, id::now_ms()) {
+        if !self.usable_account(account)
+            || self.unserved.refused(account, &model.id, id::now_ms())
+            || !self.speed_suits(account, model)
+        {
             return false;
         }
 
@@ -48,6 +51,22 @@ impl Engine {
             .and_then(|credential| self.codex_offers.serves(&credential, model));
 
         offered != Some(false)
+    }
+
+    /// A Fast mode key takes only Fast requests. While any can, a Fast request goes to one in the user's order and not to
+    /// a sign-in, so the plans' monthly API credits pay before the sign-ins' usage credits do.
+    fn speed_suits(&self, account: &str, model: &Model) -> bool {
+        let fast = runs_fast(model);
+        if self.credentials.fast_only(account) {
+            return fast;
+        }
+
+        !fast
+            || self
+                .credentials
+                .fast_keys_beside(account)
+                .iter()
+                .all(|key| !self.usable_account(key) || self.unserved.refused(key, &model.id, id::now_ms()))
     }
 
     /// An account's credential for callers outside a turn, renewed first when it has expired.
@@ -100,8 +119,67 @@ impl Engine {
     /// fits the request to that account. A turn on a credential from the environment stays where it is, and so
     /// does one no account can serve.
     pub(super) async fn follow_account(&self, plan: &mut Plan) {
+        self.slow_when_unserved(plan).await;
         self.switch_to_preferred(plan).await;
         self.codex_offers.fit(&mut plan.model, &plan.credential);
+    }
+
+    /// A Fast model no account can run now runs at its normal speed while an account can run that, and the user is
+    /// told once per conversation. The chosen model stays the conversation's, so a later turn tries Fast again.
+    async fn slow_when_unserved(&self, plan: &mut Plan) {
+        let Some(base) = self.slower_model(plan) else {
+            return;
+        };
+        plan.model = base;
+        plan.offer = self.offer(plan);
+        if !self.unserved.slow(&plan.session.id) {
+            return;
+        }
+
+        let provider = plan.model_ref.provider.clone();
+        let ultra = self.signed_in_on_ultra(&provider).await;
+        self.hub.publish(Event::ProviderSlowed {
+            session_id: plan.session.id.clone(),
+            provider,
+            ultra,
+        });
+    }
+
+    /// The turn's Fast model at normal speed, when no account can run it Fast and one can run it so.
+    fn slower_model(&self, plan: &Plan) -> Option<Model> {
+        let provider = &plan.model_ref.provider;
+        let session = &plan.session.id;
+        if plan.account.is_none()
+            || !runs_fast(&plan.model)
+            || !self.preferred_accounts(provider, session, &plan.model).is_empty()
+        {
+            return None;
+        }
+        let base = plan.catalog.model(provider, &plan.model.mode.as_ref()?.base)?;
+        if self.preferred_accounts(provider, session, base).is_empty() {
+            return None;
+        }
+
+        // The request keeps the chosen model's id, so the mode stays to name the base model, without Fast's fields.
+        let mode = plan.model.mode.clone().map(|mode| ModelMode {
+            body: Default::default(),
+            headers: Default::default(),
+            ..mode
+        });
+        Some(Model { mode, ..base.clone() })
+    }
+
+    /// Whether any of the provider's sign-ins is on Max 20x, whose monthly API credits could pay for Fast mode.
+    async fn signed_in_on_ultra(&self, provider: &str) -> bool {
+        for account in self.credentials.accounts(provider) {
+            let Some(Credential::OAuth { access, .. }) = self.account_credential(provider, &account.key).await else {
+                continue;
+            };
+            if llm::anthropic::oauth::on_ultra(&llm::http::client(), &access).await {
+                return true;
+            }
+        }
+        false
     }
 
     /// A new turn goes to the account the user set the conversation to use, else back to the account its last reply
@@ -243,7 +321,7 @@ impl Engine {
     }
 
     /// After a refusal another account may not have, records it against the account: spent usage, or a model its
-    /// plan does not include. `true` when another account can take the request.
+    /// plan does not include. `true` when another account can take the request, or the turn can run Fast at normal speed.
     pub(super) async fn leave_refused_account(&self, plan: &Plan, error: &llm::Error) -> bool {
         let Some(account) = &plan.account else {
             return false;
@@ -267,6 +345,7 @@ impl Engine {
         self.renewed_other(provider, &plan.session.id, &plan.model, account)
             .await
             .is_some()
+            || self.slower_model(plan).is_some()
     }
 
     /// After the safety filter refused the reply, passes the account over for this conversation when an account the
@@ -414,6 +493,10 @@ impl Engine {
             from,
             to,
         } = switch;
+        // Moving onto or off the Fast mode key follows the request's speed, not a limit; it says nothing.
+        if self.credentials.fast_only(&from) || self.credentials.fast_only(&to) {
+            return;
+        }
         let accounts = self.credentials.accounts(provider);
         let position = accounts.iter().position(|account| account.key == to).unwrap_or(0);
 
@@ -457,4 +540,12 @@ fn accounts_differ(refusal: Option<&Refusal>) -> bool {
 
 fn millis(duration: std::time::Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+}
+
+/// Whether `model` is a model run in Anthropic's Fast mode, which bills apart from the plan's usage.
+pub(super) fn runs_fast(model: &Model) -> bool {
+    model
+        .mode
+        .as_ref()
+        .is_some_and(|mode| mode.body.get("speed").and_then(serde_json::Value::as_str) == Some("fast"))
 }

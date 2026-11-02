@@ -49,7 +49,7 @@ impl Tool for Read {
         ctx.ask_to_read(&ctx.resolve(input["path"].as_str()?), "Read")
     }
 
-    fn starts_early(&self) -> bool {
+    fn starts_early(&self, _input: &Value) -> bool {
         true
     }
 

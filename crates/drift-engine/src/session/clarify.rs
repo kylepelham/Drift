@@ -12,6 +12,8 @@ pub enum AnswerError {
     NotPending,
     /// The question was already answered differently.
     Conflict,
+    /// The answer does not cover every question with a real choice.
+    Incomplete,
     Turn(TurnError),
 }
 
@@ -30,6 +32,9 @@ impl Engine {
         let Some(request) = self.questions.lookup(request_id) else {
             return self.already_answered(request_id, answers);
         };
+        if answers.as_ref().is_some_and(|given| !covers(&request, given)) {
+            return Err(AnswerError::Incomplete);
+        }
         if !request.is_async {
             return self
                 .questions
@@ -143,6 +148,13 @@ impl Engine {
             Err(error) => Err(error.into()),
         }
     }
+}
+
+fn covers(request: &Request, answers: &[Vec<String>]) -> bool {
+    answers.len() == request.questions.len()
+        && answers
+            .iter()
+            .all(|chosen| chosen.iter().any(|label| !label.trim().is_empty()))
 }
 
 fn answer_part(request: &Request, answers: &[Vec<String>]) -> Part {

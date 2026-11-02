@@ -87,10 +87,7 @@ pub(super) async fn set_key(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "key is empty"));
     }
 
-    engine
-        .credentials
-        .set(&id, &Credential::ApiKey { key: key.into() })
-        .map_err(credentials_error)?;
+    engine.credentials.add_key(&id, key).map_err(credentials_error)?;
     credentials_changed(&engine, &id);
     Ok(StatusCode::NO_CONTENT)
 }
