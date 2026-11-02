@@ -124,12 +124,13 @@ impl Credentials {
     /// A stored credential, else what a cloud route finds for itself, else the provider's environment
     /// variable as an API key, else, for a provider that takes none, a placeholder its server ignores.
     pub fn resolve(&self, provider: &str, env: &[String]) -> Option<Credential> {
-        self.resolve_account(provider, env, |_| true)
+        self.resolve_account(provider, env, |key| !self.fast_only(key))
             .map(|(_, credential)| credential)
     }
 
     /// As `resolve`, with the key of the account the credential is stored under; none for one found elsewhere.
     /// The first `usable` account whose credential reads is taken, else the first that reads, so a refusal says why.
+    /// A Fast mode key is never that fallback: it pays only for Fast mode.
     pub fn resolve_account(
         &self,
         provider: &str,
@@ -143,7 +144,12 @@ impl Credentials {
             .iter()
             .filter(|account| usable(&account.key))
             .find_map(|account| stored(&account.key))
-            .or_else(|| accounts.iter().find_map(|account| stored(&account.key)))
+            .or_else(|| {
+                accounts
+                    .iter()
+                    .filter(|account| !account.fast_only)
+                    .find_map(|account| stored(&account.key))
+            })
             .or_else(|| self.unstored(provider, env).map(|credential| (None, credential)))
     }
 
@@ -153,6 +159,7 @@ impl Credentials {
         let stored = self
             .accounts(provider)
             .into_iter()
+            .filter(|account| !account.fast_only)
             .find_map(|account| match self.account(&account.key) {
                 Some(Credential::ApiKey { key }) if !key.trim().is_empty() => Some(key),
                 _ => None,

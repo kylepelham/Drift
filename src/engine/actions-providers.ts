@@ -74,13 +74,25 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
     const removeProviderAccount = (id: string, account: string) =>
         changeAccounts(requireClient().removeProviderAccount(id, account));
 
-    /** Keeps the usage an account reports, and tells the user when a turn moved to another account. */
+    const setProviderAccountFastOnly = (id: string, account: string, fastOnly: boolean) =>
+        changeAccounts(requireClient().changeProviderAccount(id, account, { fastOnly }));
+
+    const providerName = (id: string) => state.providers.find((entry) => entry.id === id)?.name ?? id;
+
+    /** Keeps the usage an account reports, and tells the user when a turn moved to another account or speed. */
     function applyProviderEvent(event: Event) {
         if (event.type === "provider.limits" && state.providerAccounts[event.provider])
             set("providerAccounts", event.provider, (account) => account.id === event.account, "limits", event.limits);
+        if (event.type === "provider.slowed")
+            notice({
+                title: providerName(event.provider),
+                message: t(event.ultra ? "drift.provider.slowedUltra" : "drift.provider.slowed"),
+                variant: "info",
+                duration: event.ultra ? 20000 : 8000,
+            });
         if (event.type !== "provider.switched") return;
 
-        const provider = state.providers.find((entry) => entry.id === event.provider)?.name ?? event.provider;
+        const provider = providerName(event.provider);
         const account = event.label ?? t("drift.provider.accounts.unnamed", { number: event.position });
         notice({
             title: provider,
@@ -177,6 +189,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         renameProviderAccount,
         setProviderAccountCyberVerified,
         removeProviderAccount,
+        setProviderAccountFastOnly,
         applyProviderEvent,
     };
 }

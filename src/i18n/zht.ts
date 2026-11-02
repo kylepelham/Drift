@@ -1121,8 +1121,18 @@ export const drift = {
     "drift.provider.signInStartFailedFor": "無法啟動 {{provider}} 登入流程。",
     "drift.provider.signInWith": "使用 {{method}} 登入",
     "drift.provider.accounts.title": "帳戶",
-    "drift.provider.accounts.hint": "Drift 使用第一個帳戶，當某個帳戶達到 5 小時或每週限額時切換到下一個。",
+    "drift.provider.accounts.hint":
+        "Drift 使用第一個帳戶，當某個帳戶達到 5 小時或每週限額時切換到下一個。API 金鑰排在你的登入帳戶之後，作為備援。",
     "drift.provider.accounts.unnamed": "帳戶 {{number}}",
+    "drift.provider.accounts.unnamedKey": "API 金鑰 {{number}}",
+    "drift.provider.accounts.apiKey": "API 金鑰",
+    "drift.provider.accounts.addKey": "新增金鑰",
+    "drift.provider.accounts.fastOnly": "僅限 Fast 模式",
+    "drift.provider.accounts.fastOnlyHint":
+        "此金鑰只用於支付 Fast 模式：Fast 模型會先於任何登入帳戶使用它，其他模型絕不會使用它。來自與 Max 或 Ultra 方案連結之 Console 組織的金鑰會使用該方案每月的 API 額度。",
+    "drift.provider.slowed": "目前沒有 Claude 帳戶可以使用 Fast 模式，因此此對話將以正常速度繼續。",
+    "drift.provider.slowedUltra":
+        "目前沒有 Claude 帳戶可以使用 Fast 模式，因此此對話將以正常速度繼續。你的 Ultra 方案每月包含 $200 的 API 額度：若要將其用於 Fast 模式，請在「設定 > 供應商 > Anthropic」中新增來自與你的方案連結之 Console 組織的 API 金鑰，並將其標記為「僅限 Fast 模式」。",
     "drift.provider.accounts.inUse": "使用中",
     "drift.provider.accounts.rename": "重新命名",
     "drift.provider.accounts.namePlaceholder": "帳戶名稱",

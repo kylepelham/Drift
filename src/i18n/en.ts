@@ -1178,8 +1178,18 @@ export const drift = {
     "drift.provider.signInWith": "Sign in with {{method}}",
     "drift.provider.accounts.title": "Accounts",
     "drift.provider.accounts.hint":
-        "Drift uses the first account and moves to the next when one reaches its 5-hour or weekly limit.",
+        "Drift uses the first account and moves to the next when one reaches its 5-hour or weekly limit. API keys join after your sign-ins, as their fallback.",
     "drift.provider.accounts.unnamed": "Account {{number}}",
+    "drift.provider.accounts.unnamedKey": "API key {{number}}",
+    "drift.provider.accounts.apiKey": "API key",
+    "drift.provider.accounts.addKey": "Add key",
+    "drift.provider.accounts.fastOnly": "Fast mode only",
+    "drift.provider.accounts.fastOnlyHint":
+        "This key pays for Fast mode alone: Fast models use it before any sign-in, and other models never do. A key from the Console organization linked to a Max or Ultra plan spends that plan's monthly API credits.",
+    "drift.provider.slowed":
+        "No Claude account can use Fast mode right now, so this conversation continues at normal speed.",
+    "drift.provider.slowedUltra":
+        "No Claude account can use Fast mode right now, so this conversation continues at normal speed. Your Ultra plan includes $200 of API credits each month: to spend them on Fast mode, add an API key from the Console organization linked to your plan in Settings > Providers > Anthropic and mark it Fast mode only.",
     "drift.provider.accounts.inUse": "In use",
     "drift.provider.accounts.rename": "Rename",
     "drift.provider.accounts.namePlaceholder": "Account name",

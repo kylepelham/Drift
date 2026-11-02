@@ -1171,8 +1171,18 @@ export const drift = {
     "drift.provider.signInWith": "Увійти через {{method}}",
     "drift.provider.accounts.title": "Облікові записи",
     "drift.provider.accounts.hint":
-        "Drift використовує перший обліковий запис і переходить до наступного, коли один досягає 5-годинного або тижневого ліміту.",
+        "Drift використовує перший обліковий запис і переходить до наступного, коли один досягає 5-годинного або тижневого ліміту. API-ключі використовуються після ваших входів, як резерв.",
     "drift.provider.accounts.unnamed": "Обліковий запис {{number}}",
+    "drift.provider.accounts.unnamedKey": "API-ключ {{number}}",
+    "drift.provider.accounts.apiKey": "API-ключ",
+    "drift.provider.accounts.addKey": "Додати ключ",
+    "drift.provider.accounts.fastOnly": "Лише режим Fast",
+    "drift.provider.accounts.fastOnlyHint":
+        "Цей ключ оплачує лише режим Fast: моделі Fast використовують його раніше за будь-який вхід, а інші моделі ніколи. Ключ з організації Console, пов'язаної з планом Max або Ultra, витрачає щомісячні API-кредити цього плану.",
+    "drift.provider.slowed":
+        "Зараз жоден обліковий запис Claude не може використовувати режим Fast, тому ця розмова продовжується зі звичайною швидкістю.",
+    "drift.provider.slowedUltra":
+        "Зараз жоден обліковий запис Claude не може використовувати режим Fast, тому ця розмова продовжується зі звичайною швидкістю. Ваш план Ultra щомісяця містить $200 API-кредитів: щоб витрачати їх на режим Fast, додайте в Налаштування > Провайдери > Anthropic API-ключ з організації Console, пов'язаної з вашим планом, і позначте його як Лише режим Fast.",
     "drift.provider.accounts.inUse": "Використовується",
     "drift.provider.accounts.rename": "Перейменувати",
     "drift.provider.accounts.namePlaceholder": "Назва облікового запису",

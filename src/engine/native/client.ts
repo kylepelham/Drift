@@ -237,8 +237,11 @@ export function createClient(target: Target) {
             request<void>("POST", `/providers/${id}/oauth/callback`, { input, state }),
         reorderProviderAccounts: (id: string, order: string[]) =>
             request<void>("PUT", `/providers/${id}/accounts`, { order }),
-        changeProviderAccount: (id: string, account: string, change: { label?: string; cyberVerified?: boolean }) =>
-            request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, change),
+        changeProviderAccount: (
+            id: string,
+            account: string,
+            change: { label?: string; cyberVerified?: boolean; fastOnly?: boolean },
+        ) => request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, change),
         removeProviderAccount: (id: string, account: string) =>
             request<void>("DELETE", `/providers/${id}/accounts/${encodeURIComponent(account)}`),
         permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),

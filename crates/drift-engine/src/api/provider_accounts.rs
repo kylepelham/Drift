@@ -1,5 +1,5 @@
-//! A provider's accounts: several sign-ins used in order, each renamed, marked cyber verified, moved or signed out
-//! on its own.
+//! A provider's accounts: sign-ins and API keys used in order, each renamed, marked cyber verified or Fast mode only,
+//! moved or signed out on its own.
 
 use std::sync::Arc;
 
@@ -31,6 +31,8 @@ pub(super) struct ProviderAccount {
     pub limits: Option<Limits>,
     /// The user says it is in its provider's cyber program; after a cyber refusal only such accounts are tried.
     pub cyber_verified: bool,
+    /// An API key that pays only for Fast mode, taken before the sign-ins for Fast models and never for others.
+    pub fast_only: bool,
 }
 
 impl ProviderAccount {
@@ -43,6 +45,7 @@ impl ProviderAccount {
             label: account.label,
             signed_in,
             cyber_verified: account.cyber_verified,
+            fast_only: account.fast_only,
         }
     }
 }
@@ -62,6 +65,9 @@ pub(super) struct AccountChangeBody {
     /// Whether it is in its provider's cyber program. Left out, it stays as it is.
     #[serde(default)]
     pub cyber_verified: Option<bool>,
+    /// Whether an Anthropic API key pays for Fast mode alone. Left out, it stays as it is.
+    #[serde(default)]
+    pub fast_only: Option<bool>,
 }
 
 #[utoipa::path(put, path = "/providers/{id}/accounts", operation_id = "reorderProviderAccounts", request_body = AccountOrderBody, responses((status = 204), (status = 400)))]
@@ -105,6 +111,15 @@ pub(super) async fn change(
         ));
     }
 
+    let api_key = matches!(credentials.account(&account), Some(Credential::ApiKey { .. }));
+    if body.fast_only.is_some() && !(id == "anthropic" && api_key) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid",
+            "only Anthropic API keys can be kept for Fast mode",
+        ));
+    }
+
     if let Some(label) = &body.label {
         credentials
             .rename_account(&id, &account, label)
@@ -113,6 +128,11 @@ pub(super) async fn change(
     if let Some(verified) = body.cyber_verified {
         credentials
             .set_cyber_verified(&id, &account, verified)
+            .map_err(credentials_error)?;
+    }
+    if let Some(fast_only) = body.fast_only {
+        credentials
+            .set_fast_only(&id, &account, fast_only)
             .map_err(credentials_error)?;
     }
 

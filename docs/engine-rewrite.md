@@ -2080,9 +2080,11 @@ code until he picks.
   credential saved before accounts needs no migration, and the rest are `<provider>~<hex>`. The
   order, names and identities live in one `__accounts` entry beside the provider index. Signing in
   as someone already listed (the ChatGPT account and user in the token, Anthropic's account uuid
-  from the token response) replaces that account in place; anyone else joins the end. Only
-  sign-ins take turns: an API key, or a sign-in beside one, replaces them all. Refreshing a token
-  is single-flight per account and compare-and-sets that account only (`Plan::account`).
+  from the token response) replaces that account in place; anyone else joins ahead of the API keys.
+  API keys join the end beside sign-ins, as their fallback (`Credentials::add_key`; a key already
+  listed keeps its place); a provider with no sign-in keeps one key, which a new one replaces.
+  Refreshing a token is single-flight per account and compare-and-sets that account only
+  (`Plan::account`).
   - Choosing an account adds no request latency: it is a lookup in `Engine::limits`, an in-memory
     ledger fed by what responses already carry. Codex sends `x-codex-primary-*` and
     `x-codex-secondary-*` headers on every response (window minutes, used percent, reset time;
@@ -2126,6 +2128,22 @@ code until he picks.
     Codex lists are fetched for every ChatGPT account and the catalog shows what any of them offers;
     the first account in order to offer a Daybreak program names the entry, and each request carries
     the program of the account it is sent from (`Offers::fit`).
+  - Anthropic's Fast mode (`<id>-fast`, `speed: fast`) is billed apart from a plan's usage: usage
+    credits on a sign-in, or a key's API credits. Max and Ultra plans include monthly API credits
+    ($100 and $200) that only a key from the Console organization linked on claude.ai can spend, so
+    an Anthropic API key can be marked Fast mode only (`Account::fast_only`, `fastOnly` on
+    `PATCH /providers/anthropic/accounts/{account}`). Such a key serves only Fast models, and while
+    any can, a Fast request goes to one in the user's order before any sign-in
+    (`Engine::speed_suits`); it is never the fallback credential nor `Credentials::api_key`. Moving
+    onto or off one publishes no `provider.switched`. "Fast mode is not enabled" and "credit balance
+    is too low" count as the plan lacking the model, so the next key or sign-in takes the request.
+    When no account can run Fast but one can run the base model, the turn runs at normal speed
+    (`slow_when_unserved`: the base model's entry under the chosen id, without Fast's fields) and
+    publishes `provider.slowed` once per conversation while the engine runs. Its `ultra` is true
+    when a sign-in's `/api/oauth/profile` reports `rate_limit_tier` `default_claude_max_20x`, and the
+    notice then says how to spend the plan's API credits. A sign-in whose Fast mode is on but whose
+    usage credits are spent may answer 429 instead (Claude Code reads
+    `anthropic-ratelimit-unified-overage-disabled-reason`); that is still read as a usage limit.
   - Accounts also differ on cybersecurity: Anthropic's Cyber Verification Program changes what an
     account's safety filter refuses. No Anthropic endpoint reports membership (the OAuth profile,
     account, roles, policy limits, usage and Messages headers were compared for an enrolled and an
@@ -2155,8 +2173,9 @@ code until he picks.
     account is omitted from requests, as another model's is. A reply from before accounts counts as the
     account stored under the provider's name. The WebSocket pool keys connections by their
     headers, so a new account opens its own socket and sends the full history once.
-  - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
-    moved up or down, or signed out, and signing in again adds another. Settings > Usage shows each
+  - Settings lists a provider's sign-ins, and the API keys beside them, with their five-hour and weekly
+    use; each can be renamed, moved up or down, or signed out, and signing in again adds another. An
+    Anthropic account can be marked Cyber Verified, and an Anthropic key Fast mode only. Settings > Usage shows each
     account's plan usage (the shell's `provider_usage`, through `Engine::account_credentials`), and
     the context meter's usage popover shows the account the chat's next turn would use.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the

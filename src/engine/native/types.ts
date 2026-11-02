@@ -1565,6 +1565,8 @@ export interface components {
         AccountChangeBody: {
             /** @description Whether it is in its provider's cyber program. Left out, it stays as it is. */
             cyberVerified?: boolean | null;
+            /** @description Whether an Anthropic API key pays for Fast mode alone. Left out, it stays as it is. */
+            fastOnly?: boolean | null;
             /** @description A new name; empty clears it. Left out, the name stays. */
             label?: string | null;
         };
@@ -2132,6 +2134,12 @@ export interface components {
             to: string;
             /** @enum {string} */
             type: "provider.switched";
+        } | {
+            provider: string;
+            sessionId: string;
+            /** @enum {string} */
+            type: "provider.slowed";
+            ultra: boolean;
         } | {
             server: components["schemas"]["ServerStatus"];
             /** @enum {string} */
@@ -2935,6 +2943,8 @@ export interface components {
         ProviderAccount: {
             /** @description The user says it is in its provider's cyber program; after a cyber refusal only such accounts are tried. */
             cyberVerified: boolean;
+            /** @description An API key that pays only for Fast mode, taken before the sign-ins for Fast models and never for others. */
+            fastOnly: boolean;
             id: string;
             /** @description What the user named it, else the email it signed in with. */
             label?: string | null;

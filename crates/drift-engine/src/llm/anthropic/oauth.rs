@@ -24,23 +24,37 @@ fn token_url() -> String {
     TOKEN_URL.into()
 }
 
-fn usage_url() -> Option<String> {
-    // The engine's tests never ask the real endpoint; they record what an account reported instead.
+fn oauth_api_url(path: &str) -> Option<String> {
+    // The engine's tests never ask the real endpoints; they record what an account reported instead.
     #[cfg(test)]
-    return None;
+    {
+        let _ = path;
+        None
+    }
 
     #[cfg(not(test))]
-    Some("https://api.anthropic.com/api/oauth/usage".into())
+    Some(format!("https://api.anthropic.com/api/oauth/{path}"))
 }
 
 /// What a subscription has used of its windows, as Settings > Usage shows it; `None` when it cannot be read.
 pub async fn usage(client: &reqwest::Client, access: &str) -> Option<Value> {
+    oauth_get(client, access, "usage").await
+}
+
+/// Whether the sign-in's plan is Max 20x (Ultra), whose monthly API credits a linked Console key can spend.
+pub async fn on_ultra(client: &reqwest::Client, access: &str) -> bool {
+    oauth_get(client, access, "profile")
+        .await
+        .is_some_and(|profile| profile["organization"]["rate_limit_tier"] == "default_claude_max_20x")
+}
+
+async fn oauth_get(client: &reqwest::Client, access: &str, path: &str) -> Option<Value> {
     let timeouts = crate::llm::http::Timeouts {
         headers: std::time::Duration::from_secs(10),
         idle: std::time::Duration::from_secs(10),
     };
     let request = client
-        .get(usage_url()?)
+        .get(oauth_api_url(path)?)
         .bearer_auth(access)
         .header("anthropic-beta", "oauth-2025-04-20");
 

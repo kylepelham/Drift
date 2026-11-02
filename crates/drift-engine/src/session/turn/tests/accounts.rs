@@ -18,6 +18,8 @@ fn two_accounts(h: &Harness) -> (String, String) {
     };
 
     let credentials = &h.engine.credentials;
+    // The harness's API key would stay as their fallback.
+    credentials.remove("anthropic").unwrap();
     let first = credentials
         .add_account("anthropic", &sign_in("first"), &person("ann"))
         .unwrap();
@@ -783,4 +785,130 @@ async fn an_account_of_another_provider_or_one_signed_out_leaves_the_order_to_de
 
     assert_eq!(sent_with(&h), ["first", "first"]);
     assert_eq!(transcript(&h)[3].info.account.as_deref(), Some(first.as_str()));
+}
+
+/// Lists `claude-sonnet-4-5-fast`, the harness model in Fast mode, and returns a prompt that picks it.
+fn fast_prompt(h: &Harness) -> Prompt {
+    let mut catalog = h.engine.catalog.write().unwrap();
+    let models = &mut catalog.providers.get_mut("anthropic").unwrap().models;
+    let mut fast = models["claude-sonnet-4-5"].clone();
+    fast.id = "claude-sonnet-4-5-fast".into();
+    fast.mode = Some(crate::llm::catalog::ModelMode {
+        name: "fast".into(),
+        base: "claude-sonnet-4-5".into(),
+        body: json!({ "speed": "fast" }).as_object().unwrap().clone(),
+        headers: Default::default(),
+    });
+    models.insert(fast.id.clone(), fast);
+
+    Prompt {
+        model: Some(ModelRef {
+            provider: "anthropic".into(),
+            model: "claude-sonnet-4-5-fast".into(),
+        }),
+        ..prompt("fast")
+    }
+}
+
+/// Adds an Anthropic API key beside the sign-ins, kept for Fast mode alone.
+fn fast_key(h: &Harness) -> String {
+    let credentials = &h.engine.credentials;
+    let key = credentials.add_key("anthropic", "sk-fast").unwrap();
+    assert!(credentials.set_fast_only("anthropic", &key, true).unwrap());
+
+    key
+}
+
+fn fast_fields(h: &Harness) -> Vec<bool> {
+    h.provider
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.mode.as_ref().is_some_and(|mode| !mode.body.is_empty()))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_fast_model_goes_to_the_fast_mode_key_and_other_models_never_do() {
+    let h = harness().await;
+    two_accounts(&h);
+    let key = fast_key(&h);
+    let mut events = h.engine.hub.attach(None).rx;
+    let fast = fast_prompt(&h);
+    h.provider.push(text("fast")).push(text("normal"));
+
+    h.engine.submit(&h.session.id, fast).await.await_ok();
+    until_idle(&h).await;
+    h.engine.submit(&h.session.id, prompt("normal")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), [r#"ApiKey { key: "sk-fast" }"#, "first"]);
+    assert_eq!(transcript(&h)[1].info.account.as_deref(), Some(key.as_str()));
+    while let Ok(envelope) = events.try_recv() {
+        assert!(
+            !matches!(envelope.event, Event::ProviderSwitched { .. }),
+            "moving onto or off the Fast mode key says nothing"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_fast_mode_key_out_of_credits_hands_fast_requests_to_the_sign_ins() {
+    let h = harness().await;
+    two_accounts(&h);
+    let key = fast_key(&h);
+    let fast = fast_prompt(&h);
+    h.provider
+        .push_error(llm::Error::api(
+            400,
+            "invalid_request_error",
+            "Your credit balance is too low to access the Anthropic API.",
+        ))
+        .push(text("by ann"));
+
+    h.engine.submit(&h.session.id, fast).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), [r#"ApiKey { key: "sk-fast" }"#, "first"]);
+    assert_eq!(fast_fields(&h), [true, true], "still in Fast mode");
+    assert!(h.engine.unserved.refused(&key, "claude-sonnet-4-5-fast", id::now_ms()));
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+}
+
+#[tokio::test]
+async fn with_no_account_able_to_run_fast_the_turn_runs_at_normal_speed_and_says_so() {
+    let h = harness().await;
+    two_accounts(&h);
+    let mut events = h.engine.hub.attach(None).rx;
+    let fast = fast_prompt(&h);
+    let not_enabled = || {
+        llm::Error::api(
+            400,
+            "invalid_request_error",
+            "Fast mode is not enabled for your organization. An organization admin must enable this feature.",
+        )
+    };
+    h.provider
+        .push_error(not_enabled())
+        .push_error(not_enabled())
+        .push(text("normal speed"));
+
+    h.engine.submit(&h.session.id, fast).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second", "first"]);
+    assert_eq!(fast_fields(&h), [true, true, false]);
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert!(requests.iter().all(|request| request.model == "claude-sonnet-4-5"));
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+
+    let mut slowed = 0;
+    while let Ok(envelope) = events.try_recv() {
+        if let Event::ProviderSlowed { ultra, .. } = envelope.event {
+            assert!(!ultra, "the tests never ask for a plan");
+            slowed += 1;
+        }
+    }
+    assert_eq!(slowed, 1);
 }

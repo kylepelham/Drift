@@ -23,6 +23,9 @@ pub struct Account {
     /// filter lets through what others refuse. No provider reports this, so only the user can say it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cyber_verified: bool,
+    /// An API key the user keeps for Fast mode alone, so a plan's monthly API credits pay for it before any sign-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast_only: bool,
 }
 
 /// Who a sign-in belongs to, as far as the provider says.
@@ -39,6 +42,7 @@ impl Account {
             label: None,
             identity: None,
             cyber_verified: false,
+            fast_only: false,
         }
     }
 
@@ -48,6 +52,7 @@ impl Account {
             label: profile.email.clone(),
             identity: profile.identity.clone(),
             cyber_verified: false,
+            fast_only: false,
         }
     }
 }
@@ -74,6 +79,10 @@ impl Profile {
 
         Self { identity, email }
     }
+}
+
+fn is_sign_in(credential: &Credential) -> bool {
+    matches!(credential, Credential::OAuth { .. })
 }
 
 fn claims(token: &str) -> Option<Value> {
@@ -106,7 +115,7 @@ impl Credentials {
     }
 
     /// Stores a sign-in and returns its account's key. Signing in as someone already listed replaces their account;
-    /// anyone else joins the end of the list. An API key, or a sign-in beside one, replaces them all: only sign-ins take turns.
+    /// anyone else joins the list ahead of its API keys, which stay the fallback.
     pub fn add_account(
         &self,
         provider: &str,
@@ -128,17 +137,77 @@ impl Credentials {
             return Ok(key);
         }
 
-        if accounts.is_empty() || !self.takes_turns(credential, &accounts) {
+        self.insert_account(provider, accounts, credential, profile)
+    }
+
+    /// Stores an API key and returns its account's key. Beside sign-ins it joins the end of the list, as their
+    /// fallback, unless it is listed already; a provider with no sign-in has it as its only key.
+    pub fn add_key(&self, provider: &str, key: &str) -> Result<String, CredentialError> {
+        let _held = self.write_lock.lock().unwrap();
+        let accounts = self.accounts(provider);
+        let credential = Credential::ApiKey { key: key.trim().into() };
+        if !accounts.iter().any(|account| self.signed_in(account)) {
+            self.replace_all(provider, &credential, Account::at(provider))?;
+            return Ok(provider.into());
+        }
+        if let Some(same) = accounts
+            .iter()
+            .find(|account| self.account(&account.key).as_ref() == Some(&credential))
+        {
+            return Ok(same.key.clone());
+        }
+
+        self.insert_account(provider, accounts, &credential, &Profile::default())
+    }
+
+    /// Writes `credential` as a new account: a sign-in ahead of the API keys, a key at the end. The first account a
+    /// provider has keeps its name. The write lock must be held.
+    fn insert_account(
+        &self,
+        provider: &str,
+        mut accounts: Vec<Account>,
+        credential: &Credential,
+        profile: &Profile,
+    ) -> Result<String, CredentialError> {
+        if accounts.is_empty() {
             self.replace_all(provider, credential, Account::signed_in(provider.into(), profile))?;
             return Ok(provider.into());
         }
 
+        let at = is_sign_in(credential)
+            .then(|| accounts.iter().position(|account| !self.signed_in(account)))
+            .flatten()
+            .unwrap_or(accounts.len());
         let key = format!("{provider}~{}", crate::random_hex(3));
         self.write(&key, &serde_json::to_string(credential).unwrap())?;
-        accounts.push(Account::signed_in(key.clone(), profile));
+        accounts.insert(at, Account::signed_in(key.clone(), profile));
         self.save_accounts(provider, accounts)?;
 
         Ok(key)
+    }
+
+    /// Marks an API key as paying for Fast mode alone: Fast requests go to it before any sign-in, and others never do.
+    pub fn set_fast_only(&self, provider: &str, key: &str, fast_only: bool) -> Result<bool, CredentialError> {
+        self.change_account(provider, key, |account| account.fast_only = fast_only)
+    }
+
+    /// Whether the account with `key` is a Fast mode key.
+    pub fn fast_only(&self, key: &str) -> bool {
+        self.listed(key).is_some_and(|account| account.fast_only)
+    }
+
+    /// The Fast mode keys listed with the account `key`, in the user's order.
+    pub fn fast_keys_beside(&self, key: &str) -> Vec<String> {
+        let lists = self.accounts.lock().unwrap();
+        let list = lists
+            .values()
+            .find(|list| list.iter().any(|account| account.key == key));
+
+        list.into_iter()
+            .flatten()
+            .filter(|account| account.fast_only)
+            .map(|account| account.key.clone())
+            .collect()
     }
 
     fn signed_in_as(&self, accounts: &[Account], profile: &Profile) -> Option<usize> {
@@ -270,14 +339,8 @@ impl Credentials {
         self.write(ACCOUNTS, &listed)
     }
 
-    /// Only sign-ins take turns; a list holding an API key is replaced, not added to.
-    fn takes_turns(&self, credential: &Credential, accounts: &[Account]) -> bool {
-        let signed_in = |credential: Option<&Credential>| matches!(credential, Some(Credential::OAuth { .. }));
-
-        signed_in(Some(credential))
-            && accounts
-                .iter()
-                .all(|account| signed_in(self.account(&account.key).as_ref()))
+    fn signed_in(&self, account: &Account) -> bool {
+        self.account(&account.key).as_ref().is_some_and(is_sign_in)
     }
 
     /// Who an account is: as recorded at sign-in, else as its token says for one stored before accounts existed.

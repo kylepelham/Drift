@@ -236,11 +236,12 @@ impl Ledger {
 }
 
 /// What each account was refused: models its plan does not include, until when, and conversations its safety
-/// filter refused, for as long as the engine runs.
+/// filter refused, for as long as the engine runs; and the conversations told they run at normal speed.
 #[derive(Default)]
 pub struct Unserved {
     models: Mutex<HashMap<(String, String), i64>>,
     conversations: Mutex<HashSet<(String, String)>>,
+    slowed: Mutex<HashSet<String>>,
 }
 
 impl Unserved {
@@ -270,6 +271,11 @@ impl Unserved {
         let key = (account.to_string(), session.to_string());
 
         self.conversations.lock().unwrap().contains(&key)
+    }
+
+    /// Notes that the conversation fell back from Fast mode; `true` the first time, when the user is told.
+    pub fn slow(&self, session: &str) -> bool {
+        self.slowed.lock().unwrap().insert(session.into())
     }
 
     /// Whether any account's safety filter refused the conversation.

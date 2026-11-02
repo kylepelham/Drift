@@ -1166,8 +1166,18 @@ export const drift = {
     "drift.provider.signInWith": "Prijavi se putem {{method}}",
     "drift.provider.accounts.title": "Računi",
     "drift.provider.accounts.hint":
-        "Drift koristi prvi račun i prelazi na sljedeći kada jedan dostigne svoje 5-satno ili sedmično ograničenje.",
+        "Drift koristi prvi račun i prelazi na sljedeći kada jedan dostigne svoje 5-satno ili sedmično ograničenje. API ključevi dolaze nakon vaših prijava, kao rezerva.",
     "drift.provider.accounts.unnamed": "Račun {{number}}",
+    "drift.provider.accounts.unnamedKey": "API ključ {{number}}",
+    "drift.provider.accounts.apiKey": "API ključ",
+    "drift.provider.accounts.addKey": "Dodaj ključ",
+    "drift.provider.accounts.fastOnly": "Samo Fast način",
+    "drift.provider.accounts.fastOnlyHint":
+        "Ovaj ključ plaća samo Fast način: Fast modeli ga koriste prije bilo koje prijave, a drugi modeli nikad. Ključ iz Console organizacije povezane s Max ili Ultra planom troši mjesečne API kredite tog plana.",
+    "drift.provider.slowed":
+        "Nijedan Claude račun trenutno ne može koristiti Fast način, pa se ovaj razgovor nastavlja normalnom brzinom.",
+    "drift.provider.slowedUltra":
+        "Nijedan Claude račun trenutno ne može koristiti Fast način, pa se ovaj razgovor nastavlja normalnom brzinom. Vaš Ultra plan uključuje $200 API kredita svakog mjeseca: da ih potrošite na Fast način, dodajte API ključ iz Console organizacije povezane s vašim planom u Postavke > Pružaoci > Anthropic i označite ga kao Samo Fast način.",
     "drift.provider.accounts.inUse": "U upotrebi",
     "drift.provider.accounts.rename": "Preimenuj",
     "drift.provider.accounts.namePlaceholder": "Naziv računa",

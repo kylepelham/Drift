@@ -1173,8 +1173,18 @@ export const drift = {
     "drift.provider.signInWith": "{{method}} ile oturum aç",
     "drift.provider.accounts.title": "Hesaplar",
     "drift.provider.accounts.hint":
-        "Drift ilk hesabı kullanır ve biri 5 saatlik veya haftalık sınırına ulaştığında sonrakine geçer.",
+        "Drift ilk hesabı kullanır ve biri 5 saatlik veya haftalık sınırına ulaştığında sonrakine geçer. API anahtarları oturum açmalarınızdan sonra, yedek olarak gelir.",
     "drift.provider.accounts.unnamed": "Hesap {{number}}",
+    "drift.provider.accounts.unnamedKey": "API anahtarı {{number}}",
+    "drift.provider.accounts.apiKey": "API anahtarı",
+    "drift.provider.accounts.addKey": "Anahtar ekle",
+    "drift.provider.accounts.fastOnly": "Yalnızca Fast modu",
+    "drift.provider.accounts.fastOnlyHint":
+        "Bu anahtar yalnızca Fast modu için ödeme yapar: Fast modelleri onu her oturum açmadan önce kullanır, diğer modeller asla kullanmaz. Max veya Ultra plana bağlı Console kuruluşundan bir anahtar, o planın aylık API kredilerini harcar.",
+    "drift.provider.slowed":
+        "Şu anda hiçbir Claude hesabı Fast modunu kullanamıyor, bu yüzden bu sohbet normal hızda devam ediyor.",
+    "drift.provider.slowedUltra":
+        "Şu anda hiçbir Claude hesabı Fast modunu kullanamıyor, bu yüzden bu sohbet normal hızda devam ediyor. Ultra planınız her ay $200 API kredisi içerir: bunları Fast modunda harcamak için Ayarlar > Sağlayıcılar > Anthropic bölümünde planınıza bağlı Console kuruluşundan bir API anahtarı ekleyin ve Yalnızca Fast modu olarak işaretleyin.",
     "drift.provider.accounts.inUse": "Kullanımda",
     "drift.provider.accounts.rename": "Yeniden adlandır",
     "drift.provider.accounts.namePlaceholder": "Hesap adı",

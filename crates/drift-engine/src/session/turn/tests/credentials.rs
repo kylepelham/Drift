@@ -170,6 +170,7 @@ async fn a_renewed_sign_in_is_stored_on_its_own_account_only() {
         account: None,
     };
     let credentials = &h.engine.credentials;
+    credentials.remove("anthropic").unwrap();
     let first = credentials
         .add_account("anthropic", &live("first"), &person("ann"))
         .unwrap();
@@ -248,6 +249,7 @@ fn live_and_expired_accounts(h: &Harness) -> (String, String) {
     };
 
     let credentials = &h.engine.credentials;
+    credentials.remove("anthropic").unwrap();
     let live = credentials
         .add_account(
             "anthropic",

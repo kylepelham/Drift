@@ -1119,8 +1119,18 @@ export const drift = {
     "drift.provider.signInStartFailedFor": "无法启动 {{provider}} 登录流程。",
     "drift.provider.signInWith": "使用 {{method}} 登录",
     "drift.provider.accounts.title": "账户",
-    "drift.provider.accounts.hint": "Drift 使用第一个账户，当某个账户达到 5 小时或每周限额时切换到下一个。",
+    "drift.provider.accounts.hint":
+        "Drift 使用第一个账户，当某个账户达到 5 小时或每周限额时切换到下一个。API 密钥排在你的登录账户之后，作为后备。",
     "drift.provider.accounts.unnamed": "账户 {{number}}",
+    "drift.provider.accounts.unnamedKey": "API 密钥 {{number}}",
+    "drift.provider.accounts.apiKey": "API 密钥",
+    "drift.provider.accounts.addKey": "添加密钥",
+    "drift.provider.accounts.fastOnly": "仅限 Fast 模式",
+    "drift.provider.accounts.fastOnlyHint":
+        "此密钥只用于支付 Fast 模式：Fast 模型会先于任何登录账户使用它，其他模型绝不会使用它。来自与 Max 或 Ultra 套餐关联的 Console 组织的密钥会使用该套餐每月的 API 额度。",
+    "drift.provider.slowed": "目前没有 Claude 账户可以使用 Fast 模式，因此此对话将以正常速度继续。",
+    "drift.provider.slowedUltra":
+        "目前没有 Claude 账户可以使用 Fast 模式，因此此对话将以正常速度继续。你的 Ultra 套餐每月包含 $200 的 API 额度：要将其用于 Fast 模式，请在“设置 > 提供商 > Anthropic”中添加来自与你的套餐关联的 Console 组织的 API 密钥，并将其标记为“仅限 Fast 模式”。",
     "drift.provider.accounts.inUse": "使用中",
     "drift.provider.accounts.rename": "重命名",
     "drift.provider.accounts.namePlaceholder": "账户名称",

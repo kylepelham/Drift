@@ -1169,8 +1169,18 @@ export const drift = {
     "drift.provider.signInWith": "Logg inn med {{method}}",
     "drift.provider.accounts.title": "Kontoer",
     "drift.provider.accounts.hint":
-        "Drift bruker den første kontoen og bytter til den neste når en når grensen for 5 timer eller en uke.",
+        "Drift bruker den første kontoen og bytter til den neste når en når grensen for 5 timer eller en uke. API-nøkler kommer etter innloggingene dine, som reserve.",
     "drift.provider.accounts.unnamed": "Konto {{number}}",
+    "drift.provider.accounts.unnamedKey": "API-nøkkel {{number}}",
+    "drift.provider.accounts.apiKey": "API-nøkkel",
+    "drift.provider.accounts.addKey": "Legg til nøkkel",
+    "drift.provider.accounts.fastOnly": "Bare Fast-modus",
+    "drift.provider.accounts.fastOnlyHint":
+        "Denne nøkkelen betaler bare for Fast-modus: Fast-modeller bruker den før enhver innlogging, og andre modeller gjør det aldri. En nøkkel fra Console-organisasjonen som er koblet til et Max- eller Ultra-abonnement, bruker abonnementets månedlige API-kreditter.",
+    "drift.provider.slowed":
+        "Ingen Claude-konto kan bruke Fast-modus akkurat nå, så denne samtalen fortsetter med normal hastighet.",
+    "drift.provider.slowedUltra":
+        "Ingen Claude-konto kan bruke Fast-modus akkurat nå, så denne samtalen fortsetter med normal hastighet. Ultra-abonnementet ditt inkluderer $200 i API-kreditter hver måned: for å bruke dem på Fast-modus, legg til en API-nøkkel fra Console-organisasjonen som er koblet til abonnementet ditt under Innstillinger > Leverandører > Anthropic og merk den som Bare Fast-modus.",
     "drift.provider.accounts.inUse": "I bruk",
     "drift.provider.accounts.rename": "Gi nytt navn",
     "drift.provider.accounts.namePlaceholder": "Kontonavn",
