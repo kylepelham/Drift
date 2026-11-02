@@ -252,7 +252,9 @@ async fn begun(mut stream: ChunkStream) -> Option<ChunkStream> {
     Some(Box::pin(futures_util::stream::iter(leading).chain(stream)))
 }
 
-/// A hash of the endpoint, conversation and every header, so credentials and modes never share a connection.
+/// A hash of the endpoint, conversation and every header, so credentials and modes never share a connection. The
+/// Codex turn pin is left out: a turn's later requests carry it, and the socket the turn began on already reaches the
+/// backend it names, so it keeps that socket and its `previous_response_id` chain, as the next turn does.
 fn identity(request: &reqwest::Request, session: &str) -> String {
     let mut digest = Sha256::new();
     let mut update = |bytes: &[u8]| {
@@ -263,7 +265,11 @@ fn identity(request: &reqwest::Request, session: &str) -> String {
     update(request.url().as_str().as_bytes());
     update(session.as_bytes());
 
-    let mut headers: Vec<_> = request.headers().iter().collect();
+    let mut headers: Vec<_> = request
+        .headers()
+        .iter()
+        .filter(|(name, _)| name.as_str() != super::turn_state::HEADER)
+        .collect();
     headers.sort_by(|(a, a_value), (b, b_value)| {
         a.as_str()
             .cmp(b.as_str())

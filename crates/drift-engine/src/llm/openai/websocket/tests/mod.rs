@@ -38,6 +38,8 @@ struct Server {
     close_after_reply: AtomicBool,
     /// Close the socket on every request before answering anything, with this close code.
     drop_unanswered: Option<u16>,
+    /// The Codex turn pin the handshake answers with, as Codex's backend does.
+    turn_state: Option<&'static str>,
 
     connections: AtomicUsize,
     /// Sockets that ended from the client's side.
@@ -125,7 +127,15 @@ fn accept(ws: WebSocketUpgrade, headers: HeaderMap, server: Arc<Server>, refuse:
         return (status, axum::Json(error)).into_response();
     }
 
-    ws.on_upgrade(move |socket| serve(socket, headers, server))
+    let pin = server.turn_state;
+    let mut response = ws.on_upgrade(move |socket| serve(socket, headers, server));
+    if let Some(pin) = pin {
+        response
+            .headers_mut()
+            .insert(crate::llm::openai::turn_state::HEADER, pin.parse().unwrap());
+    }
+
+    response
 }
 
 fn answer_over_sse(server: &Server) -> Response {
