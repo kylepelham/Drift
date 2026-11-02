@@ -128,11 +128,11 @@ export type CommandRows = (typeof commandRowModes)[number];
 export function commandRowsFrom(value: unknown): CommandRows {
     if (value === true) return "running";
     if (value === false) return "open";
-    return commandRowModes.find((mode) => mode === value) ?? "running";
+    return commandRowModes.find((mode) => mode === value) ?? "collapsed";
 }
 export const [commandRows, setCommandRows] = persisted<CommandRows>(
     "drift.transcript.collapseCommands",
-    "running",
+    "collapsed",
     commandRowsFrom,
 );
 export const toolGroupKinds = ["commands", "edits", "fetches", "mcp", "other"] as const;
@@ -140,9 +140,9 @@ export type ToolGroupKind = (typeof toolGroupKinds)[number];
 const toolGroupDefaults: Record<ToolGroupKind, boolean> = {
     commands: true,
     edits: false,
-    fetches: false,
-    mcp: false,
-    other: false,
+    fetches: true,
+    mcp: true,
+    other: true,
 };
 const [storedToolGroups, setStoredToolGroups] = persisted<Record<ToolGroupKind, boolean>>(
     "drift.transcript.groups",

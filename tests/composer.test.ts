@@ -337,7 +337,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         "running",
         "open",
         "collapsed",
-        "running",
+        "collapsed",
     ]);
     expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs - 200)).toBe(200);
     expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs + 200)).toBe(0);
