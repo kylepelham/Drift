@@ -322,7 +322,7 @@ fn replayed_input(input: &serde_json::Value, status: ToolStatus, output: Option<
 /// What a cleared tool result sends instead of its output.
 pub(super) const CLEARED_RESULT: &str = "[Old tool result content cleared; run the call again if you need it]";
 
-fn is_cleared(metadata: Option<&crate::session::types::ToolMetadata>) -> bool {
+pub(super) fn is_cleared(metadata: Option<&crate::session::types::ToolMetadata>) -> bool {
     metadata.is_some_and(|metadata| metadata.cleared == Some(true))
 }
 
