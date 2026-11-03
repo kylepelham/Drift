@@ -1165,6 +1165,11 @@ textarea {
     background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
+/* A tool's Markdown result reads at the card's size, not the conversation's. */
+.tool-io .md {
+    font-size: inherit;
+}
+
 .tool-row-header:hover .tool-row-title {
     color: var(--ink);
 }

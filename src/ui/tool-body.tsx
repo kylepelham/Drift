@@ -1,22 +1,26 @@
+import { ReadImage, readImage, returnedImages, ToolImage } from "./tool-image";
 import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 import { ShellOutput, splitNotes, stripAnsi } from "./shell-output";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
 import { citationFileGroups } from "./citation-files";
-import { patchFiles, toolInfo } from "./tool-labels";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
-import { ReadImage, readImage } from "./tool-image";
+import { inputFields, outputView } from "./tool-io";
 import { ShellProcessStatus } from "./process-row";
 import { ReadPanel, readPage } from "./tool-read";
 import { toolDisplay } from "./tool-presentation";
+import { patchFiles } from "./tool-labels";
 import { Markdown } from "./markdown";
 import { useEngine } from "../engine";
 import { IconInfo } from "./icons";
+import { t } from "../state/i18n";
 
 import type { ToolPart } from "../engine/parts";
 
 // Tool output beyond this is clipped before rendering; long outputs otherwise stall the view.
 const maxInlineOutputChars = 4000;
+// A tool's own result is what the card is opened for, so it keeps far more; the engine already caps it near 32 KB.
+const maxReturnedChars = 20_000;
 
 export function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {
     const engine = useEngine();
@@ -151,23 +155,74 @@ export function taskBody(part: ToolPart) {
 }
 
 function GenericBody(props: { part: ToolPart }) {
+    const engine = useEngine();
     const state = () => toolDisplay(props.part);
-    const output = () => (state().status === "completed" ? (state() as { output: string }).output : "");
-    const showInput = () => !!toolInfo(props.part).called;
+    const fields = createMemo(() => inputFields(state().input));
+    const output = createMemo(() => {
+        const current = state();
+        return current.status === "completed" ? outputView(stripAnsi(current.output)) : null;
+    });
+    const images = createMemo(() => returnedImages(props.part));
+    const returned = () => !!output()?.text || images().length > 0;
+    const citationFiles = () =>
+        citationFileGroups(engine.state, props.part.sessionId, props.part.messageId, props.part.id);
 
     return (
-        <div class="tool-card space-y-1.5">
-            <Show when={showInput()}>
-                <div class="font-mono text-xs break-all whitespace-pre-wrap text-ink-faint">
-                    {JSON.stringify(state().input, null, 1)}
-                </div>
-            </Show>
-            <Show when={output().trim()}>
-                <div class="transcript-tool-output max-h-64 overflow-auto text-[length:calc(0.85rem*var(--ui-text-scale,1))] whitespace-pre-wrap text-ink-muted">
-                    {clip(stripAnsi(output()))}
-                </div>
-            </Show>
-        </div>
+        <Show when={fields().length > 0 || returned()}>
+            <div class="tool-card tool-io space-y-2.5 text-[length:calc(0.85rem*var(--ui-text-scale,1))]">
+                <Show when={fields().length > 0}>
+                    <section>
+                        <div class="mb-1 text-xs font-medium text-ink-faint">{t("drift.tool.input")}</div>
+                        <dl class="grid grid-cols-[minmax(5rem,max-content)_minmax(0,1fr)] gap-x-6 gap-y-1">
+                            <For each={fields()}>
+                                {(field) => (
+                                    <>
+                                        <dt class="text-ink-faint">{field.label}</dt>
+                                        <dd
+                                            class="max-h-40 min-w-0 overflow-auto break-words whitespace-pre-wrap text-ink-muted"
+                                            classList={{ "font-mono text-xs": field.structured }}
+                                        >
+                                            {clip(field.text)}
+                                        </dd>
+                                    </>
+                                )}
+                            </For>
+                        </dl>
+                    </section>
+                </Show>
+                <Show when={returned()}>
+                    <section classList={{ "border-t-[0.5px] border-edge pt-2.5": fields().length > 0 }}>
+                        <div class="mb-1 text-xs font-medium text-ink-faint">{t("drift.tool.output")}</div>
+                        <Show when={output()?.text ? output() : null}>
+                            {(view) => (
+                                <div class="transcript-tool-output max-h-80 overflow-auto text-ink-muted">
+                                    <Show
+                                        when={view().kind === "markdown"}
+                                        fallback={
+                                            <div class="font-mono text-xs break-words whitespace-pre-wrap">
+                                                {clip(view().text, maxReturnedChars)}
+                                            </div>
+                                        }
+                                    >
+                                        <Markdown
+                                            text={clip(view().text, maxReturnedChars)}
+                                            directory={engine.state.sessions[props.part.sessionId]?.directory}
+                                            fileGroups={citationFiles}
+                                            done
+                                        />
+                                    </Show>
+                                </div>
+                            )}
+                        </Show>
+                        <Show when={images().length > 0}>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <For each={images()}>{(hash) => <ToolImage hash={hash} />}</For>
+                            </div>
+                        </Show>
+                    </section>
+                </Show>
+            </div>
+        </Show>
     );
 }
 
@@ -177,6 +232,6 @@ export function addedLines(content: string) {
     return [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)].join("\n");
 }
 
-function clip(value: string) {
-    return value.length > maxInlineOutputChars ? value.slice(0, maxInlineOutputChars) + "\n..." : value;
+function clip(value: string, max = maxInlineOutputChars) {
+    return value.length > max ? value.slice(0, max) + "\n..." : value;
 }

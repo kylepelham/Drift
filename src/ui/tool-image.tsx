@@ -32,15 +32,27 @@ export function readImage(part: ToolPart) {
 
     const input = toolInput(part) as { path?: unknown; filePath?: unknown };
     const path = [input.path, input.filePath].find((value): value is string => typeof value === "string" && !!value);
+    const hash = pictureHashes(part)[0];
+    if (!hash || !path) return null;
+
+    return { hash, path };
+}
+
+/** The pictures a finished call returned to the model, such as an MCP result's images; a generated one already shows under its row. */
+export function returnedImages(part: ToolPart) {
+    if (part.name === "generate_image" || part.status !== "done") return [];
+
+    return pictureHashes(part);
+}
+
+// A PDF is kept the same way but cannot be drawn as an image.
+function pictureHashes(part: ToolPart) {
     const meta = toolMetadata(part);
     const images = Array.isArray(meta.images) ? (meta.images as { mime?: unknown; hash?: unknown }[]) : [];
-    // A PDF is kept the same way but cannot be drawn as an image.
-    const image = images.find(
-        (entry) => typeof entry?.hash === "string" && typeof entry.mime === "string" && entry.mime.startsWith("image/"),
-    );
-    if (!image || !path) return null;
 
-    return { hash: image.hash as string, path };
+    return images
+        .filter((entry) => typeof entry?.mime === "string" && entry.mime.startsWith("image/"))
+        .flatMap((entry) => (typeof entry.hash === "string" ? [entry.hash] : []));
 }
 
 /** A read image in its expanded row: the path it came from, then the picture, opened large on click. */

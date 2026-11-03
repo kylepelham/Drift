@@ -310,7 +310,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellAtBottom,
         shellReplaceSegments,
         shellScrollTarget,
-        shellTranscript,
+        shellOutputText,
     } = await import("../src/ui/shell-output");
     const {
         initialToolOpen,
@@ -321,11 +321,11 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellOpenWait,
     } = await import("../src/ui/tool-view");
     const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
-    expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
+    expect(shellOutputText("\u001b[32mok\u001b[0m\r\ndone")).toBe("ok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
-    const transcript = shellTranscript("generate", output);
-    expect(transcript.startsWith("$ generate\n\nline 0\nline 1")).toBeTrue();
-    expect(transcript.endsWith("line 9999")).toBeTrue();
+    const copied = shellOutputText(output);
+    expect(copied.startsWith("line 0\nline 1")).toBeTrue();
+    expect(copied.endsWith("line 9999")).toBeTrue();
     expect(initialToolOpen("bash", "completed", false)).toBeFalse();
     expect(initialToolOpen("bash", "running", false)).toBeFalse();
     expect(initialToolOpen("bash", "pending", false)).toBeFalse();

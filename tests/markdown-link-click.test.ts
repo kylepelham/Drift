@@ -667,20 +667,21 @@ test.each(["https://example.com/notes.md", "mailto:help@example.com", "tel:+1555
     },
 );
 
-test("all four Markdown callers pass their owning session directory, including delegated output", async () => {
+test("all five Markdown callers pass their owning session directory, including delegated output", async () => {
     const sources = await Promise.all(
         ["message", "parts", "tool-body"].map((name) =>
             Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text(),
         ),
     );
     const callers = sources.flatMap((source) => [...source.matchAll(/<Markdown\b[\s\S]*?\/>/g)].map(([tag]) => tag));
-    expect(callers).toHaveLength(4);
+    expect(callers).toHaveLength(5);
     expect(callers.every((tag) => tag.includes("fileGroups="))).toBe(true);
     expect(callers.map((tag) => tag.match(/\bdirectory=\{([^}]+)\}/)?.[1].replace(/\s+/g, ""))).toEqual([
         "engine.state.sessions[info().sessionId]?.directory",
         "engine.state.sessions[part().part.sessionId]?.directory",
         "engine.state.sessions[props.part.sessionId]?.directory",
         "engine.state.sessions[delegatedChildId(engine.state,props.part)??props.part.sessionId]?.directory",
+        "engine.state.sessions[props.part.sessionId]?.directory",
     ]);
 });
 
