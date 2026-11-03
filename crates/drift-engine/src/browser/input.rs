@@ -28,6 +28,9 @@ pub struct MouseInput {
     pub delta_y: Option<f64>,
     #[serde(default)]
     pub modifiers: u8,
+    /// The buttons held, as `MouseEvent.buttons` has them (1 left, 2 right, 4 middle), so a move with one held drags.
+    #[serde(default)]
+    pub buttons: u8,
 }
 
 /// A key event from the pane, as a browser's `KeyboardEvent` describes it.
@@ -42,6 +45,13 @@ pub struct KeyInput {
     pub key_code: u32,
     #[serde(default)]
     pub modifiers: u8,
+}
+
+impl KeyInput {
+    /// Whether Control or Meta is held, so the key is a shortcut rather than typing.
+    pub(crate) fn is_shortcut(&self) -> bool {
+        self.modifiers & (CONTROL | META) != 0
+    }
 }
 
 /// One key as the protocol wants it.
@@ -254,7 +264,8 @@ impl MouseInput {
             _ => return None,
         };
         let button = match self.event.as_str() {
-            "move" | "wheel" => "none",
+            "wheel" => "none",
+            "move" => self.held(),
             _ => self.button.as_deref().unwrap_or("left"),
         };
 
@@ -267,7 +278,16 @@ impl MouseInput {
             "deltaX": self.delta_x.unwrap_or(0.0),
             "deltaY": self.delta_y.unwrap_or(0.0),
             "modifiers": self.modifiers,
+            "buttons": self.buttons,
         }))
+    }
+
+    /// The button a move drags with, or none.
+    fn held(&self) -> &'static str {
+        [(1, "left"), (2, "right"), (4, "middle")]
+            .into_iter()
+            .find(|(bit, _)| self.buttons & bit != 0)
+            .map_or("none", |(_, name)| name)
     }
 }
 
@@ -319,6 +339,7 @@ mod tests {
             delta_x: None,
             delta_y: None,
             modifiers: 0,
+            buttons: 1,
         };
         let event = click.event().unwrap();
 

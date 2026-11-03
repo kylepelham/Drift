@@ -1,5 +1,5 @@
 import { modifierBits, pagePoint, isPasteShortcut, tabLabel } from "../src/ui/browser-input";
-import { decodeCursor, decodeFrame } from "../src/engine/browser-view";
+import { decodeFrame, decodeNotice } from "../src/engine/browser-view";
 import { expect, test } from "bun:test";
 
 function frameMessage(header: object, jpeg: number[]) {
@@ -22,11 +22,13 @@ test("a frame message is read as its header and its picture", async () => {
     expect(decodeFrame(frameMessage({ page: "T1" }, []).slice(0, 6))).toBeUndefined();
 });
 
-test("a cursor message gives its keyword and nothing else gets through", () => {
-    expect(decodeCursor('{"type":"cursor","cursor":"pointer"}')).toBe("pointer");
-    expect(decodeCursor('{"type":"cursor","cursor":"url(x.png), pointer"}')).toBeUndefined();
-    expect(decodeCursor('{"type":"other","cursor":"text"}')).toBeUndefined();
-    expect(decodeCursor("not json")).toBeUndefined();
+test("a cursor message gives its keyword, a copied one its text, and nothing else gets through", () => {
+    expect(decodeNotice('{"type":"cursor","cursor":"pointer"}')).toEqual({ type: "cursor", cursor: "pointer" });
+    expect(decodeNotice('{"type":"cursor","cursor":"url(x.png), pointer"}')).toBeUndefined();
+    expect(decodeNotice('{"type":"copied","text":"a\\nb"}')).toEqual({ type: "copied", text: "a\nb" });
+    expect(decodeNotice('{"type":"copied","text":3}')).toBeUndefined();
+    expect(decodeNotice('{"type":"other","cursor":"text"}')).toBeUndefined();
+    expect(decodeNotice("not json")).toBeUndefined();
 });
 
 test("a click on the shrunken picture lands on the page's own pixels", () => {

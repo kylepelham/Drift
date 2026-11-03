@@ -371,6 +371,30 @@
             var doc = w.document;
             var box = doc.documentElement && doc.documentElement.clientWidth ? doc.documentElement : doc.body;
             return box.clientWidth + "x" + box.clientHeight;
+        },
+        // The selected text, for the pane's Control+C; a cut also takes it out of the field it is in.
+        copy: function (cut) {
+            var el = activeElement(w.document);
+            var doc = el.ownerDocument;
+            if (el.type === "password") return "";
+            if (typeof el.selectionStart === "number") {
+                var start = el.selectionStart;
+                var picked = el.value.substring(start, el.selectionEnd);
+                if (cut && picked) {
+                    el.value = el.value.substring(0, start) + el.value.substring(el.selectionEnd);
+                    el.selectionStart = el.selectionEnd = start;
+                    fire(el, "change");
+                }
+                return picked;
+            }
+            if (doc.selection && doc.selection.createRange) {
+                var range = doc.selection.createRange();
+                var text = range.text || "";
+                if (cut && text && el.value !== undefined) range.text = "";
+                return text;
+            }
+            var view = doc.parentWindow || doc.defaultView;
+            return view.getSelection ? String(view.getSelection()) : "";
         }
     };
 })(window);

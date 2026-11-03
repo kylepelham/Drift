@@ -62,6 +62,8 @@ export function BrowserView(props: {
                 if (!drawing) void draw();
             },
             onCursor: setCursor,
+            // The browser's clipboard is its own, so what the user copied there is put on theirs.
+            onCopied: (text) => void navigator.clipboard.writeText(text),
             onOpen: fit,
         }),
     );
@@ -80,7 +82,8 @@ export function BrowserView(props: {
         if (!at) return;
 
         const button = buttonName(event.button);
-        view.send({ type: "mouse", event: kind, ...at, button, clickCount, modifiers: modifierBits(event) });
+        const { buttons } = event;
+        view.send({ type: "mouse", event: kind, ...at, button, buttons, clickCount, modifiers: modifierBits(event) });
     }
 
     // Moves are sent at most once a frame.

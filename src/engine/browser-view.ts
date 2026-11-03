@@ -9,6 +9,8 @@ export type BrowserViewHandlers = {
     onFrame: (frame: BrowserFrame) => void;
     /** The CSS cursor the page shows under the pane's pointer. */
     onCursor: (cursor: string) => void;
+    /** Text this pane's click or shortcut copied in the browser, whose clipboard is its own. */
+    onCopied: (text: string) => void;
     /** The socket opened, first or after a drop: input sent before it was lost. */
     onOpen: () => void;
 };
@@ -29,8 +31,9 @@ export function connectBrowserView(url: string, handlers: BrowserViewHandlers): 
         socket.onopen = () => handlers.onOpen();
         socket.onmessage = (event) => {
             if (typeof event.data === "string") {
-                const cursor = decodeCursor(event.data);
-                if (cursor) handlers.onCursor(cursor);
+                const notice = decodeNotice(event.data);
+                if (notice?.type === "cursor") handlers.onCursor(notice.cursor);
+                if (notice?.type === "copied") handlers.onCopied(notice.text);
                 return;
             }
             if (!(event.data instanceof ArrayBuffer)) return;
@@ -73,13 +76,17 @@ export function decodeFrame(data: ArrayBuffer): BrowserFrame | undefined {
     }
 }
 
-/** A cursor message's CSS keyword; anything else the socket says is ignored. */
-export function decodeCursor(text: string): string | undefined {
+type Notice = { type: "cursor"; cursor: string } | { type: "copied"; text: string };
+
+/** A text message: a cursor's CSS keyword or copied text; anything else the socket says is ignored. */
+export function decodeNotice(text: string): Notice | undefined {
     try {
-        const message = JSON.parse(text) as { type?: string; cursor?: unknown };
+        const message = JSON.parse(text) as { type?: string; cursor?: unknown; text?: unknown };
+        if (message.type === "copied" && typeof message.text === "string")
+            return { type: "copied", text: message.text };
         if (message.type !== "cursor" || typeof message.cursor !== "string") return undefined;
 
-        return /^[a-z-]+$/.test(message.cursor) ? message.cursor : undefined;
+        return /^[a-z-]+$/.test(message.cursor) ? { type: "cursor", cursor: message.cursor } : undefined;
     } catch {
         return undefined;
     }

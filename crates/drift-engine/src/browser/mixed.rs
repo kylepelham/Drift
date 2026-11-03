@@ -19,7 +19,7 @@ use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Ta
 use super::ie::Ie;
 use super::input::Key;
 use super::site_list::{Route, SiteList};
-use super::view::ViewInput;
+use super::view::{Clipboard, ViewInput};
 use super::{Kind, PageRecord, with_scheme};
 use crate::Engine;
 use crate::platform::process::Tree;
@@ -650,6 +650,14 @@ impl Driver for Mixed {
                 let part = self.part(side).ok_or("the browser has closed")?;
                 part.input(other).await
             }
+        }
+    }
+
+    async fn clipboard(&self) -> Clipboard {
+        let side = self.active().and_then(|active| self.side_of(&active));
+        match side.and_then(|side| self.part(side)) {
+            Some(part) => part.clipboard().await,
+            None => Clipboard::default(),
         }
     }
 

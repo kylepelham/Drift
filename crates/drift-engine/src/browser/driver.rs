@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use super::input::Key;
-use super::view::{Frame, ViewInput};
+use super::view::{Clipboard, Frame, ViewInput};
 use super::{BrowserRecord, BrowserState, DialogRecord, Kind, PageRecord, Storage, Window};
 use crate::Engine;
 
@@ -281,6 +281,11 @@ pub(crate) trait Driver: Send + Sync {
 
     /// The user's input from the pane, to the active page.
     async fn input(&self, input: ViewInput) -> Result<(), String>;
+
+    /// What the browser's clipboard holds as its active page can tell, for a browser whose clipboard is its own.
+    async fn clipboard(&self) -> Clipboard {
+        Clipboard::default()
+    }
 
     /// The DevTools Protocol port, for tools such as Lighthouse that connect to the browser themselves.
     fn devtools_port(&self) -> Option<u16> {

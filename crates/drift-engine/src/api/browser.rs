@@ -20,7 +20,7 @@ use crate::Engine;
 use crate::browser::driver::{Driver, watch};
 use crate::browser::engines::EngineStatus;
 use crate::browser::project::Credential;
-use crate::browser::{BrowserProject, BrowserRecord, Kind, ViewInput, apply_inputs};
+use crate::browser::{BrowserProject, BrowserRecord, Kind, Notice, ViewInput, apply_inputs};
 
 /// A workspace's browser setup as Settings shows it: its drift.json section and its stored sign-ins.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -171,13 +171,14 @@ pub(super) async fn remove_credential(
 }
 
 /// Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
-/// a JSON header, a JPEG), and `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer
-/// changes; the client sends `ViewInput` as JSON text.
+/// a JSON header, a JPEG), `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer changes,
+/// and `{"type":"copied","text":...}` when this socket's input copied text in the browser; the client sends
+/// `ViewInput` as JSON text.
 #[utoipa::path(
     get,
     path = "/sessions/{id}/browser/view",
     operation_id = "browserView",
-    responses((status = 101, description = "WebSocket; binary frames and cursor text out, ViewInput in"), (status = 404))
+    responses((status = 101, description = "WebSocket; binary frames, cursor and copied text out, ViewInput in"), (status = 404))
 )]
 pub(super) async fn view(
     State(engine): State<Arc<Engine>>,
@@ -196,10 +197,11 @@ pub(super) async fn view(
 
 async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: CancellationToken) {
     let mut viewer = watch(driver.clone());
-    let mut cursor = driver.common().cursor.subscribe();
 
     let (inputs, queued) = mpsc::unbounded_channel::<ViewInput>();
-    let applier = tokio::spawn(apply_inputs(driver.clone(), queued));
+    let (notices, mut notice) = mpsc::unbounded_channel::<Notice>();
+    let cursor = tokio::spawn(follow_cursor(driver.clone(), notices.clone()));
+    let applier = tokio::spawn(apply_inputs(driver.clone(), queued, notices));
 
     loop {
         tokio::select! {
@@ -214,9 +216,8 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             },
-            Ok(()) = cursor.changed() => {
-                let shown = cursor.borrow_and_update().clone();
-                let message = serde_json::json!({ "type": "cursor", "cursor": shown }).to_string();
+            Some(notice) = notice.recv() => {
+                let message = serde_json::to_string(&notice).expect("a notice always serialises");
                 if socket.send(Message::Text(message.into())).await.is_err() {
                     break;
                 }
@@ -233,5 +234,17 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
         }
     }
 
+    cursor.abort();
     applier.abort();
+}
+
+/// Tells the pane each cursor the page shows under its pointer.
+async fn follow_cursor(driver: Arc<dyn Driver>, notices: mpsc::UnboundedSender<Notice>) {
+    let mut cursor = driver.common().cursor.subscribe();
+    while cursor.changed().await.is_ok() {
+        let shown = cursor.borrow_and_update().clone();
+        if notices.send(Notice::Cursor { cursor: shown }).is_err() {
+            return;
+        }
+    }
 }

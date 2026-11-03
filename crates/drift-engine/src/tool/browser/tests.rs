@@ -3,6 +3,8 @@ use std::fmt::Write as _;
 use serde_json::json;
 
 use super::*;
+use crate::browser::ViewInput;
+use crate::browser::input::{KeyInput, MouseInput};
 use crate::tool::tests::Sandbox;
 
 async fn call(sandbox: &Sandbox, input: Value) -> Result<Output, ToolError> {
@@ -249,6 +251,23 @@ const FORM: &str = "<!doctype html><html><head><title>Book a table</title></head
 <button type=button id=reserve style=\"cursor:pointer\" onclick=\"document.title='Hello '+document.getElementById('guest').value\">Reserve</button>\
 </body></html>";
 
+/// A site's copy buttons and Control+C in the pane reach the user's clipboard; skipped where neither Chrome nor Edge is
+/// installed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_real_browser_copies_to_the_users_clipboard() {
+    if crate::browser::installed().is_none() {
+        return;
+    }
+    let sandbox = Sandbox::new("browser-copy");
+    let opened = call(&sandbox, json!({ "action": "open", "url": "about:blank" }))
+        .await
+        .unwrap();
+    assert!(opened.output.contains("Started"), "{}", opened.output);
+
+    copies_to_the_users_clipboard(&sandbox, "chrome").await;
+    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+}
+
 /// Serves `html` on loopback for as long as the test runs; IE mode cannot open a `data:` address.
 async fn serve(html: &'static str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -300,7 +319,106 @@ async fn drives(engine: &str) {
     if engine == "ie" {
         hides_a_window_the_page_opens(&sandbox, &url).await;
     }
+    copies_to_the_users_clipboard(&sandbox, engine).await;
     watches_and_stops(&sandbox).await;
+}
+
+const COPY_PAGE: &str = "<!doctype html><title>Copy</title>\
+<p id=words style=\"position:absolute;left:20px;top:40px;width:400px;margin:0\">Copy these words</p>\
+<button id=write style=\"position:absolute;left:20px;top:120px;width:200px;height:40px\" \
+onclick=\"navigator.clipboard.writeText('from the button')\">Write</button>\
+<button id=exec style=\"position:absolute;left:20px;top:200px;width:200px;height:40px\" \
+onclick=\"var a=document.createElement('textarea');a.value='from execCommand';document.body.appendChild(a);\
+a.select();document.execCommand('copy');a.remove()\">Exec</button>";
+
+/// What the page copies through the pane's input comes back for the user's clipboard: a site's copy buttons, by
+/// `writeText` or `execCommand`, and Control+C on selected text. IE mode's buttons write the user's own clipboard.
+async fn copies_to_the_users_clipboard(sandbox: &Sandbox, engine: &str) {
+    let url = serve(COPY_PAGE).await;
+    call(sandbox, json!({ "action": "navigate", "url": url }))
+        .await
+        .unwrap();
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let (inputs, queued) = tokio::sync::mpsc::unbounded_channel();
+    let (notices, mut notice) = tokio::sync::mpsc::unbounded_channel();
+    let applier = tokio::spawn(crate::browser::apply_inputs(driver, queued, notices));
+    let mut copied = async |sent: Vec<ViewInput>| {
+        for input in sent {
+            inputs.send(input).unwrap();
+        }
+        let told = tokio::time::timeout(std::time::Duration::from_secs(10), notice.recv()).await;
+        match told.expect("a copy within 10 s").unwrap() {
+            crate::browser::Notice::Copied { text } => text,
+            other => panic!("{other:?}"),
+        }
+    };
+
+    if engine == "ie" {
+        // IE mode's clicks are script, which selects nothing, so the text is selected as the page would.
+        let select = "var r = document.body.createTextRange();             r.moveToElementText(document.getElementById('words')); r.select(); 'selected'";
+        call(sandbox, json!({ "action": "eval", "expression": select }))
+            .await
+            .unwrap();
+    } else {
+        let button = copied(pane_click(120.0, 140.0)).await;
+        assert_eq!(button, "from the button", "{engine}");
+        let exec = copied(pane_click(120.0, 220.0)).await;
+        assert_eq!(exec, "from execCommand", "{engine}");
+        for input in pane_drag(22.0, 200.0, 48.0) {
+            inputs.send(input).unwrap();
+        }
+    }
+    let text = copied(control_c()).await;
+    assert_eq!(text.trim(), "Copy these words", "{engine}");
+
+    applier.abort();
+}
+
+fn pane_mouse(event: &str, x: f64, y: f64, buttons: u8) -> ViewInput {
+    ViewInput::Mouse(MouseInput {
+        event: event.into(),
+        x,
+        y,
+        button: Some("left".into()),
+        click_count: Some(1),
+        delta_x: None,
+        delta_y: None,
+        modifiers: 0,
+        buttons,
+    })
+}
+
+fn pane_click(x: f64, y: f64) -> Vec<ViewInput> {
+    vec![pane_mouse("down", x, y, 1), pane_mouse("up", x, y, 0)]
+}
+
+/// Selected as a person would, by dragging across it with the button held.
+fn pane_drag(from: f64, to: f64, y: f64) -> Vec<ViewInput> {
+    let step = (to - from) / 3.0;
+    let moves = (1..=3).map(|i| pane_mouse("move", from + step * f64::from(i), y, 1));
+    std::iter::once(pane_mouse("down", from, y, 1))
+        .chain(moves)
+        .chain([pane_mouse("up", to, y, 0)])
+        .collect()
+}
+
+/// As a keyboard sends it: Control goes down first and comes up last.
+fn control_c() -> Vec<ViewInput> {
+    let key = |event: &str, key: &str, code: &str, key_code: u32| {
+        ViewInput::Key(KeyInput {
+            event: event.into(),
+            key: key.into(),
+            code: code.into(),
+            key_code,
+            modifiers: 2,
+        })
+    };
+    vec![
+        key("down", "Control", "ControlLeft", 17),
+        key("down", "c", "KeyC", 67),
+        key("up", "c", "KeyC", 67),
+        key("up", "Control", "ControlLeft", 17),
+    ]
 }
 
 /// IE mode's window is off-screen, and so is a window its page opens, wherever the page asked for it.
@@ -369,8 +487,6 @@ async fn hides_a_window_the_page_opens(sandbox: &Sandbox, url: &str) {
 
 /// A pane of 1400x900 lays the page out at that size, and the pointer over the button shows the page's cursor.
 async fn fits_the_pane_and_follows_the_cursor(sandbox: &Sandbox, engine: &str) {
-    use crate::browser::ViewInput;
-
     if engine == "ie" {
         return;
     }
@@ -424,6 +540,7 @@ async fn cursor_over(
         delta_x: None,
         delta_y: None,
         modifiers: 0,
+        buttons: 0,
     };
     driver.input(crate::browser::ViewInput::Mouse(mouse)).await.unwrap();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), cursor.changed()).await;

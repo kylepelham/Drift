@@ -308,6 +308,22 @@
         return `selected "${match.textContent.trim()}"`;
     }
 
+    // A headless browser's clipboard is its own, so the last copy or cut is kept for the pane to hand on.
+    let lastCopy = null;
+    function selected() {
+        const field = document.activeElement;
+        if (field && typeof field.selectionStart === "number")
+            return field.type === "password" ? "" : field.value.slice(field.selectionStart, field.selectionEnd);
+        return String(getSelection());
+    }
+    function copied(event) {
+        const text = event.defaultPrevented ? event.clipboardData.getData("text/plain") : selected();
+        lastCopy = { id: Math.random(), text };
+    }
+    addEventListener("copy", copied);
+    addEventListener("cut", copied);
+    const CLIPBOARD_WAIT_MS = 500;
+
     globalThis.__drift = {
         snapshot(options) {
             const out = [];
@@ -358,6 +374,13 @@
             if (declared !== "auto") return /^[a-z-]+$/.test(declared) ? declared : "default";
             if (editable(hit.node) || onText(hit.node, hit.x, hit.y)) return "text";
             return "default";
+        },
+        // The last copy or cut, and on a secure page the clipboard, which a page's writeText fills without an event.
+        async clipboard() {
+            const reading = globalThis.isSecureContext && navigator.clipboard ? navigator.clipboard.readText() : null;
+            const late = new Promise((resolve) => setTimeout(() => resolve(null), CLIPBOARD_WAIT_MS));
+            const held = reading ? await Promise.race([reading.catch(() => null), late]) : null;
+            return { copy: lastCopy, held };
         },
     };
 })();

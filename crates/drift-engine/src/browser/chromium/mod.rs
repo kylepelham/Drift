@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
 use super::driver::{Common, Driver, Pointer, Spec, Tab};
-use super::view::{Frame, PaneFit, ViewInput, pane_viewport};
+use super::view::{Clipboard, Frame, PaneFit, ViewInput, pane_viewport};
 use super::{Window, input};
 use crate::Engine;
 use crate::platform::process::Tree;
@@ -127,6 +127,11 @@ impl Chromium {
             chromium.kill();
             return Err(format!("{} did not accept the connection: {error}", kind.label()));
         }
+        // Hidden, the browser's clipboard is its own, which the pane reads back; a window's is the user's, never read.
+        if chromium.common.window == Window::Hidden {
+            let read = json!({ "permission": { "name": "clipboard-read" }, "setting": "granted" });
+            let _ = cdp.call("Browser.setPermission", read, None).await;
+        }
         let _ = tokio::time::timeout(PAGE_WAIT, waiting).await;
 
         Ok(chromium)
@@ -151,11 +156,17 @@ impl Chromium {
         }
     }
 
-    /// Makes a page the active one: the browser fronts it, and the pane's stream follows it.
+    /// Makes a page the active one: the browser fronts it, and the pane's stream follows it. Hidden, the page also
+    /// takes the keyboard, which starts in the unseen address bar and would take Control+C for the page's address.
     fn make_active(&self, target: &str) {
         *self.active.lock().unwrap() = Some(target.to_string());
         self.cdp
             .send("Target.activateTarget", json!({ "targetId": target }), None);
+        if self.common.window == Window::Hidden
+            && let Some(page) = self.page(target)
+        {
+            page.send("Page.bringToFront", json!({}));
+        }
         self.restream();
         self.changed();
     }
@@ -355,7 +366,8 @@ impl Chromium {
         self.pages.lock().unwrap().push(page.clone());
 
         tokio::spawn(async move {
-            let ready = page.setup(chromium.agents.desktop.as_ref()).await.is_ok();
+            let hidden = chromium.common.window == Window::Hidden;
+            let ready = page.setup(chromium.agents.desktop.as_ref(), hidden).await.is_ok();
             let listed = chromium
                 .pages
                 .lock()
@@ -655,5 +667,17 @@ impl Driver for Chromium {
         }
 
         Ok(())
+    }
+
+    async fn clipboard(&self) -> Clipboard {
+        let page = self.active().and_then(|id| self.page(&id));
+        let Some(page) = page.filter(|_| self.common.window == Window::Hidden) else {
+            return Clipboard::default();
+        };
+
+        let read = page.helper("__drift.clipboard()").await;
+        read.ok()
+            .and_then(|held| serde_json::from_value(held).ok())
+            .unwrap_or_default()
     }
 }
