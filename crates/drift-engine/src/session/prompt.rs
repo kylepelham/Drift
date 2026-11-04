@@ -486,7 +486,9 @@ mod tests {
             invocation: crate::config::Invocation::default(),
         };
 
-        config.skills = vec![skill("review"), skill("deploy")];
+        let mut manual = skill("release");
+        manual.invocation.model = false;
+        config.skills = vec![skill("review"), skill("deploy"), manual];
 
         let workspace = crate::platform::temp::test_run();
         let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
@@ -510,6 +512,10 @@ mod tests {
 
         let all = built(true, &NONE_DENIED);
         assert!(all.contains("- review: ") && all.contains("- deploy: ") && all.contains("- explore: "));
+        assert!(
+            !all.contains("- release: "),
+            "a skill only the user invokes is not listed"
+        );
 
         let ruled = built(true, &deny);
         assert!(

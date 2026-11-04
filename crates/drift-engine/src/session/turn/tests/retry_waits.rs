@@ -146,6 +146,35 @@ async fn a_retried_request_that_has_not_answered_can_still_be_moved_to_another_m
 }
 
 #[tokio::test]
+async fn the_switch_closes_once_the_retried_request_answers() {
+    let h = harness().await;
+    let partial = vec![Chunk::TextStart, Chunk::TextDelta("on its".into())];
+    let rest = vec![
+        Chunk::TextDelta(" way".into()),
+        Chunk::BlockStop,
+        Chunk::Stop(StopReason::EndTurn),
+    ];
+    h.provider
+        .push_error(llm::Error::Transport("no response within 120 s".into()))
+        .push_paused(partial, Duration::from_millis(400), rest);
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    for _ in 0..200 {
+        if h.provider.requests.lock().unwrap().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(
+        h.engine.switch_retry_model(&h.session.id, &model(), None).await,
+        Err(TurnError::NotRetrying),
+        "the retried request is streaming, so there is nothing left to switch"
+    );
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn stop_ends_a_retry_wait_at_once() {
     let h = harness().await;
     h.provider.push_error(overloaded());
