@@ -105,6 +105,76 @@ async fn a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it() {
 }
 
 #[tokio::test]
+async fn a_retried_request_that_has_not_answered_can_still_be_moved_to_another_model() {
+    let h = harness().await;
+    let pinned = h.engine.catalog.read().unwrap().providers["anthropic"]
+        .models
+        .keys()
+        .find(|id| id.as_str() != "claude-sonnet-4-5")
+        .unwrap()
+        .clone();
+    let other = ModelRef {
+        provider: "anthropic".into(),
+        model: pinned.clone(),
+    };
+    h.provider
+        .push_error(llm::Error::Transport("no response within 120 s".into()))
+        .push_unanswered()
+        .push(text("answered by the other model"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    for _ in 0..200 {
+        if h.provider.requests.lock().unwrap().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    h.engine.switch_retry_model(&h.session.id, &other, None).await.unwrap();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 3, "the unanswered request was given up for the switch");
+    assert_eq!(requests[2].model, pinned);
+    let messages = transcript(&h);
+    assert_eq!(messages.last().unwrap().info.status, MessageStatus::Done);
+    assert_eq!(messages.len(), 3, "the abandoned attempt leaves no reply behind");
+    assert_eq!(
+        h.engine.switch_retry_model(&h.session.id, &other, None).await,
+        Err(TurnError::NotRetrying),
+        "the switch closes once a request answers"
+    );
+}
+
+#[tokio::test]
+async fn the_switch_closes_once_the_retried_request_answers() {
+    let h = harness().await;
+    let partial = vec![Chunk::TextStart, Chunk::TextDelta("on its".into())];
+    let rest = vec![
+        Chunk::TextDelta(" way".into()),
+        Chunk::BlockStop,
+        Chunk::Stop(StopReason::EndTurn),
+    ];
+    h.provider
+        .push_error(llm::Error::Transport("no response within 120 s".into()))
+        .push_paused(partial, Duration::from_millis(400), rest);
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    for _ in 0..200 {
+        if h.provider.requests.lock().unwrap().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(
+        h.engine.switch_retry_model(&h.session.id, &model(), None).await,
+        Err(TurnError::NotRetrying),
+        "the retried request is streaming, so there is nothing left to switch"
+    );
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn stop_ends_a_retry_wait_at_once() {
     let h = harness().await;
     h.provider.push_error(overloaded());

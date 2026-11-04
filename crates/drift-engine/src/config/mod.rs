@@ -61,6 +61,27 @@ pub struct Skill {
     /// Set for a skill the engine ships, whose instructions it renders per call rather than reading a folder.
     #[serde(skip)]
     pub builtin: Option<Builtin>,
+    /// Who may invoke it, from front matter `disable-model-invocation` and `user-invocable`.
+    #[serde(skip)]
+    pub invocation: Invocation,
+}
+
+/// Claude Code's invocation control: a skill only the user runs, or only the model loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Invocation {
+    /// Listed to the model and loadable by it; `disable-model-invocation: true` clears it.
+    pub model: bool,
+    /// A slash command of its own; `user-invocable: false` clears it.
+    pub user: bool,
+}
+
+impl Default for Invocation {
+    fn default() -> Self {
+        Self {
+            model: true,
+            user: true,
+        }
+    }
 }
 
 /// The engine's own skills.
@@ -222,7 +243,7 @@ impl Config {
             }
         }
 
-        for skill in &self.skills {
+        for skill in self.skills.iter().filter(|skill| skill.invocation.user) {
             if self.commands.iter().any(|command| command.name == skill.name) {
                 continue;
             }
@@ -440,16 +461,21 @@ impl Config {
                 continue;
             }
 
-            let argument_hint = frontmatter::parse(&text)
-                .field("argument-hint")
-                .filter(|hint| !hint.trim().is_empty());
+            let document = frontmatter::parse(&text);
+            let argument_hint = document.field("argument-hint").filter(|hint| !hint.trim().is_empty());
+            let described = skills::described(&document);
             self.skills.push(Skill {
                 name: item.name.clone(),
-                description: item.description.clone(),
+                description: if described.is_empty() {
+                    item.description.clone()
+                } else {
+                    described
+                },
                 path: item.path.to_string_lossy().into_owned(),
                 instructions: body(&text),
                 argument_hint,
                 builtin: None,
+                invocation: skills::invocation(&document),
             });
         }
     }
@@ -523,11 +549,12 @@ impl Config {
             let argument_hint = document.field("argument-hint").filter(|hint| !hint.trim().is_empty());
             self.skills.push(Skill {
                 name,
-                description: document.field("description").unwrap_or_default(),
+                description: skills::described(&document),
                 path: folder.to_string_lossy().into_owned(),
                 instructions,
                 argument_hint,
                 builtin: None,
+                invocation: skills::invocation(&document),
             });
         }
     }

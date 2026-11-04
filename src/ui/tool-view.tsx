@@ -1,12 +1,12 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { backgroundRun, delegatedChildId, delegatedTaskStatus, delegates } from "./tool-delegation";
+import { generatedImage, returnedImages, ToolImage, ToolThumbnails } from "./tool-image";
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
 import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
 import { CoveredDuration, ToolDuration } from "./tool-duration";
 import { toolMetadata as toolMeta } from "../engine/parts";
-import { generatedImage, ToolImage } from "./tool-image";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
 import { taskTiming } from "../engine/store";
@@ -359,6 +359,9 @@ export function ToolView(props: { part: ToolPart }) {
                         <Chevron open={inlineExpanded()} />
                     </span>
                 </Show>
+                <Show when={!inlineExpanded()}>
+                    <ToolThumbnails hashes={returnedImages(props.part)} />
+                </Show>
             </button>
             <Show when={generatedImage(props.part)}>
                 {(image) => <ToolImage hash={image().hash} filename={image().filename} />}
@@ -439,6 +442,9 @@ function ExploredCalls(props: { parts: ToolPart[] }) {
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>
+                <Show when={!expanded()}>
+                    <ToolThumbnails hashes={props.parts.flatMap(returnedImages)} />
+                </Show>
             </button>
             <Show when={expanded()}>
                 <div class="tool-children">

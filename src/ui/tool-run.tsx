@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { returnedImages, ToolThumbnails } from "./tool-image";
 import { toolDisplay } from "./tool-presentation";
 import { CoveredDuration } from "./tool-duration";
 import { TextShimmer } from "./text-shimmer";
@@ -201,6 +202,9 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>
+                <Show when={!expanded()}>
+                    <ToolThumbnails hashes={props.parts.flatMap(returnedImages)} />
+                </Show>
             </button>
             <Show when={expanded()}>
                 <div class="tool-children">

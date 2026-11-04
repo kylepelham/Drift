@@ -103,6 +103,46 @@ fn only_commands_the_project_file_names_wait_for_the_users_say_so() {
 }
 
 #[test]
+fn skill_front_matter_decides_who_invokes_it_and_what_the_model_is_told() {
+    let workspace = crate::platform::temp::test_run().join(format!("drift-config-invoke-{}", crate::random_hex(4)));
+    write(
+        &workspace,
+        ".drift/skills/manual/SKILL.md",
+        "---\nname: manual\ndescription: Only by hand.\ndisable-model-invocation: true # manual only\n---\nGo.",
+    );
+    write(
+        &workspace,
+        ".drift/skills/background/SKILL.md",
+        "---\nname: background\ndescription: House style.\nwhen_to_use: When writing prose.\nuser-invocable: false\n---\nGo.",
+    );
+    write(
+        &workspace,
+        ".drift/skills/bare/SKILL.md",
+        "---\nname: bare\n---\n\n# Formats release notes\n\nGo.",
+    );
+
+    let config = Config::load_with_home(&workspace, None);
+    let skill = |name: &str| config.skill(name).unwrap();
+    let command = |name: &str| config.commands.iter().any(|command| command.name == name);
+
+    assert!(!skill("manual").invocation.model && skill("manual").invocation.user);
+    assert!(command("manual"), "the user still runs it as /manual");
+    assert!(skill("background").invocation.model && !skill("background").invocation.user);
+    assert!(
+        !command("background"),
+        "no slash command for a skill only the model loads"
+    );
+    assert_eq!(skill("background").description, "House style. When writing prose.");
+    assert_eq!(
+        skill("bare").description,
+        "Formats release notes",
+        "the body's first line stands in"
+    );
+
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
 fn skill_commands_and_the_wrappers_that_call_them_offer_the_skills_choices() {
     let workspace = crate::platform::temp::test_run().join(format!("drift-config-arguments-{}", crate::random_hex(4)));
     let skill = "---\nname: test-skill\ndescription: Skill description\nargument-hint: \"[audit|polish] [target]\"\n---\n| Command | Description |\n|---|---|\n| audit [target] | Check accessibility |\n| polish [target] | Final quality pass |";

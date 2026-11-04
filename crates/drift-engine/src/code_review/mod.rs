@@ -119,6 +119,7 @@ pub fn skill() -> Skill {
         instructions: include_str!("prompts/usage.md").trim().into(),
         argument_hint: Some("[low|medium|high|max] [target] [--fix] [--comment]".into()),
         builtin: Some(Builtin::Review),
+        invocation: crate::config::Invocation::default(),
     }
 }
 

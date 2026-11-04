@@ -17,7 +17,7 @@ use tokio::sync::{mpsc, watch};
 use super::bidi::{Bidi, Event, plain};
 use super::driver::{Common, Driver, Language, Pointer, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
 use super::input::{Key, parse_chord};
-use super::view::{Frame, PaneFit, ViewInput, pane_viewport};
+use super::view::{Clipboard, Frame, PaneFit, ViewInput, pane_viewport};
 use super::{DialogRecord, Kind, PageRecord, with_scheme};
 use crate::Engine;
 use crate::platform::process::{Tree, spawn_owned};
@@ -63,6 +63,8 @@ fn preferences(integrated_auth: &[String]) -> String {
         ("app.update.disabledForTesting", "true".into()),
         ("browser.cache.disk.capacity", "51200".into()),
         ("dom.disable_open_during_load", "false".into()),
+        // Always headless, its clipboard is its own: the pane reads it back from the page without a paste prompt.
+        ("dom.events.testing.asyncClipboard", "true".into()),
     ];
     if !integrated_auth.is_empty() {
         let hosts = format!("\"{}\"", integrated_auth.join(",").replace('*', ""));
@@ -1075,6 +1077,17 @@ impl Driver for Firefox {
         }
 
         Ok(())
+    }
+
+    async fn clipboard(&self) -> Clipboard {
+        let Some(tab) = self.active().and_then(|id| self.tab(&id)) else {
+            return Clipboard::default();
+        };
+
+        let read = tab.helper("clipboard()").await;
+        read.ok()
+            .and_then(|held| serde_json::from_value(held).ok())
+            .unwrap_or_default()
     }
 
     fn opening_note(&self) -> Option<String> {

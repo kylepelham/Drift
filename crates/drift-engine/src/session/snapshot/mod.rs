@@ -32,6 +32,8 @@ pub struct Snapshots {
     /// Workspaces found to hold more than `max_tree_files`; not walked again while the engine runs.
     too_many: Mutex<HashSet<PathBuf>>,
     max_tree_files: usize,
+    /// Loose objects a prune packs into the shadow repository's packs once they pass it.
+    pack_at_loose: usize,
     /// The git repository each workspace is the top of, if any, looked up once per run.
     sources: Mutex<HashMap<PathBuf, Option<Source>>>,
     /// Each shadow index's last written tree, by the index file's stamp then: unchanged, the tree still holds.
@@ -82,6 +84,9 @@ pub struct TreeChanges {
 /// Files past this size are never copied into the store, and whole-tree captures leave them out.
 /// A write to such a file is refused because it could not be undone.
 pub const MAX_RECORDED_BYTES: u64 = 10 * 1024 * 1024;
+/// Loose objects kept for undo are packed once they pass this count, so a busy workspace's history
+/// costs a handful of pack files instead of one small file per recorded version.
+pub const PACK_AT_LOOSE: usize = 4_096;
 /// Whole-tree captures are skipped above this many files, such as a drive or home folder, as they take minutes.
 /// A git repository's top folder has no limit because its capture starts from the repository's index.
 pub const MAX_TREE_FILES: usize = 50_000;
@@ -122,6 +127,7 @@ impl Snapshots {
             owners: Mutex::default(),
             too_many: Mutex::default(),
             max_tree_files: MAX_TREE_FILES,
+            pack_at_loose: PACK_AT_LOOSE,
             sources: Mutex::default(),
             trees: Mutex::default(),
             latest: Mutex::default(),

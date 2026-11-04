@@ -182,6 +182,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         config: Default::default(),
         progress: Default::default(),
         command_model: None,
+        by_command: false,
     };
 
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();

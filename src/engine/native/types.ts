@@ -834,8 +834,9 @@ export interface paths {
         };
         /**
          * Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
-         *     a JSON header, a JPEG), and `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer
-         *     changes; the client sends `ViewInput` as JSON text.
+         *     a JSON header, a JPEG), `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer changes,
+         *     and `{"type":"copied","text":...}` when this socket's input copied text in the browser; the client sends
+         *     `ViewInput` as JSON text.
          */
         get: operations["browserView"];
         put?: never;
@@ -2585,6 +2586,11 @@ export interface components {
         /** @description A mouse event from the pane, in the page's CSS pixels. */
         MouseInput: {
             button?: string | null;
+            /**
+             * Format: int32
+             * @description The buttons held, as `MouseEvent.buttons` has them (1 left, 2 right, 4 middle), so a move with one held drags.
+             */
+            buttons?: number;
             /** Format: int32 */
             clickCount?: number | null;
             /** Format: double */
@@ -5514,7 +5520,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description WebSocket; binary frames and cursor text out, ViewInput in */
+            /** @description WebSocket; binary frames, cursor and copied text out, ViewInput in */
             101: {
                 headers: {
                     [name: string]: unknown;

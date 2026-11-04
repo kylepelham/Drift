@@ -803,7 +803,7 @@ impl Provider {
             Self::Bedrock(provider) => provider.stream(request, credential).await,
             Self::Vertex(provider) => provider.stream(request, credential).await,
             Self::Ollama(provider) => provider.stream(request, credential).await,
-            Self::Scripted(provider) => provider.stream(request, credential),
+            Self::Scripted(provider) => provider.stream(request, credential).await,
         }
     }
 }

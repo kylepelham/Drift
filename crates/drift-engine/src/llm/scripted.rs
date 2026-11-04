@@ -17,6 +17,8 @@ enum Response {
     Paused(Vec<Chunk>, std::time::Duration, Vec<Chunk>),
     /// A response that never finishes, for exercising Stop.
     Stall,
+    /// A request that is never answered at all, as a provider that sends no headers.
+    Unanswered,
 }
 
 type Responses = Arc<Mutex<VecDeque<Response>>>;
@@ -69,6 +71,12 @@ impl Scripted {
         self
     }
 
+    pub fn push_unanswered(&self) -> &Self {
+        self.responses.lock().unwrap().push_back(Response::Unanswered);
+
+        self
+    }
+
     pub fn push_stall(&self) -> &Self {
         self.responses.lock().unwrap().push_back(Response::Stall);
 
@@ -104,7 +112,19 @@ impl Scripted {
         self.responses.lock().unwrap().len() + self.keyed.lock().unwrap().len()
     }
 
-    pub fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
+    pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
+        let response = self.next(request, credential);
+        if matches!(response, Some(Response::Unanswered)) {
+            std::future::pending::<()>().await;
+        }
+
+        match response {
+            Some(response) => play(response),
+            None => Err(Error::Transport("scripted provider has no more responses".into())),
+        }
+    }
+
+    fn next(&self, request: &Request, credential: &Credential) -> Option<Response> {
         self.requests.lock().unwrap().push(request.clone());
         self.credentials.lock().unwrap().push(credential.clone());
 
@@ -116,10 +136,7 @@ impl Scripted {
             .map(|index| keyed.remove(index).1);
         drop(keyed);
 
-        match found.or_else(|| self.responses.lock().unwrap().pop_front()) {
-            Some(response) => play(response),
-            None => Err(Error::Transport("scripted provider has no more responses".into())),
-        }
+        found.or_else(|| self.responses.lock().unwrap().pop_front())
     }
 }
 
@@ -159,6 +176,6 @@ fn play(response: Response) -> Result<ChunkStream, Error> {
                 futures_util::stream::iter(before.into_iter().map(Ok)).chain(rest),
             ))
         }
-        Response::Stall => Ok(Box::pin(futures_util::stream::pending())),
+        Response::Stall | Response::Unanswered => Ok(Box::pin(futures_util::stream::pending())),
     }
 }

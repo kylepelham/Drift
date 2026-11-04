@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target, off_runtime, shot_factor};
 use super::input::Key;
-use super::view::{Frame, ViewInput};
+use super::view::{Clipboard, Copied, Frame, ViewInput};
 use super::webdriver::{Session, WdError, wait_ready};
 use super::{DialogRecord, PageRecord, with_scheme};
 use crate::Engine;
@@ -41,6 +41,8 @@ pub(crate) struct Ie {
     start_url: String,
     /// The pane should get a picture now, not at the next tick: the user switched tabs or acted on the page.
     frame_now: tokio::sync::Notify,
+    /// What the pane's last Control+C or Control+X took; keys sent by script never reach IE's own copy.
+    copied: Mutex<Option<Copied>>,
 }
 
 pub(crate) struct IeTab {
@@ -149,6 +151,7 @@ impl Ie {
             last_frame: Mutex::new(0),
             start_url: format!("{server}/"),
             frame_now: tokio::sync::Notify::new(),
+            copied: Mutex::default(),
         });
         {
             let _held = ie.lock.lock().await;
@@ -435,9 +438,25 @@ impl Ie {
         if key.key.chars().count() == 1 && !control {
             return tab.type_text(&key.key).await;
         }
+        let letter = key.key.to_ascii_lowercase();
+        if control && (letter == "c" || letter == "x") {
+            return self.copy(tab, letter == "x").await;
+        }
 
         let (parsed, _) = super::input::parse_chord(&key.key).unwrap_or((Key::from_input(key), 0));
         tab.press(&parsed, key.modifiers).await
+    }
+
+    async fn copy(&self, tab: &IeTab, cut: bool) -> Result<(), String> {
+        let text = tab.helper(&format!("copy({cut})"), json!([])).await?;
+        let mut copied = self.copied.lock().unwrap();
+        let id = copied.as_ref().map_or(0.0, |last| last.id) + 1.0;
+        *copied = Some(Copied {
+            id,
+            text: text.as_str().unwrap_or_default().into(),
+        });
+
+        Ok(())
     }
 
     async fn page_input(&self, input: ViewInput) -> Result<(), String> {
@@ -851,6 +870,14 @@ impl Driver for Ie {
         }
 
         Ok(())
+    }
+
+    /// IE mode's clipboard is the user's: only what the pane's own shortcut copied needs handing on.
+    async fn clipboard(&self) -> Clipboard {
+        Clipboard {
+            copy: self.copied.lock().unwrap().clone(),
+            held: None,
+        }
     }
 
     fn opening_note(&self) -> Option<String> {

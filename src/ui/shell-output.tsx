@@ -43,11 +43,9 @@ export function splitOmitted(text: string): { head: string; omitted: number; tai
     };
 }
 
-export function shellTranscript(command: string, output: string) {
-    const normalized = stripAnsi(output).replace(/\r\n?/g, "\n");
-    const body = normalized.trim() ? `\n\n${normalized}` : "";
-
-    return `$ ${command}${body}`;
+/** What the output's copy button copies: the output alone, as shown; the command copies from its own button. */
+export function shellOutputText(output: string) {
+    return stripAnsi(output).replace(/\r\n?/g, "\n");
 }
 
 /**
@@ -234,8 +232,30 @@ function omittedDivider(omitted: number, file?: string) {
     return divider;
 }
 
-export function ShellOutput(props: { command: string; output: string; running: boolean; file?: string }) {
+function CopyButton(props: { text: () => string; title: string; class: string }) {
     const [copied, setCopied] = createSignal(false);
+    const copy = async () => {
+        await navigator.clipboard.writeText(props.text());
+        setCopied(true);
+        setTimeout(() => setCopied(false), copiedFeedbackMs);
+    };
+
+    return (
+        <button
+            title={props.title}
+            class={`touch-reveal absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity hover:bg-raised hover:text-ink ${props.class}`}
+            onClick={() => void copy()}
+        >
+            <Show when={copied()} fallback={<IconCopy class="size-3.5" />}>
+                <IconCheck class="size-3.5" />
+            </Show>
+        </button>
+    );
+}
+
+/** The command stays above its output, so scrolling a long output never hides what ran. */
+export function ShellOutput(props: { command: string; output: string; running: boolean; file?: string }) {
+    const [hasOutput, setHasOutput] = createSignal(false);
     const [renderRevision, setRenderRevision] = createSignal(0);
     let viewport!: HTMLPreElement;
     let mounted = false;
@@ -254,30 +274,21 @@ export function ShellOutput(props: { command: string; output: string; running: b
 
             if (update.replace) {
                 const segments = shellReplaceSegments(command, update.text);
-                const cut = splitOmitted(segments.output);
-                outputNode = document.createTextNode(cut ? cut.tail : segments.output);
+                const body = segments.command === null ? segments.output : segments.output.replace(/^\n\n/, "");
+                const cut = splitOmitted(body);
+                outputNode = document.createTextNode(cut ? cut.tail : body);
                 const shown: Node[] = cut
                     ? [document.createTextNode(cut.head), omittedDivider(cut.omitted, props.file), outputNode]
                     : [outputNode];
-                if (segments.command === null) {
-                    viewport.replaceChildren(...shown);
-                } else {
-                    const prompt = document.createElement("span");
-                    prompt.className = "text-accent select-none";
-                    prompt.textContent = "$ ";
-                    const name = document.createElement("span");
-                    name.className = "font-medium text-ink";
-                    name.textContent = segments.command;
-                    const trailing = document.createElement("span");
-                    trailing.className = "text-ink-muted";
-                    trailing.append(...shown);
-                    viewport.replaceChildren(prompt, name, trailing);
-                }
+                viewport.replaceChildren(...shown);
             } else if (update.text) {
                 if (outputNode) outputNode.appendData(update.text);
                 else viewport.append(update.text);
             }
-            if (update.replace || update.text) setRenderRevision((value) => value + 1);
+            if (update.replace || update.text) {
+                setHasOutput(!!viewport.textContent?.trim());
+                setRenderRevision((value) => value + 1);
+            }
         },
     );
     onMount(() => {
@@ -295,12 +306,6 @@ export function ShellOutput(props: { command: string; output: string; running: b
     );
     onCleanup(() => normalizer.dispose());
 
-    const copy = async () => {
-        await navigator.clipboard.writeText(shellTranscript(props.command, props.output));
-        setCopied(true);
-        setTimeout(() => setCopied(false), copiedFeedbackMs);
-    };
-
     createEffect(
         on(renderRevision, () => {
             const top = savedTop;
@@ -312,31 +317,49 @@ export function ShellOutput(props: { command: string; output: string; running: b
     );
 
     return (
-        <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
-            <button
-                title={t("drift.shell.copyOutput")}
-                class="touch-reveal absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-focus-within/shell:opacity-100 group-hover/shell:opacity-100 hover:bg-raised hover:text-ink"
-                onClick={() => void copy()}
-            >
-                <Show when={copied()} fallback={<IconCopy class="size-3.5" />}>
-                    <IconCheck class="size-3.5" />
-                </Show>
-            </button>
-            <pre
-                ref={viewport}
-                class="shell-output transcript-tool-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
-                role="region"
-                aria-label={t("drift.shell.output")}
-                tabIndex={0}
-                onScroll={(event) => {
-                    savedTop = event.currentTarget.scrollTop;
-                    following = shellAtBottom(
-                        savedTop,
-                        event.currentTarget.clientHeight,
-                        event.currentTarget.scrollHeight,
-                    );
-                }}
-            />
+        <div class="overflow-hidden rounded-[6px] border-[0.5px] border-edge">
+            <Show when={props.command}>
+                <div
+                    class="group/command relative"
+                    classList={{ "border-b-[0.5px] border-edge bg-raised/30": hasOutput() }}
+                >
+                    <CopyButton
+                        text={() => props.command}
+                        title={t("drift.shell.copyCommand")}
+                        class="group-focus-within/command:opacity-100 group-hover/command:opacity-100"
+                    />
+                    <pre
+                        class="shell-output code-display max-h-28 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5]"
+                        aria-label={t("drift.shell.command")}
+                        tabIndex={0}
+                    >
+                        <span class="text-accent select-none">$ </span>
+                        <span class="font-medium text-ink">{props.command}</span>
+                    </pre>
+                </div>
+            </Show>
+            <div class="group/output relative" classList={{ hidden: !hasOutput() }}>
+                <CopyButton
+                    text={() => shellOutputText(props.output)}
+                    title={t("drift.shell.copyOutput")}
+                    class="group-focus-within/output:opacity-100 group-hover/output:opacity-100"
+                />
+                <pre
+                    ref={viewport}
+                    class="shell-output transcript-tool-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink-muted"
+                    role="region"
+                    aria-label={t("drift.shell.output")}
+                    tabIndex={0}
+                    onScroll={(event) => {
+                        savedTop = event.currentTarget.scrollTop;
+                        following = shellAtBottom(
+                            savedTop,
+                            event.currentTarget.clientHeight,
+                            event.currentTarget.scrollHeight,
+                        );
+                    }}
+                />
+            </div>
         </div>
     );
 }

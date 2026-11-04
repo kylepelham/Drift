@@ -172,6 +172,15 @@ diff and patch panels in `diff-panel.tsx`. `tool-delegation.ts` derives a delega
 call's child session and status (queued, running, completed, error) and whether a
 click navigates or expands. Attachments and `@` mentions render from `file-part.tsx`.
 
+A shell call's command sits in its own block above the output, so scrolling a long output
+never hides what ran; each block has its own copy button, and the output's copies the
+output alone. A tool with no view of its own (every MCP tool, and built-ins such as fetch
+or skill) opens to an Input list and an Output section (`src/ui/tool-io.ts`). Input shows
+each argument under a readable name (`work_item_id` reads "Work item ID"), leaves empty
+ones out and keeps nested ones as indented JSON. Output renders as Markdown when it is
+written as Markdown, as indented JSON when it parses, and as monospaced text otherwise,
+followed by any images the call returned (`metadata.images`).
+
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed

@@ -31,7 +31,7 @@ use driver::{Driver, Spec};
 pub use input::{KeyInput, MouseInput};
 pub use project::BrowserProject;
 pub(crate) use view::apply_inputs;
-pub use view::{Frame, ViewInput};
+pub use view::{Frame, Notice, ViewInput};
 
 /// Settings: whether agents get the `browser` tool, and how its browsers start.
 pub const SETTINGS_KEY: &str = "browser";

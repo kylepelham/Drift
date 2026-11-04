@@ -326,8 +326,10 @@ the credential is refused.
 - `POST /sessions/{id}/browser/stop` ends it.
 - `GET /sessions/{id}/browser/view` a WebSocket. The engine sends binary messages, each a 4-byte
   little-endian header length, a JSON header (`page`, `width`, `height`) and a JPEG, and a text message
-  `{"type":"cursor","cursor":...}` when the cursor under the pane's pointer changes. The client sends JSON
-  text: `mouse`, `key`, `text`, `select`, `close`, `newPage`, `navigate`, `dialog`, `fit`. Frames flow only
+  `{"type":"cursor","cursor":...}` when the cursor under the pane's pointer changes and
+  `{"type":"copied","text":...}` when the pane's input copied text in the browser. The client sends JSON
+  text: `mouse` (with `buttons`, the buttons held, so a move with one held drags), `key`, `text`, `select`,
+  `close`, `newPage`, `navigate`, `dialog`, `fit`. Frames flow only
   while at least one view socket is open, and only for the active page. Input is applied in the order it was
   sent; pointer moves and wheel turns that queue while the browser is busy fold into the last move and one summed
   turn. Firefox answers each `input.performActions` before the next can start, so without this a high-refresh
@@ -359,6 +361,17 @@ the credential is refused.
   `desktop` again; the picture is then centred in the pane. IE mode keeps its own size.
 - Clicks, wheel and keys typed while the picture has focus go to the page, mapped to its CSS pixels. Pasting
   sends the text as typed input.
+- Copying reaches the user's clipboard: Ctrl+C or Ctrl+X on a selection and a site's own Copy button
+  (`navigator.clipboard.writeText` or `execCommand('copy')`). A headless browser keeps a clipboard of its own,
+  so after each click, Enter, Space or Ctrl/Cmd chord the engine asks the page helper what the page last
+  copied (its `copy` and `cut` events) and, on secure pages, what the browser's clipboard holds; it checks again
+  after 100, 400 and 1200 ms and sends any new text as `copied`, which the pane writes to the clipboard.
+  For this, hidden Chrome and Edge get `clipboard-read` (`Browser.setPermission`; `grantPermissions` would deny
+  every other permission, write included) and focus emulation, and each page shown is brought to front, since
+  an unfocused page's clipboard calls fail and the launch tab otherwise leaves keys in the hidden omnibox, so
+  Ctrl+C copied the address. Firefox gets `dom.events.testing.asyncClipboard`. IE mode handles Ctrl+C and
+  Ctrl+X itself from the page's selection (cut deletes only inside a field). An off-screen window uses the
+  real clipboard and gets none of this, so pages there cannot read the user's clipboard.
 - The pane shows the cursor the page would (all but IE mode). CSS cursors are not reported by the DevTools
   Protocol or BiDi, so after each pointer event the engine asks the page's isolated world what is under the point:
   the element's computed `cursor` (an image cursor gives its keyword fallback), or for `auto` an I-beam over

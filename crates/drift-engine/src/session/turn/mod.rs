@@ -238,6 +238,8 @@ pub(crate) struct Plan {
     bootstrap: Vec<command::Bootstrap>,
     /// Its agent and model are a command's, for this turn only: it does not follow the session's.
     turn_only: bool,
+    /// A switch the user may still make after a retry's wait, until the retried request opens.
+    retry_switch: Option<tokio::sync::oneshot::Receiver<Switch>>,
 }
 
 /// How a prompt is admitted beyond the session itself.
@@ -290,6 +292,8 @@ enum Step {
     UnreadableImage,
     /// The reply, by its id, stopped at its output limit; the turn may go on after it.
     Length(String),
+    /// The user moved a retried request that had not answered yet to another model.
+    Switched(Box<Switch>),
 }
 
 /// Which content refusals a turn has already recovered from; each is tried once.
@@ -393,6 +397,8 @@ struct Streamed {
 enum StreamError {
     Aborted,
     Provider(llm::Error),
+    /// The user moved the retried request to another model before it answered.
+    Switched(Box<Switch>),
 }
 
 /// A field that is present, even as null, is `Some`; only an absent one stays `None`.

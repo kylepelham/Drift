@@ -33,11 +33,15 @@ impl Tool for Skill {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let name = required_str(&input, "name")?;
-            let skill = ctx.config.skill(name).ok_or_else(|| {
-                ToolError(format!(
-                    "no skill named `{name}`; the available skills are listed in the system prompt"
-                ))
-            })?;
+            let skill = ctx
+                .config
+                .skill(name)
+                .filter(|skill| skill.invocation.model || ctx.by_command)
+                .ok_or_else(|| {
+                    ToolError(format!(
+                        "no skill named `{name}`; the available skills are listed in the system prompt"
+                    ))
+                })?;
             if let Some(builtin) = skill.builtin {
                 let arguments = input["arguments"].as_str().unwrap_or_default();
                 let output = match builtin {
@@ -106,6 +110,22 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
 mod tests {
     use super::super::tests::Sandbox;
     use super::*;
+
+    #[tokio::test]
+    async fn a_skill_only_the_user_invokes_loads_for_their_command_and_not_for_the_model() {
+        let mut sandbox = Sandbox::new("skill-manual");
+        sandbox.file(
+            ".drift/skills/release/SKILL.md",
+            "---\nname: release\ndescription: Ships a release\ndisable-model-invocation: true\n---\nTag it.",
+        );
+        sandbox.reload_config();
+
+        let asked = Skill.run(&sandbox.ctx, json!({ "name": "release" })).await;
+        assert!(asked.is_err(), "the model cannot load it");
+        sandbox.ctx.by_command = true;
+        let run = Skill.run(&sandbox.ctx, json!({ "name": "release" })).await.unwrap();
+        assert!(run.output.ends_with("Tag it."), "{}", run.output);
+    }
 
     #[tokio::test]
     async fn loads_a_project_skill_by_name() {

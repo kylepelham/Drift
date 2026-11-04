@@ -94,13 +94,20 @@ impl Page {
         }
     }
 
-    /// Turns on the events a test needs and lets the page run; `user_agent` replaces a headless one first.
-    pub(crate) async fn setup(&self, user_agent: Option<&Value>) -> Result<(), CdpError> {
+    /// Turns on the events a test needs and lets the page run; `user_agent` replaces a headless one first. A hidden
+    /// browser's pages count as focused, as a person's tab in front would, so a site's clipboard calls work.
+    pub(crate) async fn setup(&self, user_agent: Option<&Value>, hidden: bool) -> Result<(), CdpError> {
         for domain in ["Page.enable", "Runtime.enable", "Network.enable", "Log.enable"] {
             self.call(domain, json!({})).await?;
         }
         if let Some(user_agent) = user_agent {
             self.call("Emulation.setUserAgentOverride", user_agent.clone()).await?;
+        }
+        // Optional, as the resume below is: without it the page still loads, only its clipboard calls fail.
+        if hidden {
+            let _ = self
+                .call("Emulation.setFocusEmulationEnabled", json!({ "enabled": true }))
+                .await;
         }
         self.fit_pane();
 

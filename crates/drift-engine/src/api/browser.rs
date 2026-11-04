@@ -20,7 +20,7 @@ use crate::Engine;
 use crate::browser::driver::{Driver, watch};
 use crate::browser::engines::EngineStatus;
 use crate::browser::project::Credential;
-use crate::browser::{BrowserProject, BrowserRecord, Kind, ViewInput, apply_inputs};
+use crate::browser::{BrowserProject, BrowserRecord, Kind, Notice, ViewInput, apply_inputs};
 
 /// A workspace's browser setup as Settings shows it: its drift.json section and its stored sign-ins.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -171,13 +171,14 @@ pub(super) async fn remove_credential(
 }
 
 /// Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
-/// a JSON header, a JPEG), and `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer
-/// changes; the client sends `ViewInput` as JSON text.
+/// a JSON header, a JPEG), `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer changes,
+/// and `{"type":"copied","text":...}` when this socket's input copied text in the browser; the client sends
+/// `ViewInput` as JSON text.
 #[utoipa::path(
     get,
     path = "/sessions/{id}/browser/view",
     operation_id = "browserView",
-    responses((status = 101, description = "WebSocket; binary frames and cursor text out, ViewInput in"), (status = 404))
+    responses((status = 101, description = "WebSocket; binary frames, cursor and copied text out, ViewInput in"), (status = 404))
 )]
 pub(super) async fn view(
     State(engine): State<Arc<Engine>>,
@@ -196,10 +197,12 @@ pub(super) async fn view(
 
 async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: CancellationToken) {
     let mut viewer = watch(driver.clone());
-    let mut cursor = driver.common().cursor.subscribe();
 
     let (inputs, queued) = mpsc::unbounded_channel::<ViewInput>();
-    let applier = tokio::spawn(apply_inputs(driver.clone(), queued));
+    let (notices, mut notice) = mpsc::unbounded_channel::<Notice>();
+    // A watch, so a socket slow to send skips to the newest cursor instead of queueing stale ones.
+    let mut cursor = driver.common().cursor.subscribe();
+    let applier = tokio::spawn(apply_inputs(driver.clone(), queued, notices));
 
     loop {
         tokio::select! {
@@ -214,10 +217,8 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             },
-            Ok(()) = cursor.changed() => {
-                let shown = cursor.borrow_and_update().clone();
-                let message = serde_json::json!({ "type": "cursor", "cursor": shown }).to_string();
-                if socket.send(Message::Text(message.into())).await.is_err() {
+            Some(notice) = next_notice(&mut cursor, &mut notice) => {
+                if !tell(&mut socket, &notice).await {
                     break;
                 }
             }
@@ -234,4 +235,23 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
     }
 
     applier.abort();
+}
+
+/// The newest cursor when it changed, else what an input copied; `None` once both have closed.
+async fn next_notice(
+    cursor: &mut tokio::sync::watch::Receiver<String>,
+    copied: &mut mpsc::UnboundedReceiver<Notice>,
+) -> Option<Notice> {
+    tokio::select! {
+        Ok(()) = cursor.changed() => Some(Notice::Cursor { cursor: cursor.borrow_and_update().clone() }),
+        Some(notice) = copied.recv() => Some(notice),
+        else => None,
+    }
+}
+
+/// Sends the pane a notice; false once the socket is gone.
+async fn tell(socket: &mut WebSocket, notice: &Notice) -> bool {
+    let message = serde_json::to_string(notice).expect("a notice always serialises");
+
+    socket.send(Message::Text(message.into())).await.is_ok()
 }

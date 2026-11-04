@@ -30,17 +30,17 @@ impl Snapshots {
             command.env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &source.objects);
         }
         let mut child = command.spawn().map_err(|_| Error::NoGit)?;
-        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-            stdin
-                .write_all(input)
-                .await
-                .map_err(|error| Error::Failed(error.to_string()))?;
-        }
-
-        let output = child
-            .wait_with_output()
-            .await
-            .map_err(|error| Error::Failed(error.to_string()))?;
+        // Fed while the output is read: a long input could otherwise fill both pipes and hang.
+        let stdin = child.stdin.take();
+        let feed = async move {
+            if let (Some(input), Some(mut stdin)) = (input, stdin) {
+                stdin.write_all(input).await?;
+            }
+            Ok::<_, std::io::Error>(())
+        };
+        let (fed, output) = tokio::join!(feed, child.wait_with_output());
+        fed.map_err(|error| Error::Failed(error.to_string()))?;
+        let output = output.map_err(|error| Error::Failed(error.to_string()))?;
         if !output.status.success() {
             return Err(Error::Failed(
                 String::from_utf8_lossy(&output.stderr).trim().to_string(),

@@ -252,7 +252,7 @@ fn listings(setting: &Setting) -> Vec<Source> {
     let skills: Vec<String> = config
         .skills
         .iter()
-        .filter(|skill| loads_skills && !denied("skill", &skill.name))
+        .filter(|skill| loads_skills && skill.invocation.model && !denied("skill", &skill.name))
         .map(|skill| format!("- {}: {}", skill.name, skill.description))
         .collect();
     if !skills.is_empty() {
@@ -483,9 +483,12 @@ mod tests {
             instructions: String::new(),
             argument_hint: None,
             builtin: None,
+            invocation: crate::config::Invocation::default(),
         };
 
-        config.skills = vec![skill("review"), skill("deploy")];
+        let mut manual = skill("release");
+        manual.invocation.model = false;
+        config.skills = vec![skill("review"), skill("deploy"), manual];
 
         let workspace = crate::platform::temp::test_run();
         let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
@@ -509,6 +512,10 @@ mod tests {
 
         let all = built(true, &NONE_DENIED);
         assert!(all.contains("- review: ") && all.contains("- deploy: ") && all.contains("- explore: "));
+        assert!(
+            !all.contains("- release: "),
+            "a skill only the user invokes is not listed"
+        );
 
         let ruled = built(true, &deny);
         assert!(

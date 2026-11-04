@@ -81,9 +81,23 @@ pub enum ViewInput {
     Fit { width: f64, height: f64 },
 }
 
+/// What the engine tells a pane besides frames, as JSON text.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum Notice {
+    /// The CSS cursor the page shows under the pane's pointer.
+    Cursor { cursor: String },
+    /// Text this pane's click or shortcut copied in the browser, for the pane to put on its user's clipboard.
+    Copied { text: String },
+}
+
 /// Applies the pane's input in the order it was sent. Moves and wheel turns that queued while the browser was busy
 /// are folded together, so a browser that answers each one slowly (Firefox) never falls behind the pointer.
-pub(crate) async fn apply_inputs(driver: Arc<dyn Driver>, mut queued: mpsc::UnboundedReceiver<ViewInput>) {
+pub(crate) async fn apply_inputs(
+    driver: Arc<dyn Driver>,
+    mut queued: mpsc::UnboundedReceiver<ViewInput>,
+    notices: mpsc::UnboundedSender<Notice>,
+) {
     while let Some(first) = queued.recv().await {
         let mut batch = vec![first];
         while let Ok(next) = queued.try_recv() {
@@ -91,8 +105,72 @@ pub(crate) async fn apply_inputs(driver: Arc<dyn Driver>, mut queued: mpsc::Unbo
         }
 
         for input in coalesce(batch) {
+            let before = match may_copy(&input) {
+                true => Some(driver.clipboard().await),
+                false => None,
+            };
             let _ = driver.input(input).await;
+            if let Some(before) = before {
+                tokio::spawn(follow_copy(driver.clone(), before, notices.clone()));
+            }
         }
+    }
+}
+
+/// A click, or a key that may run a copy button or a shortcut: Control or Meta held, Enter, or Space.
+fn may_copy(input: &ViewInput) -> bool {
+    match input {
+        ViewInput::Mouse(mouse) => mouse.event == "up",
+        ViewInput::Key(key) => key.event == "down" && (key.is_shortcut() || key.key == "Enter" || key.key == " "),
+        _ => false,
+    }
+}
+
+/// Looks at the clipboard a few times after the input, since a page often copies once a promise settles.
+async fn follow_copy(driver: Arc<dyn Driver>, before: Clipboard, notices: mpsc::UnboundedSender<Notice>) {
+    for wait in COPY_CHECKS {
+        tokio::time::sleep(wait).await;
+        if let Some(text) = driver.clipboard().await.copied_since(&before) {
+            let _ = notices.send(Notice::Copied { text });
+            return;
+        }
+    }
+}
+
+/// The waits between looks at the clipboard after an input that may copy: 0.1 s, 0.4 s and 1.2 s after it.
+const COPY_CHECKS: [std::time::Duration; 3] = [
+    std::time::Duration::from_millis(100),
+    std::time::Duration::from_millis(300),
+    std::time::Duration::from_millis(800),
+];
+
+/// A headless browser keeps its own clipboard, so what its page copies is read back from the page and handed to the
+/// pane. The page tells two things: its last `copy` or `cut` (by key, menu or `execCommand`, on any page), and on a
+/// secure page the clipboard itself, which also catches `navigator.clipboard.writeText`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub(crate) struct Clipboard {
+    #[serde(default)]
+    pub(crate) copy: Option<Copied>,
+    #[serde(default)]
+    pub(crate) held: Option<String>,
+}
+
+/// One copy or cut, told apart from the last by its id.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct Copied {
+    pub(crate) id: f64,
+    pub(crate) text: String,
+}
+
+impl Clipboard {
+    /// What an input copied: a new copy (what the clipboard now holds, or what was copied when the page cannot read
+    /// it), else a change of the clipboard. Copying the same text again counts, as the user's clipboard may differ.
+    fn copied_since(&self, before: &Self) -> Option<String> {
+        let changed = self.held.clone().filter(|_| self.held != before.held);
+        let copy = self.copy.as_ref().filter(|copy| before.copy.as_ref() != Some(*copy));
+        let copied = copy.map(|copy| changed.clone().unwrap_or_else(|| copy.text.clone()));
+
+        copied.or(changed).filter(|text| !text.is_empty())
     }
 }
 
@@ -210,6 +288,80 @@ mod tests {
         );
     }
 
+    fn held(copy: Option<(f64, &str)>, held: Option<&str>) -> Clipboard {
+        Clipboard {
+            copy: copy.map(|(id, text)| Copied { id, text: text.into() }),
+            held: held.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_copy_or_a_changed_clipboard_is_what_an_input_copied() {
+        let before = held(Some((1.0, "old")), Some("old"));
+
+        assert_eq!(
+            held(Some((1.0, "old")), Some("old")).copied_since(&before),
+            None,
+            "nothing new"
+        );
+        assert_eq!(
+            held(Some((2.0, "old")), Some("old")).copied_since(&before).as_deref(),
+            Some("old"),
+            "copying the same text again copies it again"
+        );
+        assert_eq!(
+            held(Some((1.0, "old")), Some("written"))
+                .copied_since(&before)
+                .as_deref(),
+            Some("written"),
+            "a page's writeText fires no copy event"
+        );
+        assert_eq!(
+            held(Some((2.0, "selected")), None)
+                .copied_since(&held(None, None))
+                .as_deref(),
+            Some("selected"),
+            "a page that cannot read its clipboard tells what it copied"
+        );
+        assert_eq!(
+            held(None, Some("old")).copied_since(&before),
+            None,
+            "a new document has copied nothing"
+        );
+        assert_eq!(held(Some((2.0, "")), None).copied_since(&before), None);
+        assert_eq!(
+            held(Some((2.0, "")), Some("old")).copied_since(&before),
+            None,
+            "copying with nothing selected copies nothing"
+        );
+    }
+
+    #[test]
+    fn clicks_and_shortcuts_may_copy_and_typing_does_not() {
+        let control = ViewInput::Key(KeyInput {
+            modifiers: 2,
+            ..match key("down") {
+                ViewInput::Key(key) => key,
+                _ => unreachable!(),
+            }
+        });
+
+        assert!(may_copy(&mouse("up", 1.0, None, 0)));
+        assert!(may_copy(&control));
+        assert!(!may_copy(&mouse("down", 1.0, None, 0)));
+        assert!(!may_copy(&mouse("move", 1.0, None, 0)));
+        assert!(!may_copy(&key("down")));
+        assert!(!may_copy(&ViewInput::Text { text: "a".into() }));
+    }
+
+    #[test]
+    fn notices_are_tagged_json() {
+        let copied = serde_json::to_value(Notice::Copied { text: "hi".into() }).unwrap();
+        assert_eq!(copied, serde_json::json!({ "type": "copied", "text": "hi" }));
+        let cursor = serde_json::to_value(Notice::Cursor { cursor: "text".into() }).unwrap();
+        assert_eq!(cursor, serde_json::json!({ "type": "cursor", "cursor": "text" }));
+    }
+
     fn mouse(event: &str, x: f64, delta_y: Option<f64>, modifiers: u8) -> ViewInput {
         ViewInput::Mouse(MouseInput {
             event: event.into(),
@@ -220,6 +372,7 @@ mod tests {
             delta_x: None,
             delta_y,
             modifiers,
+            buttons: 0,
         })
     }
 
