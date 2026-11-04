@@ -111,6 +111,44 @@ async fn a_prune_keeps_what_history_refers_to_and_drops_the_rest() {
 }
 
 #[tokio::test]
+async fn a_prune_packs_a_pinned_history_once_loose_objects_pile_up() {
+    let (base, workspace) = dirs();
+    let mut snapshots = Snapshots::new(&base.join("data"));
+    snapshots.pack_at_loose = 1;
+    std::fs::write(workspace.join("kept.txt"), "kept\n").unwrap();
+    std::fs::write(workspace.join("dropped.txt"), "dropped\n").unwrap();
+
+    let kept = snapshots.record(&workspace, "kept.txt").await.unwrap().unwrap();
+    let dropped = snapshots.record(&workspace, "dropped.txt").await.unwrap().unwrap();
+    let elsewhere = "0000000000000000000000000000000000000001";
+
+    snapshots
+        .prune_older_than(&workspace, &[kept.clone(), elsewhere.to_string()], "now")
+        .await
+        .unwrap();
+
+    let packs = std::fs::read_dir(snapshots.git_dir(&workspace).join("objects/pack"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "pack"))
+                .count()
+        })
+        .unwrap_or_default();
+    assert!(packs > 0, "the pinned blob was packed, not left loose");
+    assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok());
+    assert!(snapshots.git(&workspace, &["cat-file", "-e", &dropped]).await.is_err());
+
+    let counted = snapshots.git(&workspace, &["count-objects"]).await.unwrap();
+    assert!(
+        counted.split_whitespace().next().unwrap().parse::<usize>().unwrap() < 3,
+        "the packed blob left no loose copy: {counted}"
+    );
+
+    std::fs::remove_dir_all(base).ok();
+}
+
+#[tokio::test]
 async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_directory_is() {
     let (base, workspace) = dirs();
     let snapshots = Snapshots::new(&base.join("data"));
