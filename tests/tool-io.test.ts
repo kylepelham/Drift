@@ -9,6 +9,7 @@ test("a call's arguments read as labelled rows, empty ones left out and nested o
         query: "",
         org: null,
         tags: ["a", "b"],
+        gaps: ["a", null],
         filter: { state: "open" },
     });
 
@@ -17,6 +18,7 @@ test("a call's arguments read as labelled rows, empty ones left out and nested o
         ["Work item ID", "6541", false],
         ["No cache", "true", false],
         ["Tags", "a, b", false],
+        ["Gaps", "a, null", false],
         ["Filter", '{\n  "state": "open"\n}', true],
     ]);
 });

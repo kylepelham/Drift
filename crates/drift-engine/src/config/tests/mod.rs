@@ -108,7 +108,7 @@ fn skill_front_matter_decides_who_invokes_it_and_what_the_model_is_told() {
     write(
         &workspace,
         ".drift/skills/manual/SKILL.md",
-        "---\nname: manual\ndescription: Only by hand.\ndisable-model-invocation: true\n---\nGo.",
+        "---\nname: manual\ndescription: Only by hand.\ndisable-model-invocation: true # manual only\n---\nGo.",
     );
     write(
         &workspace,

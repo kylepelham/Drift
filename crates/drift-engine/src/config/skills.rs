@@ -124,7 +124,12 @@ pub(super) fn described(document: &super::frontmatter::Document) -> String {
 }
 
 pub(super) fn invocation(document: &super::frontmatter::Document) -> super::Invocation {
-    let set = |key: &str, value: &str| document.field(key).is_some_and(|field| field.trim() == value);
+    // The value alone: front matter keeps an inline `# comment` after it.
+    let set = |key: &str, value: &str| {
+        document
+            .field(key)
+            .is_some_and(|field| field.split('#').next().unwrap_or_default().trim() == value)
+    };
 
     super::Invocation {
         model: !set("disable-model-invocation", "true"),

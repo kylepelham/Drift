@@ -103,9 +103,11 @@ impl Page {
         if let Some(user_agent) = user_agent {
             self.call("Emulation.setUserAgentOverride", user_agent.clone()).await?;
         }
+        // Optional, as the resume below is: without it the page still loads, only its clipboard calls fail.
         if hidden {
-            self.call("Emulation.setFocusEmulationEnabled", json!({ "enabled": true }))
-                .await?;
+            let _ = self
+                .call("Emulation.setFocusEmulationEnabled", json!({ "enabled": true }))
+                .await;
         }
         self.fit_pane();
 

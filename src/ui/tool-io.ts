@@ -41,7 +41,7 @@ export function outputView(output: string): ToolOutputView {
 function fieldText(value: unknown) {
     if (typeof value === "string") return value;
     if (typeof value !== "object") return String(value);
-    if (isFlatList(value)) return (value as unknown[]).join(", ");
+    if (isFlatList(value)) return (value as unknown[]).map(String).join(", ");
 
     return JSON.stringify(value, null, 2);
 }

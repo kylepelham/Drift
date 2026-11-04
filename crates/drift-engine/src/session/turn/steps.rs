@@ -416,10 +416,12 @@ impl Engine {
         let sent = super::cache_watch::segments(&masks.request(request));
         let mut switch = plan.retry_switch.take();
         let opened = tokio::select! {
-            opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider),
+            // A switch already sent wins over a response opening in the same poll; the user was told it took.
+            biased;
             Ok(switched) = async { switch.as_mut().unwrap().await }, if switch.is_some() => {
                 return Err(StreamError::Switched(Box::new(switched)));
             }
+            opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider),
             () = abort.cancelled() => Err(StreamError::Aborted),
         };
         plan.retry_switch = switch;

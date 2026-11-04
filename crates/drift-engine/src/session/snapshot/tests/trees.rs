@@ -120,12 +120,11 @@ async fn a_prune_packs_a_pinned_history_once_loose_objects_pile_up() {
 
     let kept = snapshots.record(&workspace, "kept.txt").await.unwrap().unwrap();
     let dropped = snapshots.record(&workspace, "dropped.txt").await.unwrap().unwrap();
-    let elsewhere = "0000000000000000000000000000000000000001";
+    // Blobs it does not hold, as a moved or imported session's history names, are left out of the keep reference.
+    let mut keep: Vec<String> = (0..2_000).map(|index| format!("{index:040x}")).collect();
+    keep.push(kept.clone());
 
-    snapshots
-        .prune_older_than(&workspace, &[kept.clone(), elsewhere.to_string()], "now")
-        .await
-        .unwrap();
+    snapshots.prune_older_than(&workspace, &keep, "now").await.unwrap();
 
     let packs = std::fs::read_dir(snapshots.git_dir(&workspace).join("objects/pack"))
         .map(|entries| {

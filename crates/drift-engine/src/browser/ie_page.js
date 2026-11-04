@@ -383,6 +383,7 @@
                 if (cut && picked) {
                     el.value = el.value.substring(0, start) + el.value.substring(el.selectionEnd);
                     el.selectionStart = el.selectionEnd = start;
+                    fire(el, "keyup");
                     fire(el, "change");
                 }
                 return picked;

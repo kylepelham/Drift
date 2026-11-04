@@ -127,7 +127,8 @@ export function ToolThumbnails(props: { hashes: string[] }) {
     );
 }
 
-// Inside a row header, which is itself a button, so not a button of its own.
+// Inside a row header, which is itself a button, so no control of its own: a click opens it, and the
+// keyboard reaches the full image once the row is expanded.
 function Thumbnail(props: { hash: string }) {
     const image = useImage(() => props.hash);
 
@@ -135,7 +136,6 @@ function Thumbnail(props: { hash: string }) {
         <Show when={image()}>
             {(loaded) => (
                 <span
-                    role="button"
                     title={t("drift.attachment.image")}
                     class="block size-6 overflow-hidden rounded border border-edge transition-colors hover:border-edge-strong"
                     onClick={(event) => {

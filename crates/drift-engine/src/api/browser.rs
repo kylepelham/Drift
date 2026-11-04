@@ -200,7 +200,8 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
 
     let (inputs, queued) = mpsc::unbounded_channel::<ViewInput>();
     let (notices, mut notice) = mpsc::unbounded_channel::<Notice>();
-    let cursor = tokio::spawn(follow_cursor(driver.clone(), notices.clone()));
+    // A watch, so a socket slow to send skips to the newest cursor instead of queueing stale ones.
+    let mut cursor = driver.common().cursor.subscribe();
     let applier = tokio::spawn(apply_inputs(driver.clone(), queued, notices));
 
     loop {
@@ -216,9 +217,8 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             },
-            Some(notice) = notice.recv() => {
-                let message = serde_json::to_string(&notice).expect("a notice always serialises");
-                if socket.send(Message::Text(message.into())).await.is_err() {
+            Some(notice) = next_notice(&mut cursor, &mut notice) => {
+                if !tell(&mut socket, &notice).await {
                     break;
                 }
             }
@@ -234,17 +234,24 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
         }
     }
 
-    cursor.abort();
     applier.abort();
 }
 
-/// Tells the pane each cursor the page shows under its pointer.
-async fn follow_cursor(driver: Arc<dyn Driver>, notices: mpsc::UnboundedSender<Notice>) {
-    let mut cursor = driver.common().cursor.subscribe();
-    while cursor.changed().await.is_ok() {
-        let shown = cursor.borrow_and_update().clone();
-        if notices.send(Notice::Cursor { cursor: shown }).is_err() {
-            return;
-        }
+/// The newest cursor when it changed, else what an input copied; `None` once both have closed.
+async fn next_notice(
+    cursor: &mut tokio::sync::watch::Receiver<String>,
+    copied: &mut mpsc::UnboundedReceiver<Notice>,
+) -> Option<Notice> {
+    tokio::select! {
+        Ok(()) = cursor.changed() => Some(Notice::Cursor { cursor: cursor.borrow_and_update().clone() }),
+        Some(notice) = copied.recv() => Some(notice),
+        else => None,
     }
+}
+
+/// Sends the pane a notice; false once the socket is gone.
+async fn tell(socket: &mut WebSocket, notice: &Notice) -> bool {
+    let message = serde_json::to_string(notice).expect("a notice always serialises");
+
+    socket.send(Message::Text(message.into())).await.is_ok()
 }

@@ -92,10 +92,12 @@ export function BrowserView(props: {
         pendingMove = event;
         if (scheduled) return;
 
-        requestAnimationFrame(() => {
-            if (pendingMove) mouse("move", pendingMove);
-            pendingMove = undefined;
-        });
+        requestAnimationFrame(flushMove);
+    }
+
+    function flushMove() {
+        if (pendingMove) mouse("move", pendingMove);
+        pendingMove = undefined;
     }
 
     function wheel(event: WheelEvent) {
@@ -165,7 +167,11 @@ export function BrowserView(props: {
                     canvas.focus();
                     mouse("down", event, event.detail || 1);
                 }}
-                onMouseUp={(event) => mouse("up", event, event.detail || 1)}
+                onMouseUp={(event) => {
+                    // A move still waiting for its frame goes first, so the page never sees it after the release.
+                    flushMove();
+                    mouse("up", event, event.detail || 1);
+                }}
                 onMouseMove={move}
                 onContextMenu={(event) => event.preventDefault()}
                 onKeyDown={(event) => key("down", event)}
