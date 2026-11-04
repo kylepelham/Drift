@@ -1,6 +1,6 @@
 import { toolInput, toolMetadata } from "../engine/parts";
+import { createResource, For, Show } from "solid-js";
 import { AsyncSizeCache } from "./markdown-syntax";
-import { createResource, Show } from "solid-js";
 import { toolFilename } from "./tool-labels";
 import { openLightbox } from "./lightbox";
 import { useEngine } from "../engine";
@@ -9,6 +9,7 @@ import { t } from "../state/i18n";
 import type { ToolPart } from "../engine/parts";
 
 const imageCacheBudget = 32 * 1024 * 1024;
+const maxThumbnails = 3;
 
 /** The image a finished `generate_image` call saved, as the engine keeps it, and the file it was saved to. */
 export function generatedImage(part: ToolPart) {
@@ -79,13 +80,18 @@ function loadImage(fetch: (hash: string) => Promise<{ mime: string; data: string
     );
 }
 
+function useImage(hash: () => string) {
+    const engine = useEngine();
+    const [image] = createResource(hash, (wanted) =>
+        loadImage(engine.actions.toolImage, wanted).catch(() => undefined),
+    );
+
+    return image;
+}
+
 /** A generated image under its call's row, opened large on click; it shows once the engine hands it over. */
 export function ToolImage(props: { hash: string; filename?: string }) {
-    const engine = useEngine();
-    const [image] = createResource(
-        () => props.hash,
-        (hash) => loadImage(engine.actions.toolImage, hash).catch(() => undefined),
-    );
+    const image = useImage(() => props.hash);
     const url = () => image()?.url;
 
     return (
@@ -102,6 +108,43 @@ export function ToolImage(props: { hash: string; filename?: string }) {
                         class="max-h-64 max-w-full object-contain"
                     />
                 </button>
+            )}
+        </Show>
+    );
+}
+
+/** Small previews at a row's end of the pictures its calls put in the model's context, each opened large on click. */
+export function ToolThumbnails(props: { hashes: string[] }) {
+    return (
+        <Show when={props.hashes.length > 0}>
+            <span class="ms-auto flex shrink-0 items-center gap-1">
+                <For each={props.hashes.slice(0, maxThumbnails)}>{(hash) => <Thumbnail hash={hash} />}</For>
+                <Show when={props.hashes.length > maxThumbnails}>
+                    <span class="font-mono text-xs text-ink-faint">+{props.hashes.length - maxThumbnails}</span>
+                </Show>
+            </span>
+        </Show>
+    );
+}
+
+// Inside a row header, which is itself a button, so not a button of its own.
+function Thumbnail(props: { hash: string }) {
+    const image = useImage(() => props.hash);
+
+    return (
+        <Show when={image()}>
+            {(loaded) => (
+                <span
+                    role="button"
+                    title={t("drift.attachment.image")}
+                    class="block size-6 overflow-hidden rounded border border-edge transition-colors hover:border-edge-strong"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        openLightbox({ url: loaded().url, mime: loaded().mime });
+                    }}
+                >
+                    <img src={loaded().url} alt="" draggable={false} class="size-full object-cover" />
+                </span>
             )}
         </Show>
     );
