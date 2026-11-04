@@ -263,7 +263,17 @@ impl Engine {
     pub(crate) fn command_config(&self, session_id: &str, workspace: &Path) -> Config {
         let running = self.turns.steering.lock().unwrap().get(session_id).cloned();
         let (mut config, commands) = match running {
-            Some(running) => ((*running.config).clone(), running.mcp_commands),
+            Some(running) => {
+                let mut config = (*running.config).clone();
+                // A command file written since the turn began is in the menu already, so it runs too.
+                for command in self.workspace_config(workspace).commands {
+                    let known = config.commands.iter().any(|known| known.name == command.name);
+                    if !known && command.skill.is_none() {
+                        config.commands.push(command);
+                    }
+                }
+                (config, running.mcp_commands)
+            }
             None => (
                 self.workspace_config(workspace),
                 self.mcp.prompt_commands(Some(workspace)),

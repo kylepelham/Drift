@@ -134,6 +134,28 @@ async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
 }
 
 #[tokio::test]
+async fn a_command_written_while_a_turn_runs_can_be_run_in_it() {
+    let h = harness().await;
+    select_model(&h);
+    h.provider
+        .push_slow(Duration::from_millis(600), text("working"))
+        .push(text("styled"));
+    h.engine.submit(&h.session.id, prompt("start")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(h.engine.turns.is_running(&h.session.id));
+
+    command(&h, "style", "---\ndescription: Restyle\n---\nRestyle $ARGUMENTS.");
+    h.engine
+        .execute_command(&h.session.id, "style", "src", None)
+        .await
+        .unwrap();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap();
+    assert!(format!("{:?}", requests.last().unwrap().messages).contains("Restyle src."));
+}
+
+#[tokio::test]
 async fn a_prompt_steered_into_a_command_turn_is_answered_as_the_session_not_the_command() {
     let h = harness().await;
     select_model(&h);
