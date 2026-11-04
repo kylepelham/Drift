@@ -258,6 +258,13 @@ or a project's skill folders still see it, and a project's `git status` stays cl
 is not offered it and the slash menu leaves it out, from the next turn (`GET /skills?workspace=`,
 `PUT /skills/enabled`, `config::skills`).
 
+Front matter reads Claude Code's invocation fields. `disable-model-invocation: true` keeps a skill out
+of the model's list and its `skill` calls; the user still runs it as `/name`, whose engine-made call
+loads it. `user-invocable: false` gives it no slash command while the model can still load it.
+`when_to_use` follows the description in the model's list, and a skill with no description is
+described by the first line of its body. `argument-hint` shows in the slash menu. Other Claude Code
+fields (`allowed-tools`, `model`, `effort`, `context: fork`, `hooks`, `paths`, `shell`) are not read.
+
 The Registry tab lists the registry's skill entries: a single skill (`kind: "skill"`) or a pack of
 them (`kind: "skills"`), each with the skills it holds and their descriptions, read from the
 repository when the registry is built. The sheet for a pack lets you choose which skills to take;

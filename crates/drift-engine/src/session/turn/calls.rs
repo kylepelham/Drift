@@ -197,9 +197,12 @@ impl Engine {
             return Err(Outcome::Allowed);
         };
 
+        let by_command = metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.engine_command.is_some());
         let command_model = metadata
             .as_ref()
-            .filter(|metadata| metadata.engine_command.is_some())
+            .filter(|_| by_command)
             .and_then(|metadata| metadata.command_model.as_deref())
             .and_then(crate::config::parse_model);
         let context = Context {
@@ -214,6 +217,7 @@ impl Engine {
             config: scope.plan.config.clone(),
             progress: Default::default(),
             command_model,
+            by_command,
         };
 
         // Only the tools offered to this turn may run; a unique case-insensitive name is accepted.

@@ -30,6 +30,7 @@ impl Sandbox {
                 config: Arc::new(engine.workspace_config(&workspace)),
                 progress: Default::default(),
                 command_model: None,
+                by_command: false,
                 workspace,
                 session_id: "ses_test".into(),
                 message_id: "msg_test".into(),
@@ -54,6 +55,7 @@ impl Sandbox {
             config: self.ctx.config.clone(),
             progress: self.ctx.progress.clone(),
             command_model: self.ctx.command_model.clone(),
+            by_command: self.ctx.by_command,
         }
     }
 
@@ -232,6 +234,7 @@ fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
         instructions: String::new(),
         argument_hint: None,
         builtin: None,
+        invocation: crate::config::Invocation::default(),
     });
     sandbox.ctx.config = Arc::new(config);
 

@@ -75,6 +75,7 @@ fn context(h: &Harness, session_id: &str, call_id: &str) -> crate::tool::Context
         config: Arc::new(h.engine.workspace_config(&h._dir.join("ws"))),
         progress: Default::default(),
         command_model: None,
+        by_command: false,
     }
 }
 

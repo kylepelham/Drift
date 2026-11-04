@@ -252,7 +252,7 @@ fn listings(setting: &Setting) -> Vec<Source> {
     let skills: Vec<String> = config
         .skills
         .iter()
-        .filter(|skill| loads_skills && !denied("skill", &skill.name))
+        .filter(|skill| loads_skills && skill.invocation.model && !denied("skill", &skill.name))
         .map(|skill| format!("- {}: {}", skill.name, skill.description))
         .collect();
     if !skills.is_empty() {
@@ -483,6 +483,7 @@ mod tests {
             instructions: String::new(),
             argument_hint: None,
             builtin: None,
+            invocation: crate::config::Invocation::default(),
         };
 
         config.skills = vec![skill("review"), skill("deploy")];

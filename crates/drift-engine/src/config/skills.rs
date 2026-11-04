@@ -104,6 +104,34 @@ pub struct Pack {
     pub installed_at: i64,
 }
 
+/// What the model is told the skill is for: its `description`, then any `when_to_use`, as Claude Code
+/// lists them; without a description, the body's first line.
+pub(super) fn described(document: &super::frontmatter::Document) -> String {
+    let description = document.field("description").or_else(|| {
+        document
+            .body
+            .lines()
+            .map(|line| line.trim().trim_start_matches('#').trim())
+            .find(|line| !line.is_empty())
+            .map(str::to_string)
+    });
+
+    [description, document.field("when_to_use")]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(super) fn invocation(document: &super::frontmatter::Document) -> super::Invocation {
+    let set = |key: &str, value: &str| document.field(key).is_some_and(|field| field.trim() == value);
+
+    super::Invocation {
+        model: !set("disable-model-invocation", "true"),
+        user: !set("user-invocable", "false"),
+    }
+}
+
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64

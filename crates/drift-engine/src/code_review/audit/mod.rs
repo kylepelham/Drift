@@ -50,6 +50,7 @@ pub fn skill() -> Skill {
         instructions: include_str!("prompts/usage.md").trim().into(),
         argument_hint: Some("[low|medium|high|max] [path] [--fix]".into()),
         builtin: Some(Builtin::Audit),
+        invocation: crate::config::Invocation::default(),
     }
 }
 

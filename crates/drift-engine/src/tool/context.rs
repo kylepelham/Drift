@@ -32,6 +32,8 @@ pub struct Context {
     pub progress: Progress,
     /// The model a user's command chose, set only on the call the engine makes for that command.
     pub command_model: Option<crate::session::types::ModelRef>,
+    /// The engine made this call for the user's slash command; the model did not.
+    pub by_command: bool,
 }
 
 type Stamp = (u64, Option<std::time::SystemTime>);
