@@ -52,16 +52,18 @@ impl Retry {
 
 impl Engine {
     /// Waits out a retry backoff shown in the UI, unless the user switches the turn to another model.
-    /// After a switch, the request is retried immediately on the new model.
+    /// After a switch, the request is retried immediately on the new model. Once the wait elapses the
+    /// switch stays open until the retried request answers, as the UI still offers it then.
     pub(super) async fn wait_to_retry(
         &self,
-        session_id: &str,
+        plan: &mut Plan,
         attempt: u32,
         retry: &Retry,
         abort: &CancellationToken,
     ) -> Wait {
+        let session_id = plan.session.id.as_str();
         let delay = retry.delay(attempt);
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
         self.turns.retry_waits.lock().unwrap().insert(session_id.into(), sender);
 
         let next_at = id::now_ms() + delay.as_millis() as i64;
@@ -73,16 +75,27 @@ impl Engine {
         });
         let wait = tokio::select! {
             () = tokio::time::sleep(delay) => Wait::Elapsed,
-            Ok(switch) = receiver => Wait::Switched(Box::new(switch)),
+            Ok(switch) = &mut receiver => Wait::Switched(Box::new(switch)),
             () = abort.cancelled() => Wait::Stopped,
         };
 
-        self.turns.retry_waits.lock().unwrap().remove(session_id);
+        if matches!(wait, Wait::Elapsed) {
+            plan.retry_switch = Some(receiver);
+        } else {
+            self.turns.retry_waits.lock().unwrap().remove(session_id);
+        }
         self.hub.publish(Event::SessionStatusChanged {
             session_id: session_id.into(),
             status: SessionStatus::Running,
         });
         wait
+    }
+
+    /// Closes a switch left open after a retry's wait: the retried request answered or failed.
+    pub(super) fn close_retry_switch(&self, plan: &mut Plan) {
+        if plan.retry_switch.take().is_some() {
+            self.turns.retry_waits.lock().unwrap().remove(&plan.session.id);
+        }
     }
 
     /// Adopts the switched model and variant for the turn and saves the choices on the session.

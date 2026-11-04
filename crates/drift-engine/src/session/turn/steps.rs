@@ -138,7 +138,7 @@ impl Engine {
                 }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
-                    match self.wait_to_retry(&plan.session.id, attempts, &retry, abort).await {
+                    match self.wait_to_retry(plan, attempts, &retry, abort).await {
                         Wait::Elapsed => {}
                         Wait::Switched(switch) => {
                             self.adopt(plan, *switch);
@@ -148,6 +148,10 @@ impl Engine {
                     }
                 }
                 Step::Retry(_) => break,
+                Step::Switched(switch) => {
+                    self.adopt(plan, *switch);
+                    attempts = 0;
+                }
                 // The next pass sends the same request again from the next account, at once.
                 Step::Switch => self.discard_refused_reply(&plan.session.id, reply),
                 refused @ (Step::Overflow | Step::UnreadableImage) => {
@@ -342,6 +346,10 @@ impl Engine {
 
     fn failed_step(&self, message: &mut Message, error: StreamError) -> Step {
         match error {
+            StreamError::Switched(switch) => {
+                self.discard_reply(&message.session_id, message.id.clone());
+                Step::Switched(switch)
+            }
             StreamError::Aborted => {
                 message.status = MessageStatus::Aborted;
                 let _ = self.finish(message);
@@ -406,10 +414,17 @@ impl Engine {
         // One snapshot for the whole response: a reload while it streams must not reveal by other pairs than it hid by.
         let masks = self.hooks.masks();
         let sent = super::cache_watch::segments(&masks.request(request));
-        let mut chunks = tokio::select! {
-            opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider)?,
-            () = abort.cancelled() => return Err(StreamError::Aborted),
+        let mut switch = plan.retry_switch.take();
+        let opened = tokio::select! {
+            opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider),
+            Ok(switched) = async { switch.as_mut().unwrap().await }, if switch.is_some() => {
+                return Err(StreamError::Switched(Box::new(switched)));
+            }
+            () = abort.cancelled() => Err(StreamError::Aborted),
         };
+        plan.retry_switch = switch;
+        self.close_retry_switch(plan);
+        let mut chunks = opened?;
         let mut assembler = Assembler::new(&self.store, &self.hub, message).revealing(masks);
         let files = self.turns.files_for(&self.store, &plan.session.id);
         let mut early = early::Early::new(abort);

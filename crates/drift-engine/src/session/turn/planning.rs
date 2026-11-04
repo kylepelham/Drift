@@ -111,6 +111,7 @@ impl Engine {
             mcp_commands: Vec::new(),
             bootstrap: Vec::new(),
             turn_only,
+            retry_switch: None,
         };
         self.stay_where_warm(&mut plan).await;
         self.load_plan_tools(&mut plan).await;
