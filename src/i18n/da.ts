@@ -109,6 +109,19 @@ export const dict = {
     "drift.settings.waiting.title": "Vis venten på baggrundsarbejde",
     "drift.settings.waiting.description":
         "Når kommandoer eller subagenter i baggrunden vil vække en samtale, og intet andet kører, vises et timeglas i sidepanelet og samtalen i stedet for Tænker.",
+    "drift.settings.composerCards": "Over skrivefeltet",
+    "drift.settings.composerCards.style.title": "Kortstil",
+    "drift.settings.composerCards.style.description":
+        "Indfoldede kort ligger bag skrivefeltet som én stak; adskilte kort står hver for sig over det. Anmodninger om tilladelse og spørgsmål vises altid, da agenten venter på dem.",
+    "drift.settings.composerCards.style.tucked": "Indfoldet",
+    "drift.settings.composerCards.style.separate": "Adskilt",
+    "drift.settings.composerCards.todos.title": "Opgaveliste",
+    "drift.settings.composerCards.todos.description": "Agentens plan for turen, og hvor langt den er nået.",
+    "drift.settings.composerCards.tasks.title": "Baggrundsopgaver",
+    "drift.settings.composerCards.tasks.description":
+        "Subagenter og kommandoer i baggrunden med deres output og Stop. Stop-knappen og venteindikatoren viser stadig, at de kører.",
+    "drift.settings.composerCards.revert.title": "Fortrudte beskeder",
+    "drift.settings.composerCards.revert.description": "Beskeder, du har fortrudt, så du kan gendanne dem.",
     "prompt.attachment.remove": "Fjern vedhæftning",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Spørg om hvad som helst...",

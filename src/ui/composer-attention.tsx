@@ -3,6 +3,7 @@ import { AttentionStrip, PermissionCard, QuestionCard } from "./attention";
 import { selectedSession, selectSession } from "../state/selection";
 import { createEffect, createSignal, Show } from "solid-js";
 import { localAsks, resolveAsk } from "../state/asks";
+import { composerCardStyle } from "../state/prefs";
 import { normalizeDir } from "../engine/store";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -77,7 +78,10 @@ export function ComposerAttention() {
     }
 
     return (
-        <div class="composer-attention-stack mx-auto flex w-full max-w-3xl flex-col gap-2">
+        <div
+            class="composer-attention-stack mx-auto flex w-full max-w-3xl flex-col gap-2"
+            data-cards={composerCardStyle()}
+        >
             <AttentionStrip />
             <Show when={pendingPermission()}>
                 {(permission) => (

@@ -111,6 +111,19 @@ export const dict = {
     "drift.settings.waiting.title": "Afficher l'attente du travail en arrière-plan",
     "drift.settings.waiting.description":
         "Quand des commandes ou des sous-agents en arrière-plan vont réveiller une conversation et que rien d'autre ne tourne, un sablier remplace Réflexion dans la barre latérale et la conversation.",
+    "drift.settings.composerCards": "Au-dessus de l'éditeur",
+    "drift.settings.composerCards.style.title": "Style des cartes",
+    "drift.settings.composerCards.style.description":
+        "Les cartes repliées se glissent derrière l'éditeur en une seule pile ; les cartes séparées tiennent chacune seule au-dessus. Les demandes d'autorisation et les questions s'affichent toujours, car l'agent les attend.",
+    "drift.settings.composerCards.style.tucked": "Repliées",
+    "drift.settings.composerCards.style.separate": "Séparées",
+    "drift.settings.composerCards.todos.title": "Liste des tâches",
+    "drift.settings.composerCards.todos.description": "Le plan de l'agent pour le tour et son avancement.",
+    "drift.settings.composerCards.tasks.title": "Tâches en arrière-plan",
+    "drift.settings.composerCards.tasks.description":
+        "Sous-agents et commandes en arrière-plan, avec leur sortie et Arrêter. Le bouton Arrêter et l'indicateur d'attente montrent toujours qu'ils tournent.",
+    "drift.settings.composerCards.revert.title": "Messages annulés",
+    "drift.settings.composerCards.revert.description": "Les messages que vous avez annulés, pour les restaurer.",
     "prompt.attachment.remove": "Supprimer la pièce jointe",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Demandez n'importe quoi...",

@@ -159,6 +159,28 @@ export function setToolGroup(kind: ToolGroupKind, on: boolean) {
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
 /** An hourglass in place of Thinking while a conversation only waits on background work that will wake it. */
 export const [waitingIndicator, setWaitingIndicator] = persisted<boolean>("drift.waiting.indicator", true);
+/** How the cards above the composer sit: tucked behind it as a stack, or each standing on its own. */
+export const composerCardStyles = ["tucked", "separate"] as const;
+export type ComposerCardStyle = (typeof composerCardStyles)[number];
+export const [composerCardStyle, setComposerCardStyle] = persisted<ComposerCardStyle>(
+    "drift.composer.cardStyle",
+    "tucked",
+    (value) => composerCardStyles.find((style) => style === value) ?? "tucked",
+);
+/** The cards above the composer the user may hide; permission requests and questions always show, as a turn waits on them. */
+export const composerCardKinds = ["todos", "tasks", "revert"] as const;
+export type ComposerCardKind = (typeof composerCardKinds)[number];
+const composerCardDefaults: Record<ComposerCardKind, boolean> = { todos: true, tasks: true, revert: true };
+const [storedComposerCards, setStoredComposerCards] = persisted<Record<ComposerCardKind, boolean>>(
+    "drift.composer.cards",
+    composerCardDefaults,
+);
+export function composerCards(): Record<ComposerCardKind, boolean> {
+    return { ...composerCardDefaults, ...storedComposerCards() };
+}
+export function setComposerCard(kind: ComposerCardKind, shown: boolean) {
+    setStoredComposerCards({ ...composerCards(), [kind]: shown });
+}
 /** Built-in looks for the thinking indicator; a plugin's is stored as `plugin:<id>`. */
 export const thinkingStyles = ["orbs", "float", "dots", "pulse"] as const;
 export const thinkingTints = ["neutral", "accent", "spectrum"] as const;

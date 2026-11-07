@@ -515,6 +515,33 @@ test("composer attention cards share one stack without suppressing concurrent re
         expect(await Bun.file(file).text(), file).not.toMatch(/@media\s+not\s*\(/);
 });
 
+test("the cards above the composer tuck in or stand apart, and todos, background tasks and undone messages can be hidden", async () => {
+    const prefs = await import("../src/state/prefs");
+    const attention = await Bun.file("src/ui/attention.tsx").text();
+    const composer = await Bun.file("src/ui/composer-attention.tsx").text();
+    const css = await Bun.file("src/styles/app.css").text();
+
+    expect(prefs.composerCardStyle()).toBe("tucked");
+    expect(prefs.composerCards()).toEqual({ todos: true, tasks: true, revert: true });
+    prefs.setComposerCard("todos", false);
+    expect(prefs.composerCards()).toEqual({ todos: false, tasks: true, revert: true });
+    prefs.setComposerCard("todos", true);
+
+    expect(composer).toContainCode("data-cards={composerCardStyle()}");
+    for (const [kind, card] of [
+        ["todos", "<TodoStrip />"],
+        ["tasks", "<TaskDock />"],
+        ["revert", "<RevertDock />"],
+    ])
+        expect(attention).toContainCode(`<Show when={composerCards().${kind}}>${card}</Show>`);
+    // Permission requests and questions stall a turn unanswered, so no setting hides them.
+    expect(composer).not.toContainCode("composerCards()");
+    expect(css).toContainCode(
+        '.composer-attention-stack[data-cards="tucked"] > .composer-layer-card + .composer-layer-card',
+    );
+    expect(css).toContainCode('.composer-attention-stack[data-cards="separate"] .composer-layer-card');
+});
+
 test("question steps and answers persist independently by request id", async () => {
     const { clearQuestionDraft, questionDraftState, setQuestionDraftStep, updateQuestionDraft } =
         await import("../src/state/question-drafts");

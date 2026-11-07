@@ -110,6 +110,19 @@ export const dict = {
     "drift.settings.waiting.title": "Arka plan işini beklemeyi göster",
     "drift.settings.waiting.description":
         "Arka plan komutları veya alt ajanlar bir konuşmayı uyandıracakken başka hiçbir şey çalışmıyorsa, kenar çubuğunda ve konuşmada Düşünüyor yerine bir kum saati gösterir.",
+    "drift.settings.composerCards": "Yazma alanının üstünde",
+    "drift.settings.composerCards.style.title": "Kart stili",
+    "drift.settings.composerCards.style.description":
+        "İçe katlanan kartlar yazma alanının arkasında tek bir yığın olarak durur; ayrı kartlar her biri kendi başına üstte durur. İzin istekleri ve sorular her zaman görünür, çünkü ajan onları bekler.",
+    "drift.settings.composerCards.style.tucked": "İçe katlanmış",
+    "drift.settings.composerCards.style.separate": "Ayrı",
+    "drift.settings.composerCards.todos.title": "Yapılacaklar listesi",
+    "drift.settings.composerCards.todos.description": "Ajanın bu tur için planı ve ne kadar ilerlediği.",
+    "drift.settings.composerCards.tasks.title": "Arka plan görevleri",
+    "drift.settings.composerCards.tasks.description":
+        "Arka plandaki alt ajanlar ve komutlar, çıktıları ve Durdur ile. Durdur düğmesi ve bekleme göstergesi çalıştıklarını göstermeye devam eder.",
+    "drift.settings.composerCards.revert.title": "Geri alınan mesajlar",
+    "drift.settings.composerCards.revert.description": "Geri aldığınız mesajlar, geri yüklemek için.",
     "prompt.attachment.remove": "Eki kaldır",
     "prompt.mode.shell": "Kabuk",
     "prompt.placeholder.simple": "Bir şeyler sorun...",

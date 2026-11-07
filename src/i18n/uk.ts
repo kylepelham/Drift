@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "Показувати очікування фонової роботи",
     "drift.settings.waiting.description":
         "Коли фонові команди або субагенти розбудять розмову, а більше нічого не виконується, на бічній панелі та в розмові замість «Думає» показується пісочний годинник.",
+    "drift.settings.composerCards": "Над полем введення",
+    "drift.settings.composerCards.style.title": "Стиль карток",
+    "drift.settings.composerCards.style.description":
+        "Вкладені картки ховаються за полем введення однією стопкою; окремі картки стоять кожна сама над ним. Запити дозволів і питання показуються завжди, бо агент на них чекає.",
+    "drift.settings.composerCards.style.tucked": "Вкладені",
+    "drift.settings.composerCards.style.separate": "Окремі",
+    "drift.settings.composerCards.todos.title": "Список завдань",
+    "drift.settings.composerCards.todos.description": "План агента на хід і наскільки він просунувся.",
+    "drift.settings.composerCards.tasks.title": "Фонові завдання",
+    "drift.settings.composerCards.tasks.description":
+        "Фонові субагенти й команди, з їхнім виводом і кнопкою «Зупинити». Кнопка зупинки й індикатор очікування й далі показують, що вони працюють.",
+    "drift.settings.composerCards.revert.title": "Скасовані повідомлення",
+    "drift.settings.composerCards.revert.description": "Повідомлення, які ви скасували, щоб відновити їх.",
     "prompt.attachment.remove": "Видалити вкладення",
     "prompt.mode.shell": "Команда",
     "prompt.placeholder.simple": "Запитайте що завгодно...",

@@ -110,6 +110,20 @@ export const dict = {
     "drift.settings.waiting.title": "Warten auf Hintergrundarbeit anzeigen",
     "drift.settings.waiting.description":
         "Wenn Hintergrundbefehle oder Subagenten eine Unterhaltung wecken und sonst nichts läuft, zeigen Seitenleiste und Unterhaltung eine Sanduhr statt Denkt nach.",
+    "drift.settings.composerCards": "Über dem Eingabefeld",
+    "drift.settings.composerCards.style.title": "Kartenstil",
+    "drift.settings.composerCards.style.description":
+        "Eingeschobene Karten liegen als ein Stapel hinter dem Eingabefeld; einzelne Karten stehen jede für sich darüber. Berechtigungsanfragen und Fragen erscheinen immer, da der Agent auf sie wartet.",
+    "drift.settings.composerCards.style.tucked": "Eingeschoben",
+    "drift.settings.composerCards.style.separate": "Einzeln",
+    "drift.settings.composerCards.todos.title": "Aufgabenliste",
+    "drift.settings.composerCards.todos.description": "Der Plan des Agenten für den Durchgang und wie weit er ist.",
+    "drift.settings.composerCards.tasks.title": "Hintergrundaufgaben",
+    "drift.settings.composerCards.tasks.description":
+        "Subagenten und Befehle im Hintergrund mit ihrer Ausgabe und Stoppen. Die Stopp-Schaltfläche und die Warteanzeige zeigen weiterhin, dass sie laufen.",
+    "drift.settings.composerCards.revert.title": "Zurückgenommene Nachrichten",
+    "drift.settings.composerCards.revert.description":
+        "Nachrichten, die du rückgängig gemacht hast, zum Wiederherstellen.",
     "prompt.attachment.remove": "Anhang entfernen",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Fragen Sie alles...",

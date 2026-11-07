@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "แสดงการรองานเบื้องหลัง",
     "drift.settings.waiting.description":
         "เมื่อคำสั่งหรือเอเจนต์ย่อยเบื้องหลังจะปลุกบทสนทนาและไม่มีอะไรอื่นทำงานอยู่ จะแสดงนาฬิกาทรายในแถบด้านข้างและบทสนทนาแทนกำลังคิด",
+    "drift.settings.composerCards": "เหนือช่องพิมพ์",
+    "drift.settings.composerCards.style.title": "รูปแบบการ์ด",
+    "drift.settings.composerCards.style.description":
+        "การ์ดแบบซ้อนจะพับอยู่หลังช่องพิมพ์เป็นกองเดียว การ์ดแบบแยกจะตั้งอยู่เดี่ยว ๆ เหนือช่องพิมพ์ คำขอสิทธิ์และคำถามแสดงเสมอ เพราะเอเจนต์รอคำตอบอยู่",
+    "drift.settings.composerCards.style.tucked": "ซ้อน",
+    "drift.settings.composerCards.style.separate": "แยก",
+    "drift.settings.composerCards.todos.title": "รายการสิ่งที่ต้องทำ",
+    "drift.settings.composerCards.todos.description": "แผนของเอเจนต์สำหรับรอบนี้และความคืบหน้า",
+    "drift.settings.composerCards.tasks.title": "งานเบื้องหลัง",
+    "drift.settings.composerCards.tasks.description":
+        "เอเจนต์ย่อยและคำสั่งเบื้องหลัง พร้อมเอาต์พุตและปุ่มหยุด ปุ่มหยุดและตัวบอกการรอยังคงแสดงว่ากำลังทำงานอยู่",
+    "drift.settings.composerCards.revert.title": "ข้อความที่ย้อนกลับ",
+    "drift.settings.composerCards.revert.description": "ข้อความที่คุณย้อนกลับ เพื่อกู้คืน",
     "prompt.attachment.remove": "เอาไฟล์แนบออก",
     "prompt.mode.shell": "เชลล์",
     "prompt.placeholder.simple": "ถามอะไรก็ได้...",

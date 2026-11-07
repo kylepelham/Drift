@@ -109,6 +109,19 @@ export const dict = {
     "drift.settings.waiting.title": "Pokazuj oczekiwanie na pracę w tle",
     "drift.settings.waiting.description":
         "Gdy polecenia lub podagenci w tle wybudzą rozmowę, a nic innego nie działa, pasek boczny i rozmowa pokazują klepsydrę zamiast Myśli.",
+    "drift.settings.composerCards": "Nad polem wpisywania",
+    "drift.settings.composerCards.style.title": "Styl kart",
+    "drift.settings.composerCards.style.description":
+        "Wsunięte karty chowają się za polem wpisywania jako jeden stos; oddzielne karty stoją każda osobno nad nim. Prośby o uprawnienia i pytania zawsze się pokazują, bo agent na nie czeka.",
+    "drift.settings.composerCards.style.tucked": "Wsunięte",
+    "drift.settings.composerCards.style.separate": "Oddzielne",
+    "drift.settings.composerCards.todos.title": "Lista zadań",
+    "drift.settings.composerCards.todos.description": "Plan agenta na turę i jak daleko w nim jest.",
+    "drift.settings.composerCards.tasks.title": "Zadania w tle",
+    "drift.settings.composerCards.tasks.description":
+        "Podagenci i polecenia w tle, z ich wyjściem i przyciskiem Zatrzymaj. Przycisk Zatrzymaj i wskaźnik oczekiwania nadal pokazują, że działają.",
+    "drift.settings.composerCards.revert.title": "Cofnięte wiadomości",
+    "drift.settings.composerCards.revert.description": "Wiadomości, które cofnięto, do przywrócenia.",
     "prompt.attachment.remove": "Usuń załącznik",
     "prompt.mode.shell": "Terminal",
     "prompt.placeholder.simple": "Zapytaj o cokolwiek...",

@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "Prikaži čekanje na rad u pozadini",
     "drift.settings.waiting.description":
         "Kada će naredbe ili podagenti u pozadini probuditi razgovor, a ništa drugo ne radi, prikazuje pješčani sat u bočnoj traci i razgovoru umjesto Razmišlja.",
+    "drift.settings.composerCards": "Iznad polja za unos",
+    "drift.settings.composerCards.style.title": "Stil kartica",
+    "drift.settings.composerCards.style.description":
+        "Uvučene kartice skrivaju se iza polja za unos kao jedna hrpa; odvojene kartice stoje svaka za sebe iznad njega. Zahtjevi za dozvolu i pitanja uvijek se prikazuju, jer agent čeka na njih.",
+    "drift.settings.composerCards.style.tucked": "Uvučene",
+    "drift.settings.composerCards.style.separate": "Odvojene",
+    "drift.settings.composerCards.todos.title": "Lista zadataka",
+    "drift.settings.composerCards.todos.description": "Agentov plan za potez i koliko je odmakao.",
+    "drift.settings.composerCards.tasks.title": "Pozadinski zadaci",
+    "drift.settings.composerCards.tasks.description":
+        "Podagenti i naredbe u pozadini, s izlazom i dugmetom Zaustavi. Dugme Zaustavi i indikator čekanja i dalje pokazuju da rade.",
+    "drift.settings.composerCards.revert.title": "Poništene poruke",
+    "drift.settings.composerCards.revert.description": "Poruke koje ste poništili, da ih vratite.",
     "prompt.attachment.remove": "Ukloni prilog",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pitaj bilo šta...",

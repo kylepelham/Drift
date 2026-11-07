@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "バックグラウンド作業の待機を表示",
     "drift.settings.waiting.description":
         "バックグラウンドのコマンドやサブエージェントが会話を再開させ、ほかに何も実行していないとき、サイドバーと会話に「考え中」の代わりに砂時計を表示します。",
+    "drift.settings.composerCards": "入力欄の上",
+    "drift.settings.composerCards.style.title": "カードのスタイル",
+    "drift.settings.composerCards.style.description":
+        "重ねるカードは入力欄の後ろに一つの束としてしまわれ、分けるカードはそれぞれ単独で上に表示されます。権限の確認と質問はエージェントが待つため常に表示されます。",
+    "drift.settings.composerCards.style.tucked": "重ねる",
+    "drift.settings.composerCards.style.separate": "分ける",
+    "drift.settings.composerCards.todos.title": "ToDo リスト",
+    "drift.settings.composerCards.todos.description": "このターンのエージェントの計画と進み具合。",
+    "drift.settings.composerCards.tasks.title": "バックグラウンドタスク",
+    "drift.settings.composerCards.tasks.description":
+        "バックグラウンドのサブエージェントとコマンド、その出力と停止ボタン。停止ボタンと待機表示で実行中であることは引き続きわかります。",
+    "drift.settings.composerCards.revert.title": "取り消したメッセージ",
+    "drift.settings.composerCards.revert.description": "取り消したメッセージを復元するためのもの。",
     "prompt.attachment.remove": "添付ファイルを削除",
     "prompt.mode.shell": "シェル",
     "prompt.placeholder.simple": "何でも聞いてください...",

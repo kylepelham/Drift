@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "إظهار انتظار العمل في الخلفية",
     "drift.settings.waiting.description":
         "عندما ستوقظ أوامر أو وكلاء فرعيون في الخلفية محادثة ولا يعمل شيء آخر، تظهر ساعة رملية في الشريط الجانبي والمحادثة بدلا من التفكير.",
+    "drift.settings.composerCards": "فوق محرر الرسائل",
+    "drift.settings.composerCards.style.title": "نمط البطاقات",
+    "drift.settings.composerCards.style.description":
+        "البطاقات المطوية تختبئ خلف المحرر كمجموعة واحدة؛ والبطاقات المنفصلة تقف كل منها وحدها فوقه. تظهر طلبات الأذونات والأسئلة دائما لأن الوكيل ينتظرها.",
+    "drift.settings.composerCards.style.tucked": "مطوية",
+    "drift.settings.composerCards.style.separate": "منفصلة",
+    "drift.settings.composerCards.todos.title": "قائمة المهام",
+    "drift.settings.composerCards.todos.description": "خطة الوكيل للدور ومدى تقدمه فيها.",
+    "drift.settings.composerCards.tasks.title": "مهام الخلفية",
+    "drift.settings.composerCards.tasks.description":
+        "الوكلاء الفرعيون والأوامر في الخلفية، مع مخرجاتها وزر الإيقاف. يظل زر الإيقاف ومؤشر الانتظار يبينان أنها تعمل.",
+    "drift.settings.composerCards.revert.title": "الرسائل المتراجع عنها",
+    "drift.settings.composerCards.revert.description": "الرسائل التي تراجعت عنها، لاستعادتها.",
     "prompt.attachment.remove": "إزالة المرفق",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "اسأل أي شيء...",

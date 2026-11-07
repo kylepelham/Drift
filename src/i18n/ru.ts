@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "Показывать ожидание фоновой работы",
     "drift.settings.waiting.description":
         "Когда фоновые команды или субагенты разбудят разговор, а больше ничего не выполняется, в боковой панели и разговоре вместо «Думает» показываются песочные часы.",
+    "drift.settings.composerCards": "Над полем ввода",
+    "drift.settings.composerCards.style.title": "Стиль карточек",
+    "drift.settings.composerCards.style.description":
+        "Вложенные карточки прячутся за полем ввода одной стопкой; отдельные карточки стоят каждая сама по себе над ним. Запросы разрешений и вопросы показываются всегда, так как агент их ждёт.",
+    "drift.settings.composerCards.style.tucked": "Вложенные",
+    "drift.settings.composerCards.style.separate": "Отдельные",
+    "drift.settings.composerCards.todos.title": "Список задач",
+    "drift.settings.composerCards.todos.description": "План агента на ход и насколько он продвинулся.",
+    "drift.settings.composerCards.tasks.title": "Фоновые задачи",
+    "drift.settings.composerCards.tasks.description":
+        "Фоновые субагенты и команды, с их выводом и кнопкой «Остановить». Кнопка остановки и индикатор ожидания по-прежнему показывают, что они работают.",
+    "drift.settings.composerCards.revert.title": "Отменённые сообщения",
+    "drift.settings.composerCards.revert.description": "Сообщения, которые вы отменили, чтобы их восстановить.",
     "prompt.attachment.remove": "Удалить вложение",
     "prompt.mode.shell": "Оболочка",
     "prompt.placeholder.simple": "Спросите что угодно...",

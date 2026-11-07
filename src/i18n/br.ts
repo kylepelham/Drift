@@ -111,6 +111,19 @@ export const dict = {
     "drift.settings.waiting.title": "Mostrar espera por trabalho em segundo plano",
     "drift.settings.waiting.description":
         "Quando comandos ou subagentes em segundo plano vão retomar uma conversa e nada mais está em execução, mostra uma ampulheta na barra lateral e na conversa em vez de Pensando.",
+    "drift.settings.composerCards": "Acima do editor",
+    "drift.settings.composerCards.style.title": "Estilo dos cartões",
+    "drift.settings.composerCards.style.description":
+        "Cartões recolhidos ficam atrás do editor como uma pilha; cartões separados ficam cada um sozinho acima dele. Pedidos de permissão e perguntas sempre aparecem, pois o agente espera por eles.",
+    "drift.settings.composerCards.style.tucked": "Recolhidos",
+    "drift.settings.composerCards.style.separate": "Separados",
+    "drift.settings.composerCards.todos.title": "Lista de tarefas",
+    "drift.settings.composerCards.todos.description": "O plano do agente para o turno e o quanto já avançou.",
+    "drift.settings.composerCards.tasks.title": "Tarefas em segundo plano",
+    "drift.settings.composerCards.tasks.description":
+        "Subagentes e comandos em segundo plano, com a saída e o botão Parar. O botão Parar e o indicador de espera ainda mostram que estão em execução.",
+    "drift.settings.composerCards.revert.title": "Mensagens desfeitas",
+    "drift.settings.composerCards.revert.description": "Mensagens que você desfez, para restaurá-las.",
     "prompt.attachment.remove": "Remover anexo",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pergunte qualquer coisa...",

@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "顯示等待背景工作",
     "drift.settings.waiting.description":
         "當背景命令或子代理將喚醒對話且沒有其他工作在執行時，在側邊欄和對話中顯示沙漏，而不是「思考中」。",
+    "drift.settings.composerCards": "輸入框上方",
+    "drift.settings.composerCards.style.title": "卡片樣式",
+    "drift.settings.composerCards.style.description":
+        "收合的卡片會以一疊藏在輸入框後方；分開的卡片則各自獨立顯示在上方。權限請求和問題一律顯示，因為代理正在等待。",
+    "drift.settings.composerCards.style.tucked": "收合",
+    "drift.settings.composerCards.style.separate": "分開",
+    "drift.settings.composerCards.todos.title": "待辦清單",
+    "drift.settings.composerCards.todos.description": "代理在本輪的計畫與進度。",
+    "drift.settings.composerCards.tasks.title": "背景工作",
+    "drift.settings.composerCards.tasks.description":
+        "背景子代理和命令，以及它們的輸出與停止按鈕。停止按鈕和等待指示仍會顯示它們正在執行。",
+    "drift.settings.composerCards.revert.title": "已復原的訊息",
+    "drift.settings.composerCards.revert.description": "你撤銷的訊息，可用來還原。",
     "prompt.attachment.remove": "移除附件",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "隨便問點什麼...",

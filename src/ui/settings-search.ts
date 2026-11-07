@@ -60,6 +60,14 @@ const settingsSearchDefinitions = {
         { title: "drift.settings.collapseCommands.title", description: "drift.settings.collapseCommands.description" },
         { title: "drift.settings.groupTools.title", description: "drift.settings.groupTools.description" },
         { title: "drift.settings.editedFiles.title", description: "drift.settings.editedFiles.description" },
+        {
+            title: "drift.settings.composerCards.style.title",
+            description: "drift.settings.composerCards.style.description",
+        },
+        ...(["todos", "tasks", "revert"] as const).map((kind) => ({
+            title: `drift.settings.composerCards.${kind}.title`,
+            description: `drift.settings.composerCards.${kind}.description`,
+        })),
         { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
         { title: "drift.settings.compactAt.title", description: "drift.settings.compactAt.description" },
         {

@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "Show waiting on background work",
     "drift.settings.waiting.description":
         "When background commands or subagents will wake a conversation and nothing else runs, show an hourglass in the sidebar and the conversation instead of Thinking.",
+    "drift.settings.composerCards": "Above the composer",
+    "drift.settings.composerCards.style.title": "Card style",
+    "drift.settings.composerCards.style.description":
+        "Tucked cards fold in behind the composer as one stack; separate cards each stand on their own above it. Permission requests and questions always show, since the agent waits on them.",
+    "drift.settings.composerCards.style.tucked": "Tucked",
+    "drift.settings.composerCards.style.separate": "Separate",
+    "drift.settings.composerCards.todos.title": "Todo list",
+    "drift.settings.composerCards.todos.description": "The agent's plan for the turn and how far along it is.",
+    "drift.settings.composerCards.tasks.title": "Background tasks",
+    "drift.settings.composerCards.tasks.description":
+        "Background subagents and commands, with their output and Stop. The Stop button and the waiting indicator still show that they run.",
+    "drift.settings.composerCards.revert.title": "Rolled back messages",
+    "drift.settings.composerCards.revert.description": "Messages you undid, to restore them.",
     "prompt.attachment.remove": "Remove attachment",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Ask anything...",

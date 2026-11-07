@@ -108,6 +108,19 @@ export const dict = {
     "drift.settings.waiting.title": "백그라운드 작업 대기 표시",
     "drift.settings.waiting.description":
         "백그라운드 명령이나 하위 에이전트가 대화를 다시 시작할 예정이고 다른 작업이 없을 때, 사이드바와 대화에 생각 중 대신 모래시계를 표시합니다.",
+    "drift.settings.composerCards": "입력창 위",
+    "drift.settings.composerCards.style.title": "카드 스타일",
+    "drift.settings.composerCards.style.description":
+        "겹친 카드는 입력창 뒤에 하나의 묶음으로 접히고, 분리된 카드는 각각 따로 위에 표시됩니다. 권한 요청과 질문은 에이전트가 기다리므로 항상 표시됩니다.",
+    "drift.settings.composerCards.style.tucked": "겹치기",
+    "drift.settings.composerCards.style.separate": "분리",
+    "drift.settings.composerCards.todos.title": "할 일 목록",
+    "drift.settings.composerCards.todos.description": "이번 턴의 에이전트 계획과 진행 상황.",
+    "drift.settings.composerCards.tasks.title": "백그라운드 작업",
+    "drift.settings.composerCards.tasks.description":
+        "백그라운드 하위 에이전트와 명령, 그 출력과 중지 버튼. 중지 버튼과 대기 표시로 실행 중임은 계속 알 수 있습니다.",
+    "drift.settings.composerCards.revert.title": "되돌린 메시지",
+    "drift.settings.composerCards.revert.description": "되돌린 메시지를 복원하기 위한 항목.",
     "prompt.attachment.remove": "첨부 파일 제거",
     "prompt.mode.shell": "셸",
     "prompt.placeholder.simple": "무엇이든 물어보세요...",
