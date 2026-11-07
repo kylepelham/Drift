@@ -171,6 +171,18 @@ impl Progress {
 }
 
 impl Context {
+    /// A subagent's run: nothing wakes it later, so it may wait and run in front for longer.
+    pub fn in_worker(&self) -> bool {
+        let session = self.engine.store.session(&self.session_id).ok().flatten();
+
+        session.is_some_and(|session| session.visibility == crate::session::types::Visibility::Hidden)
+    }
+
+    /// How long a `wait_seconds` may hold this call: ten minutes, or an hour in a subagent.
+    pub fn wait_cap(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.in_worker() { 3600 } else { 600 })
+    }
+
     /// The path a call really touches: `~` expanded, absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
         let home = std::env::var_os("USERPROFILE")

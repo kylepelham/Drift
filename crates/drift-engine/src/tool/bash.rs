@@ -24,6 +24,8 @@ use shell::{chain_note, detect_shell, shell_note};
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest a model may ask for, the same ceiling as the Settings choice (1,440 minutes).
 const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+/// What a subagent may ask for past the user's limit: its background commands end with its run, and no exit wakes it.
+const WORKER_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone)]
 pub struct Bash {
@@ -208,7 +210,8 @@ impl Bash {
         };
 
         if matches!(ended, Ended::TimedOut) && context.engine.shell_handoff() {
-            return background::moved(context, started, spool.finish(), limit).await;
+            let cut = asked_timeout(input).filter(|asked| limit.is_some_and(|limit| *asked > limit));
+            return background::moved(context, started, spool.finish(), limit, cut).await;
         }
         if !matches!(ended, Ended::Exited { lingering: false, .. }) {
             kill_tree(&running.tree, &mut running.child).await;
@@ -267,7 +270,7 @@ impl Bash {
 
 fn timeout_note(limits: Limits) -> &'static str {
     if limits.handoff {
-        "Milliseconds before the command moves to the background. Default and most: the user's setting."
+        "Milliseconds before the command moves to the background. Default and most: the user's setting; in a subagent, up to an hour."
     } else {
         "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000."
     }
@@ -279,7 +282,8 @@ fn limits_note(limits: Limits) -> &'static str {
         (true, true) => concat!(
             "- Run commands in the foreground, even long builds and tests: one still running after the user's time ",
             "limit, or after a shorter `timeout` in milliseconds when you pass one, moves to the background by itself and the ",
-            "result says its process id. Use `background: true` only for servers and watchers, or to run several ",
+            "result says its process id. A subagent's background commands stop when it finishes, so in one, pass a ",
+            "`timeout` that covers the whole build, up to an hour. Use `background: true` only for servers and watchers, or to run several ",
             "commands at once or keep working while one runs; a command you would only wait for costs an extra call ",
             "in the background. Use `process` to wait for a background command, read its output or stop it."
         ),
@@ -389,17 +393,25 @@ fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {
 
 /// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it. When a
 /// command moves to the background at its limit, the user's value is the longest the model may keep it in front.
+/// The user's limit, or the call's own `timeout`: in a conversation it can only shorten a limit that hands
+/// off to the background, since the exit wakes the conversation; a subagent may ask for up to an hour.
 fn limit_for(context: &Context, input: &Value) -> Option<Duration> {
     let setting = context.engine.shell_timeout();
-    let Some(asked) = input["timeout"].as_u64() else {
+    let Some(asked) = asked_timeout(input) else {
         return setting;
     };
-    let asked = Duration::from_millis(asked).min(MAX_TIMEOUT);
 
     match setting {
+        Some(setting) if context.in_worker() => Some(asked.min(setting.max(WORKER_TIMEOUT))),
         Some(setting) if context.engine.shell_handoff() => Some(asked.min(setting)),
         _ => Some(asked),
     }
+}
+
+fn asked_timeout(input: &Value) -> Option<Duration> {
+    input["timeout"]
+        .as_u64()
+        .map(|asked| Duration::from_millis(asked).min(MAX_TIMEOUT))
 }
 
 async fn bounded<F: std::future::Future>(limit: Option<Duration>, work: F) -> Option<F::Output> {

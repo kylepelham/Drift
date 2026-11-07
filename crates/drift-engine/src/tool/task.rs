@@ -10,9 +10,7 @@ use super::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
-use crate::session::tasks::{
-    Attempt, Claimant, MAX_WAIT, Mode, TaskRecord, TaskState, clip, last_attempt, resolve_mode,
-};
+use crate::session::tasks::{Attempt, Claimant, Mode, TaskRecord, TaskState, clip, last_attempt, resolve_mode};
 use crate::session::turn::Prompt;
 use crate::session::types::{Part, Visibility};
 use crate::store::{Launch, NewSession, NewTask};
@@ -419,7 +417,7 @@ impl Tool for TaskOutput {
                 .map(|task| task.id.clone())
                 .collect();
 
-            let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
+            let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(ctx.wait_cap());
             let until = tokio::time::Instant::now() + wait;
             let mut arrivals = ctx.engine.arrivals(&ctx.session_id);
             let mut interrupted = false;

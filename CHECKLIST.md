@@ -457,8 +457,8 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 From a coordinator project's report on its own runs (`Ona-coord/analysis/DRIFT_WISHLIST.md`), checked against the
 code and Claude Code 2.1.317, then decided with Kyle item by item.
 
-- [ ] Small bugs: `write` takes a file bash just created, `\\wsl.localhost` edits fall back to a plain write, a file in use is retried briefly, the engine closes running tool rows after a restart, a `task`'s agent keeps its own reasoning level
-- [ ] Timeouts: a subagent's own `timeout` is honoured up to 1 h, a conversation keeps the user's limit, and a cut value is always reported; a subagent's `process wait` and `task_output` wait up to 1 h
+- [x] Small bugs: `write` takes a file bash just created, `\\wsl.localhost` edits fall back to a plain write, a file in use is retried briefly, the engine closes running tool rows after a restart, a `task`'s agent keeps its own reasoning level
+- [x] Timeouts: a subagent's own `timeout` is honoured up to 1 h, a conversation keeps the user's limit, and a cut value is always reported; a subagent's `process wait` waits up to 1 h
 - [ ] Subagent cache: 5 minutes until it expires mid-run, then 1 hour for the rest of the run; a setting and an agent's `cacheTtl` force either
 - [ ] Stop: the button stays while the turn, workers or background commands run; the first press stops the turn, the second (armed after a moment, labelled with what it stops) stops workers and commands; workers left running wake the conversation with their results
 - [ ] Revert stops only workers started in the reverted turns and drops their results, while a turn runs too; un-revert shows them stopped

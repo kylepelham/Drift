@@ -224,6 +224,55 @@ async fn a_command_at_its_limit_moves_to_the_background() {
 }
 
 #[tokio::test]
+async fn a_subagent_may_ask_for_up_to_an_hour_and_a_cut_timeout_is_reported() {
+    let sandbox = Sandbox::new("bash-worker-timeout");
+    let bash = Bash::detect();
+    let engine = &sandbox.ctx.engine;
+    engine.set_shell_timeout(Some(Duration::from_millis(300)));
+    let workspace = engine
+        .store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "Mill", "")
+        .unwrap();
+    let worker = engine
+        .store
+        .create_session(crate::store::NewSession {
+            workspace_id: &workspace.id,
+            parent_id: None,
+            visibility: crate::session::types::Visibility::Hidden,
+            title: "Build",
+            agent: "general",
+            model: None,
+        })
+        .unwrap();
+    let mut in_worker = sandbox.ctx_clone();
+    in_worker.session_id = worker.id.clone();
+    let limit = |ctx: &crate::tool::Context, timeout: u64| {
+        bash.running_metadata(ctx, &json!({ "command": "x", "timeout": timeout }))
+            .unwrap()
+            .shell_timeout_ms
+    };
+
+    assert_eq!(limit(&in_worker, 1_800_000), Some(Some(1_800_000)));
+    assert_eq!(limit(&in_worker, 7_200_000), Some(Some(3_600_000)), "an hour at most");
+    assert_eq!(
+        limit(&sandbox.ctx, 1_800_000),
+        Some(Some(300)),
+        "a conversation keeps the user's limit"
+    );
+
+    let sleep = match bash.shell {
+        Shell::Bash(_) => "sleep 5",
+        Shell::PowerShell(_) => "Start-Sleep 5",
+    };
+    let cut = bash
+        .run(&sandbox.ctx, json!({ "command": sleep, "timeout": 1_800_000 }))
+        .await
+        .unwrap();
+    assert!(cut.output.contains("`timeout` of 1800 s was cut"), "{}", cut.output);
+    engine.processes.stop_session(&sandbox.ctx.session_id);
+}
+
+#[tokio::test]
 async fn a_background_command_returns_at_once_and_one_that_fails_at_once_says_so() {
     let sandbox = Sandbox::new("bash-background");
     let bash = Bash::detect();

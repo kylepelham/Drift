@@ -14,7 +14,6 @@ use crate::background::{Exit, Handle, ProcessState, Waited};
 use crate::llm::ToolSpec;
 
 /// The longest one call waits; the conversation is told when a process ends, so a longer wait is never needed.
-const MAX_WAIT: Duration = Duration::from_secs(600);
 const DEFAULT_WAIT: Duration = Duration::from_secs(60);
 /// The most lines a search returns, newest last.
 const SEARCH_LINES: usize = 200;
@@ -41,7 +40,7 @@ impl Tool for Process {
                     "id": { "type": "string", "description": "The process id bash returned. Required except for list." },
                     "search": { "type": "string", "description": "For output: a regex; returns the matching lines of its recent output instead of the new output." },
                     "until": { "type": "string", "description": "For wait: a regex a new line must match, such as `listening|ready|error`. Without it, wait waits for the process to end." },
-                    "wait_seconds": { "type": "integer", "description": "For wait: the longest to wait, at most 600. Default 60." },
+                    "wait_seconds": { "type": "integer", "description": "For wait: the longest to wait, at most 600 (3600 in a subagent). Default 60." },
                     "text": { "type": "string", "description": "For input: what to type; end it with \\n to press Enter." }
                 },
                 "required": ["action"]
@@ -151,7 +150,7 @@ async fn wait(context: &Context, handle: &Handle, input: &Value) -> Result<Outpu
     let limit = input["wait_seconds"]
         .as_u64()
         .map_or(DEFAULT_WAIT, Duration::from_secs)
-        .min(MAX_WAIT);
+        .min(context.wait_cap());
     let matcher = input["until"]
         .as_str()
         .map(RegexMatcher::new)

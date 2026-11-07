@@ -547,6 +547,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - A shell call runs for the model's explicit `timeout` if it gives one (capped at 24 hours, the
   Settings ceiling), otherwise for the user's Settings value (Settings > Execution). "No
   timeout" means none. Until the shell reports the setting the engine uses two minutes.
+- While commands move to the background at the limit, a conversation's `timeout` can only shorten
+  it, since the exit wakes the conversation later. A subagent's background commands stop with its
+  run and nothing wakes it, so it may ask for up to an hour (`WORKER_TIMEOUT`). A `timeout` cut to
+  the limit is said in the moved-to-background note. A subagent's `process` wait goes to an hour too
+  (`Context::wait_cap`); a conversation keeps 10 minutes.
 - The shell pushes the value with `Engine::set_shell_timeout` at startup and on every change; it
   applies to calls that start afterwards.
 - The limit is in the call's metadata (`shellTimeoutMs`) from the moment it starts running
@@ -964,7 +969,7 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   `task.updated` still carry it. Measured on a thread with 598 workers: its list is 5ms once kept;
   the one-time fill of records older than this read 129MB of their tool calls in 3s.
 - `task_output { task_id, wait_seconds? }` answers for the calling conversation's own background
-  tasks only, waiting at most 120 s. A foreground task is refused: its result belongs to the call
+  tasks only, waiting at most 10 minutes. A foreground task is refused: its result belongs to the call
   that launched it, which holds the claim from the moment it returns until its result is saved, and
   if that save fails the result is recovered into that call, never taken by another. A worker that
   could not start, or was stopped, is still the launching call's own (failed) result, handed over
