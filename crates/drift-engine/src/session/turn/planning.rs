@@ -401,18 +401,22 @@ impl Engine {
             .collect();
         let deferred = self.deferred_tools(plan, &tools);
         let listed = deferred_listing(&tools, &deferred);
-        if !deferred.is_empty() {
-            let search: Arc<dyn crate::tool::Tool> = Arc::new(ToolSearch::new(searchable(&tools, &deferred)));
-            tools.push((search.spec(), search));
-        }
-
-        // Server instructions are included only when this turn offers one of that server's tools.
-        let servers: Vec<_> = plan
+        // A server's instructions are in the prompt when one of its tools is sent up front, else with a search that loads them.
+        let (servers, on_load): (Vec<_>, Vec<_>) = plan
             .mcp_servers
             .iter()
             .filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str())))
             .cloned()
-            .collect();
+            .partition(|(server, _)| {
+                tools
+                    .iter()
+                    .any(|(spec, tool)| tool.server() == Some(server.as_str()) && !deferred.contains(&spec.name))
+            });
+        if !deferred.is_empty() {
+            let search = ToolSearch::new(searchable(&tools, &deferred), on_load.into_iter().collect());
+            let search: Arc<dyn crate::tool::Tool> = Arc::new(search);
+            tools.push((search.spec(), search));
+        }
         let base = prompt::base_for(&self.store, plan.model.prompt);
         let denied = |kind: &str, name: &str| {
             rules.explicit(&crate::tool::Ask::new(kind, name, "")) == Some(crate::permission::Decision::Deny)

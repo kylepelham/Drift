@@ -2290,6 +2290,10 @@ code until he picks.
   for names still deferred, else the text), with the `tool-search-tool-2025-10-19` beta, and the
   subscription route renames them as it renames tools. This is Claude Code's client-side shape.
   Bedrock takes the beta in the body (`anthropic_beta`) and Vertex in the header.
+  - A server whose tools are all deferred keeps its instructions out of the system prompt: the
+    first `tool_search` this session that loads one of its tools appends them as a
+    `<system-reminder>` (tracked in the session's shown set as `mcp:<server>`, so a compaction
+    shows them again). A server with any tool sent up front keeps them in the prompt.
   - The OpenAI wire (API key and Codex) uses the Responses API's client-executed tool search, as
     Codex CLI does: `tool_search` goes as `{"type": "tool_search", "execution": "client"}` with
     Drift's description and schema, deferred tools are not sent at all, the model's

@@ -467,7 +467,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Grep takes Claude Code's options (`output_mode`, `-A`/`-B`/`-C`, `-i`, `type`, `multiline`, `head_limit`, `offset`) and can search ignored folders
 - [x] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`
 - [x] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped
-- [ ] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
+- [x] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
 - [ ] Plugin language servers start at the edited file's git root
 - [ ] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
