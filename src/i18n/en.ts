@@ -533,6 +533,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Keep-alive prompt",
     "drift.settings.promptCache.prompt.description": "What each keep-alive asks. Its reply is thrown away.",
     "drift.settings.promptCache.prompt.placeholder": "Do no work, use no tools, reply OK",
+    "drift.settings.promptCache.subagent.title": "Subagent cache",
+    "drift.settings.promptCache.subagent.description":
+        "How long a subagent's cache lives. Auto starts at 5 minutes and switches to 1 hour once a run outlasts it.",
+    "drift.settings.promptCache.subagent.auto": "Auto",
+    "drift.settings.promptCache.subagent.short": "5 min",
+    "drift.settings.promptCache.subagent.hour": "1 hour",
     "drift.settings.toolSearch.group": "Tool loading",
     "drift.settings.toolSearch.title": "Load large MCP servers' tools on request",
     "drift.settings.toolSearch.description": "Saves context by loading tools only when needed, on supported models.",

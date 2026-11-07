@@ -240,6 +240,10 @@ pub(crate) struct Plan {
     turn_only: bool,
     /// A switch the user may still make after a retry's wait, until the retried request opens.
     retry_switch: Option<tokio::sync::oneshot::Receiver<Switch>>,
+    /// A reply of this turn has come back, so a later expired cache expired within it.
+    requested: bool,
+    /// Its cache expired between two of its own requests: a worker keeps the rest of the run for an hour.
+    cache_stretched: bool,
 }
 
 /// How a prompt is admitted beyond the session itself.

@@ -529,6 +529,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "キープアライブのプロンプト",
     "drift.settings.promptCache.prompt.description": "各キープアライブが尋ねる内容。返答は破棄されます。",
     "drift.settings.promptCache.prompt.placeholder": "何もせず、ツールも使わず、OKと返答",
+    "drift.settings.promptCache.subagent.title": "サブエージェントのキャッシュ",
+    "drift.settings.promptCache.subagent.description":
+        "サブエージェントのキャッシュの保持時間。自動は5分で始まり、実行がそれより長引くと1時間に切り替わります。",
+    "drift.settings.promptCache.subagent.auto": "自動",
+    "drift.settings.promptCache.subagent.short": "5分",
+    "drift.settings.promptCache.subagent.hour": "1時間",
     "drift.settings.toolSearch.group": "ツールの読み込み",
     "drift.settings.toolSearch.title": "大規模な MCP サーバーのツールをリクエスト時に読み込む",
     "drift.settings.toolSearch.description": "対応モデルで必要な場合のみツールを読み込み、コンテキストを節約します。",

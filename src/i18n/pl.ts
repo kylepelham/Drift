@@ -533,6 +533,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Prompt podtrzymania",
     "drift.settings.promptCache.prompt.description": "O co pyta każde podtrzymanie. Odpowiedź jest odrzucana.",
     "drift.settings.promptCache.prompt.placeholder": "Nic nie rób, nie używaj narzędzi, odpowiedz OK",
+    "drift.settings.promptCache.subagent.title": "Pamięć podręczna podagentów",
+    "drift.settings.promptCache.subagent.description":
+        "Jak długo trwa pamięć podręczna podagenta. Automatycznie zaczyna od 5 minut i przechodzi na 1 godzinę, gdy przebieg trwa dłużej.",
+    "drift.settings.promptCache.subagent.auto": "Automatycznie",
+    "drift.settings.promptCache.subagent.short": "5 min",
+    "drift.settings.promptCache.subagent.hour": "1 godzina",
     "drift.settings.toolSearch.group": "Ładowanie narzędzi",
     "drift.settings.toolSearch.title": "Ładuj narzędzia dużych serwerów MCP na żądanie",
     "drift.settings.toolSearch.description":

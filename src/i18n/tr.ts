@@ -531,6 +531,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Canlı tutma istemi",
     "drift.settings.promptCache.prompt.description": "Her canlı tutma isteğinin sorduğu. Yanıt atılır.",
     "drift.settings.promptCache.prompt.placeholder": "Hiçbir iş yapma, araç kullanma, OK yanıtla",
+    "drift.settings.promptCache.subagent.title": "Alt ajan önbelleği",
+    "drift.settings.promptCache.subagent.description":
+        "Bir alt ajanın önbelleğinin ne kadar yaşadığı. Otomatik 5 dakikayla başlar, bir çalışma daha uzun sürünce 1 saate geçer.",
+    "drift.settings.promptCache.subagent.auto": "Otomatik",
+    "drift.settings.promptCache.subagent.short": "5 dk",
+    "drift.settings.promptCache.subagent.hour": "1 saat",
     "drift.settings.toolSearch.group": "Araç yükleme",
     "drift.settings.toolSearch.title": "Büyük MCP sunucularının araçlarını istek üzerine yükle",
     "drift.settings.toolSearch.description":

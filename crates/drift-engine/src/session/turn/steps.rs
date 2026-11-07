@@ -471,6 +471,11 @@ impl Engine {
             eprintln!("drift: session {} {why}", plan.session.id);
         }
         self.warm_after(scope.plan);
+        let expired = cache_miss
+            .as_deref()
+            .is_some_and(super::cache_watch::CacheWatch::expired);
+        plan.cache_stretched |= plan.requested && expired;
+        plan.requested = true;
         let Some(stop) = assembler.stop else {
             return Err(StreamError::Provider(llm::Error::Transport(
                 "stream ended without a stop reason".into(),

@@ -299,6 +299,53 @@ async fn a_key_caches_for_an_hour_only_when_its_providers_option_says_so() {
 }
 
 #[tokio::test]
+async fn a_worker_caches_for_an_hour_once_its_cache_expires_mid_run_or_when_told_to() {
+    use crate::config::CacheTtl;
+    use crate::session::turn::warming::PromptCache;
+    let h = harness().await;
+    let agents = h._dir.join("ws/.drift/agents");
+    std::fs::create_dir_all(&agents).unwrap();
+    std::fs::write(
+        agents.join("long.md"),
+        "---\ndescription: Long runs\nmode: subagent\ncacheTtl: 1h\n---\nRun long.",
+    )
+    .unwrap();
+    let worker = |agent: &str| {
+        h.engine
+            .store
+            .create_session(crate::store::NewSession {
+                workspace_id: &h.session.workspace_id,
+                parent_id: Some(&h.session.id),
+                visibility: Visibility::Hidden,
+                title: "Worker",
+                agent,
+                model: Some(&model()),
+            })
+            .unwrap()
+    };
+    let general = worker("general");
+    let mut plan = h.engine.plan(&general.id, &prompt("go")).await.unwrap();
+    assert!(!h.engine.hour_cache(&plan), "five minutes to start with");
+    plan.cache_stretched = true;
+    assert!(h.engine.hour_cache(&plan), "an hour once it expired within the run");
+
+    let short = PromptCache {
+        subagent: CacheTtl::Short,
+        ..PromptCache::default()
+    };
+    h.engine.set_prompt_cache(&short).unwrap();
+    assert!(!h.engine.hour_cache(&plan), "Settings may keep it at five minutes");
+
+    let long = h.engine.plan(&worker("long").id, &prompt("go")).await.unwrap();
+    assert!(h.engine.hour_cache(&long), "its agent's cacheTtl beats Settings");
+    assert!(
+        !h.engine
+            .hour_cache(&h.engine.plan(&h.session.id, &prompt("go")).await.unwrap()),
+        "a conversation on a key still follows its provider's option"
+    );
+}
+
+#[tokio::test]
 async fn with_every_account_spent_the_refusal_is_shown() {
     let h = harness().await;
     two_accounts(&h);

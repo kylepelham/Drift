@@ -529,6 +529,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Keep-alive-prompt",
     "drift.settings.promptCache.prompt.description": "Hvad hver keep-alive spørger om. Svaret kasseres.",
     "drift.settings.promptCache.prompt.placeholder": "Lav intet, brug ingen værktøjer, svar OK",
+    "drift.settings.promptCache.subagent.title": "Underagent-cache",
+    "drift.settings.promptCache.subagent.description":
+        "Hvor længe en underagents cache lever. Auto starter på 5 minutter og skifter til 1 time, når en kørsel varer længere.",
+    "drift.settings.promptCache.subagent.auto": "Auto",
+    "drift.settings.promptCache.subagent.short": "5 min",
+    "drift.settings.promptCache.subagent.hour": "1 time",
     "drift.settings.toolSearch.group": "Værktøjsindlæsning",
     "drift.settings.toolSearch.title": "Indlæs store MCP-serveres værktøjer efter anmodning",
     "drift.settings.toolSearch.description":

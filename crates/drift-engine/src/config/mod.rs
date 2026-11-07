@@ -23,7 +23,7 @@ mod errors_tests;
 #[cfg(test)]
 mod tests;
 
-pub use agent::{Agent, AgentError, AgentKind};
+pub use agent::{Agent, AgentError, AgentKind, CacheTtl};
 pub use command::{Command, highest_placeholder, split_arguments};
 pub(crate) use discovery::{HOME_SKILL_DIRS, skill_files, skill_folders};
 pub use discovery::{body, home, in_repository, nested_instructions};
@@ -519,12 +519,24 @@ impl Config {
             name: name.clone(),
             permissions,
             variant: document.field("variant"),
+            cache_ttl: self.agent_cache_ttl(&name, &document),
             problem,
             hidden: document.field("hidden").is_some_and(|value| value.trim() == "true"),
         };
 
         self.agents.retain(|agent| agent.name != name);
         self.agents.push(agent);
+    }
+
+    fn agent_cache_ttl(&mut self, name: &str, document: &frontmatter::Document) -> Option<CacheTtl> {
+        let text = document.field("cacheTtl")?;
+        let ttl = CacheTtl::parse(&text);
+        if ttl.is_none() {
+            self.warnings
+                .push(format!("agent {name}: cacheTtl is 5m, 1h or auto, not `{text}`"));
+        }
+
+        ttl
     }
 
     /// Every `SKILL.md` under `dir`, at any depth up to [`discovery::SKILL_DEPTH`]; a name already found nearer wins.
@@ -620,6 +632,7 @@ fn builtin_agents() -> Vec<Agent> {
         read_only: false,
         permissions: Vec::new(),
         variant: None,
+        cache_ttl: None,
         problem: None,
         hidden: false,
     };

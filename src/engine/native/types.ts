@@ -1579,6 +1579,7 @@ export interface components {
             /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
             background?: boolean | null;
             builtin: boolean;
+            cacheTtl?: components["schemas"]["CacheTtl"] | null;
             description: string;
             /** @description Front matter `hidden: true`: left out of the composer's list; `task` can still run it. */
             hidden?: boolean;
@@ -1771,6 +1772,11 @@ export interface components {
             name: string;
             server: string;
         };
+        /**
+         * @description How long a subagent's prompt cache lives: auto is five minutes until it expires mid-run, then an hour.
+         * @enum {string}
+         */
+        CacheTtl: "auto" | "5m" | "1h";
         /** @description A check is a command over files with the given extensions; `$FILE` runs it once per written file, without it once per call. */
         CheckConfig: boolean | {
             command: string[];
@@ -2928,6 +2934,11 @@ export interface components {
              * @default
              */
             prompt: string;
+            /**
+             * @description How long a subagent's requests keep their cache, unless its agent says.
+             * @default auto
+             */
+            subagent: components["schemas"]["CacheTtl"];
             /**
              * @description Keep an idle conversation's prompt cache warm.
              * @default false

@@ -508,6 +508,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "保活提示词",
     "drift.settings.promptCache.prompt.description": "每次保活请求的内容。回复会被丢弃。",
     "drift.settings.promptCache.prompt.placeholder": "不做任何工作，不用工具，回复 OK",
+    "drift.settings.promptCache.subagent.title": "子代理缓存",
+    "drift.settings.promptCache.subagent.description":
+        "子代理缓存保留多久。自动从 5 分钟开始，运行时间超过后改为 1 小时。",
+    "drift.settings.promptCache.subagent.auto": "自动",
+    "drift.settings.promptCache.subagent.short": "5 分钟",
+    "drift.settings.promptCache.subagent.hour": "1 小时",
     "drift.settings.toolSearch.group": "工具加载",
     "drift.settings.toolSearch.title": "按需加载大型 MCP 服务器的工具",
     "drift.settings.toolSearch.description": "在支持的模型上仅在需要时加载工具，以节省上下文。",

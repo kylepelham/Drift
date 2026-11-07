@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::CacheTtl;
 
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 pub(super) const MAX_OUTPUT_TOKENS: u32 = 32_000;
@@ -90,20 +91,33 @@ impl Engine {
         (request, answered)
     }
 
-    /// Whether a request keeps its prompt cache for an hour, as Claude Code does: a conversation (never a worker) on
-    /// a Claude subscription within its limits, or on a route whose one-hour cache option is on.
+    /// Whether a request keeps its prompt cache for an hour, as Claude Code does: a conversation on a Claude
+    /// subscription within its limits, or on a route whose one-hour cache option is on; a worker that wants it
+    /// on any route that has it.
     pub(in crate::session) fn hour_cache(&self, plan: &Plan) -> bool {
         let provider = plan.model_ref.provider.as_str();
-        if plan.session.visibility == crate::session::types::Visibility::Hidden
-            || !provider_options::HOUR_CACHE_PROVIDERS.contains(&provider)
-        {
+        let worker = plan.session.visibility == crate::session::types::Visibility::Hidden;
+        if !provider_options::HOUR_CACHE_PROVIDERS.contains(&provider) || (worker && !self.worker_wants_hour(plan)) {
             return false;
         }
 
         match &plan.credential {
             Credential::OAuth { .. } if provider == "anthropic" => !self.in_overage(plan.account.as_deref()),
             Credential::OAuth { .. } => false,
-            Credential::ApiKey { .. } | Credential::Ambient { .. } => self.options_for(provider).hour_cache,
+            Credential::ApiKey { .. } | Credential::Ambient { .. } => worker || self.options_for(provider).hour_cache,
+        }
+    }
+
+    /// A worker's agent `cacheTtl`, else Settings; on auto, five minutes until its cache expires mid-run, then an hour.
+    fn worker_wants_hour(&self, plan: &Plan) -> bool {
+        let own = plan.config.agent(&plan.session.agent).and_then(|agent| agent.cache_ttl);
+        match own
+            .filter(|ttl| *ttl != CacheTtl::Auto)
+            .unwrap_or(self.prompt_cache().subagent)
+        {
+            CacheTtl::Hour => true,
+            CacheTtl::Short => false,
+            CacheTtl::Auto => plan.cache_stretched,
         }
     }
 

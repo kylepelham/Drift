@@ -534,6 +534,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Поддерживающий промпт",
     "drift.settings.promptCache.prompt.description": "О чём просит каждый поддерживающий запрос. Ответ отбрасывается.",
     "drift.settings.promptCache.prompt.placeholder": "Ничего не делай, не используй инструменты, ответь OK",
+    "drift.settings.promptCache.subagent.title": "Кэш субагентов",
+    "drift.settings.promptCache.subagent.description":
+        "Сколько живёт кэш субагента. Авто начинает с 5 минут и переходит на 1 час, если запуск длится дольше.",
+    "drift.settings.promptCache.subagent.auto": "Авто",
+    "drift.settings.promptCache.subagent.short": "5 мин",
+    "drift.settings.promptCache.subagent.hour": "1 час",
     "drift.settings.toolSearch.group": "Загрузка инструментов",
     "drift.settings.toolSearch.title": "Загружать инструменты больших серверов MCP по запросу",
     "drift.settings.toolSearch.description":

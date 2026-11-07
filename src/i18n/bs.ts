@@ -528,6 +528,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Prompt za održavanje",
     "drift.settings.promptCache.prompt.description": "Šta svaki zahtjev za održavanje traži. Odgovor se odbacuje.",
     "drift.settings.promptCache.prompt.placeholder": "Ne radi ništa, ne koristi alate, odgovori OK",
+    "drift.settings.promptCache.subagent.title": "Keš podagenata",
+    "drift.settings.promptCache.subagent.description":
+        "Koliko dugo traje keš podagenta. Automatski počinje s 5 minuta i prelazi na 1 sat kad rad potraje duže.",
+    "drift.settings.promptCache.subagent.auto": "Automatski",
+    "drift.settings.promptCache.subagent.short": "5 min",
+    "drift.settings.promptCache.subagent.hour": "1 sat",
     "drift.settings.toolSearch.group": "Učitavanje alata",
     "drift.settings.toolSearch.title": "Učitaj alate velikih MCP servera na zahtjev",
     "drift.settings.toolSearch.description":

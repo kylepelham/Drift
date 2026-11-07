@@ -2233,8 +2233,13 @@ code until he picks.
   `session::turn::provider_options`) on the routes that take it for Claude: Anthropic by API key,
   Bedrock (`ttl` on `cache_control`, Claude 4.5 and later per the AWS prompt caching guide), Vertex
   (same field, Google's Claude prompt caching page) and OpenRouter (passed to Claude upstreams),
-  since writes then cost twice the input price instead of 1.25 times. Never for workers, nor for a
-  ChatGPT sign-in. Idle gaps over five minutes were 21% of Kyle's spend in ten days; the meter still prices
+  since writes then cost twice the input price instead of 1.25 times. Never for a ChatGPT sign-in.
+  A worker starts at five minutes: most runs ask again well within it. Once its cache expires
+  between two requests of the same run (the cache watch reports "Expired after", `Plan::cache_stretched`),
+  the rest of that run asks for an hour on any route that has it, whatever the provider's option,
+  since a long tool call that outlasted five minutes will likely do so again. Settings > Execution >
+  Prompt cache > Subagent cache (`PromptCache::subagent`: `auto`, `5m`, `1h`) and an agent's
+  `cacheTtl` front matter, which wins, force either. Idle gaps over five minutes were 21% of Kyle's spend in ten days; the meter still prices
   writes at the five-minute rate, since usage does not say which was written.
 - Whether the cache is still warm (`Engine::cache_cold`) comes from the conversation's newest reply
   that reached the cache (`Store::last_cached_reply`): it is cold when there is none, when it came

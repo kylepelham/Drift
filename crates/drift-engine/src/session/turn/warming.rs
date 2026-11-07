@@ -38,6 +38,8 @@ pub struct PromptCache {
     pub window_minutes: u32,
     /// What a keep-alive request asks; empty takes the default.
     pub prompt: String,
+    /// How long a subagent's requests keep their cache, unless its agent says.
+    pub subagent: crate::config::CacheTtl,
 }
 
 impl Default for PromptCache {
@@ -47,6 +49,7 @@ impl Default for PromptCache {
             interval_minutes: 4,
             window_minutes: 30,
             prompt: String::new(),
+            subagent: crate::config::CacheTtl::Auto,
         }
     }
 }

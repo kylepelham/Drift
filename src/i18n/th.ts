@@ -519,6 +519,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "พรอมต์รักษาการเชื่อมต่อ",
     "drift.settings.promptCache.prompt.description": "สิ่งที่คำขอรักษาแต่ละครั้งถาม คำตอบจะถูกทิ้ง",
     "drift.settings.promptCache.prompt.placeholder": "ไม่ต้องทำงาน ไม่ใช้เครื่องมือ ตอบ OK",
+    "drift.settings.promptCache.subagent.title": "แคชของเอเจนต์ย่อย",
+    "drift.settings.promptCache.subagent.description":
+        "แคชของเอเจนต์ย่อยอยู่ได้นานเท่าใด อัตโนมัติเริ่มที่ 5 นาที และเปลี่ยนเป็น 1 ชั่วโมงเมื่อการทำงานนานกว่านั้น",
+    "drift.settings.promptCache.subagent.auto": "อัตโนมัติ",
+    "drift.settings.promptCache.subagent.short": "5 นาที",
+    "drift.settings.promptCache.subagent.hour": "1 ชั่วโมง",
     "drift.settings.toolSearch.group": "การโหลดเครื่องมือ",
     "drift.settings.toolSearch.title": "โหลดเครื่องมือของเซิร์ฟเวอร์ MCP ขนาดใหญ่ตามคำขอ",
     "drift.settings.toolSearch.description": "ประหยัดบริบทโดยโหลดเครื่องมือเฉพาะเมื่อจำเป็น บนโมเดลที่รองรับ",

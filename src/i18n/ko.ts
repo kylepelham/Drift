@@ -523,6 +523,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "킵얼라이브 프롬프트",
     "drift.settings.promptCache.prompt.description": "각 킵얼라이브가 묻는 내용입니다. 응답은 버립니다.",
     "drift.settings.promptCache.prompt.placeholder": "아무 작업도 하지 말고 도구도 쓰지 말고 OK라고 답하세요",
+    "drift.settings.promptCache.subagent.title": "서브에이전트 캐시",
+    "drift.settings.promptCache.subagent.description":
+        "서브에이전트 캐시가 유지되는 시간입니다. 자동은 5분으로 시작해 실행이 더 길어지면 1시간으로 바뀝니다.",
+    "drift.settings.promptCache.subagent.auto": "자동",
+    "drift.settings.promptCache.subagent.short": "5분",
+    "drift.settings.promptCache.subagent.hour": "1시간",
     "drift.settings.toolSearch.group": "도구 로딩",
     "drift.settings.toolSearch.title": "대규모 MCP 서버 도구를 요청 시 로드",
     "drift.settings.toolSearch.description": "지원되는 모델에서 도구를 필요할 때만 로드하여 컨텍스트를 절약합니다.",

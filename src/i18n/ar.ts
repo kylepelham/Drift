@@ -521,6 +521,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "تعليمة الإبقاء",
     "drift.settings.promptCache.prompt.description": "ما يطلبه كل طلب إبقاء. يُتجاهل رده.",
     "drift.settings.promptCache.prompt.placeholder": "لا تعمل شيئًا ولا تستخدم أدوات، ورد بـ OK",
+    "drift.settings.promptCache.subagent.title": "ذاكرة الوكلاء الفرعيين المؤقتة",
+    "drift.settings.promptCache.subagent.description":
+        "مدة بقاء الذاكرة المؤقتة للوكيل الفرعي. التلقائي يبدأ بـ 5 دقائق وينتقل إلى ساعة إذا طال التشغيل أكثر منها.",
+    "drift.settings.promptCache.subagent.auto": "تلقائي",
+    "drift.settings.promptCache.subagent.short": "5 دقائق",
+    "drift.settings.promptCache.subagent.hour": "ساعة",
     "drift.settings.toolSearch.group": "تحميل الأدوات",
     "drift.settings.toolSearch.title": "تحميل أدوات خوادم MCP الكبيرة عند الطلب",
     "drift.settings.toolSearch.description": "يوفر السياق عن طريق تحميل الأدوات عند الحاجة فقط، في النماذج المدعومة.",

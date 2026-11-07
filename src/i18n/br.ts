@@ -537,6 +537,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.title": "Prompt de keep-alive",
     "drift.settings.promptCache.prompt.description": "O que cada keep-alive pede. A resposta é descartada.",
     "drift.settings.promptCache.prompt.placeholder": "Não faça nada, não use ferramentas, responda OK",
+    "drift.settings.promptCache.subagent.title": "Cache de subagentes",
+    "drift.settings.promptCache.subagent.description":
+        "Quanto tempo dura o cache de um subagente. Automático começa em 5 minutos e passa a 1 hora quando uma execução dura mais.",
+    "drift.settings.promptCache.subagent.auto": "Automático",
+    "drift.settings.promptCache.subagent.short": "5 min",
+    "drift.settings.promptCache.subagent.hour": "1 hora",
     "drift.settings.toolSearch.group": "Carregamento de ferramentas",
     "drift.settings.toolSearch.title": "Carregar ferramentas de grandes servidores MCP sob demanda",
     "drift.settings.toolSearch.description":
