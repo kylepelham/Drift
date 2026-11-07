@@ -959,7 +959,7 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   (`Engine::stop_turn`) stops the turn and the foreground workers under it, and leaves the Stop
   count alone: background workers and commands run on and their ends still wake the conversation.
   The composer's Stop sends `only=turn` while the turn runs; once it is idle and background work
-  remains, the button names it ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
+  remains, the icon-only button names it in its tooltip ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
   a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop` and `POST /tasks/{id}/abort` cancel one
   worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
   and question asks carry the worker's session id and inherit the owner's approvals.

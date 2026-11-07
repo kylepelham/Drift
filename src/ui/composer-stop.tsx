@@ -7,7 +7,7 @@ const armMs = 500;
 
 /**
  * Stop. While the turn runs it stops the turn alone, and background workers and commands run on and still wake the
- * conversation; once the turn is idle and some still run, it names them and stops them all.
+ * conversation; once the turn is idle and some still run, it stops them all, naming them in its tooltip.
  */
 export function ComposerStop(props: {
     busy: boolean;
@@ -59,13 +59,13 @@ export function ComposerStop(props: {
                 }
             >
                 <button
-                    class="composer-stop flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-ink-muted transition-colors hover:bg-raised hover:text-danger disabled:cursor-default disabled:opacity-60"
+                    class="composer-stop flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-raised hover:text-danger disabled:cursor-default disabled:opacity-60"
                     title={label()}
+                    aria-label={label()}
                     disabled={!armed()}
                     onClick={() => props.onStopAll()}
                 >
                     <IconStop class="size-3.5" />
-                    {label()}
                 </button>
             </Show>
         </Show>
