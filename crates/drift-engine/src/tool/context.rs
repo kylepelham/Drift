@@ -2,6 +2,7 @@ use super::{Ask, ToolMetadata, canonical, display, scratch_dir, sensitive};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 use tokio_util::sync::CancellationToken;
 
 /// Shared across one session: which files the model has read, so edits are never blind, and which
@@ -12,6 +13,8 @@ pub struct SessionFiles {
     /// Each file's size and modification time when this run last read or wrote it, to notice a change since.
     stamps: Mutex<HashMap<PathBuf, Stamp>>,
     shown: Mutex<HashSet<PathBuf>>,
+    /// When this run's foreground commands ran, so a file one of them wrote counts as the model's own.
+    shell_runs: Mutex<Vec<(SystemTime, SystemTime)>>,
     /// Where the reads are kept, so they outlast a restart; none in a bare test context.
     kept: Option<(Arc<crate::store::Store>, String)>,
 }
@@ -88,6 +91,23 @@ impl SessionFiles {
         self.read.lock().unwrap().contains(path)
     }
 
+    pub fn shell_ran(&self, started: SystemTime, ended: SystemTime) {
+        self.shell_runs.lock().unwrap().push((started, ended));
+    }
+
+    /// Whether the file was last modified while one of this run's commands ran: the model wrote it.
+    pub fn shell_wrote(&self, path: &Path) -> bool {
+        // File times are coarse on some file systems, so each window is widened a little.
+        const SLACK: Duration = Duration::from_secs(2);
+        let Some(modified) = std::fs::metadata(path).and_then(|metadata| metadata.modified()).ok() else {
+            return false;
+        };
+
+        self.shell_runs.lock().unwrap().iter().any(|&(started, ended)| {
+            started.checked_sub(SLACK).is_none_or(|from| modified >= from) && modified <= ended + SLACK
+        })
+    }
+
     /// Takes the file as it is now for the version last seen: after the model's own write, or a formatter's.
     pub fn restamp(&self, path: &Path) {
         if let Some(now) = stamp(path) {
@@ -107,11 +127,13 @@ impl SessionFiles {
         let read = self.read.lock().unwrap().clone();
         let stamps = self.stamps.lock().unwrap().clone();
         let shown = self.shown.lock().unwrap().clone();
+        let shell_runs = self.shell_runs.lock().unwrap().clone();
 
         Self {
             read: Mutex::new(read),
             stamps: Mutex::new(stamps),
             shown: Mutex::new(shown),
+            shell_runs: Mutex::new(shell_runs),
             kept: None,
         }
     }

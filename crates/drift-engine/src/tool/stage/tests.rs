@@ -296,3 +296,27 @@ async fn a_file_held_open_without_delete_sharing_is_left_as_it_was() {
     assert!(leftovers(&dir).is_empty() && store.replacements().unwrap().is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_file_another_program_lets_go_of_moments_later_is_replaced() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (store, dir) = (store(), sandbox("released"));
+    let file = dir.join("a.txt");
+    std::fs::write(&file, "one").unwrap();
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0x1 | 0x2)
+        .open(&file)
+        .unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(held);
+    });
+
+    replace(&store, &file, b"two").await.unwrap();
+    release.join().unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "two");
+    assert!(leftovers(&dir).is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}

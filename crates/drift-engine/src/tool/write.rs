@@ -115,12 +115,14 @@ async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<O
         }
     };
 
-    if existing.is_some() && !ctx.files.was_read(path) {
+    // A file the model's own command just wrote is not someone else's work to protect.
+    let own = existing.is_some() && ctx.files.shell_wrote(path);
+    if existing.is_some() && !own && !ctx.files.was_read(path) {
         return Err(ToolError(format!(
             "{name} exists and has not been read this session; read it before overwriting"
         )));
     }
-    if existing.is_some() && ctx.files.changed_since_seen(path) {
+    if existing.is_some() && !own && ctx.files.changed_since_seen(path) {
         return Err(ToolError(format!(
             "{name} changed on disk since it was last read; read it again before overwriting"
         )));
@@ -209,6 +211,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"c\r\nd\r\n");
+    }
+
+    #[tokio::test]
+    async fn a_file_the_models_own_command_wrote_can_be_overwritten_unread() {
+        let sandbox = Sandbox::new("write-shell");
+        let began = std::time::SystemTime::now();
+        let path = sandbox.file("made.txt", "from a script\n");
+        sandbox.ctx.files.shell_ran(began, std::time::SystemTime::now());
+
+        Write
+            .run(&sandbox.ctx, json!({ "path": "made.txt", "content": "rewritten\n" }))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "rewritten\n");
     }
 
     #[tokio::test]

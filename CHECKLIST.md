@@ -452,6 +452,26 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
 
+## 2.5.0: long-running work
+
+From a coordinator project's report on its own runs (`Ona-coord/analysis/DRIFT_WISHLIST.md`), checked against the
+code and Claude Code 2.1.317, then decided with Kyle item by item.
+
+- [ ] Small bugs: `write` takes a file bash just created, `\\wsl.localhost` edits fall back to a plain write, a file in use is retried briefly, the engine closes running tool rows after a restart, a `task`'s agent keeps its own reasoning level
+- [ ] Timeouts: a subagent's own `timeout` is honoured up to 1 h, a conversation keeps the user's limit, and a cut value is always reported; a subagent's `process wait` and `task_output` wait up to 1 h
+- [ ] Subagent cache: 5 minutes until it expires mid-run, then 1 hour for the rest of the run; a setting and an agent's `cacheTtl` force either
+- [ ] Stop: the button stays while the turn, workers or background commands run; the first press stops the turn, the second (armed after a moment, labelled with what it stops) stops workers and commands; workers left running wake the conversation with their results
+- [ ] Revert stops only workers started in the reverted turns and drops their results, while a turn runs too; un-revert shows them stopped
+- [ ] `task` takes `workdir` (the worker's root for bash, paths, grep and glob, the environment block and AGENTS.md), `model` and `effort`
+- [ ] Grep and glob are bounded: 20 s budget with partial results, early stop, a skip list for heavy and system folders unless named or asked for, files over 10 MB skipped, a cheaper per-file check
+- [ ] Grep takes Claude Code's options (`output_mode`, `-A`/`-B`/`-C`, `-i`, `type`, `multiline`, `head_limit`, `offset`) and can search ignored folders
+- [ ] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`
+- [ ] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped
+- [ ] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
+- [ ] Plugin language servers start at the edited file's git root
+- [ ] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
+- Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
+
 ## Readability and tooling pass
 
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`

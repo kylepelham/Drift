@@ -186,6 +186,7 @@ impl Bash {
     /// Runs the command until it exits, is stopped, or reaches its limit, where it moves to the background.
     async fn foreground(&self, context: &Context, input: &Value, mut started: Started, directory: &Path) -> Output {
         let limit = limit_for(context, input);
+        let began = std::time::SystemTime::now();
         let path = context
             .engine
             .data_dir
@@ -212,6 +213,7 @@ impl Bash {
         if !matches!(ended, Ended::Exited { lingering: false, .. }) {
             kill_tree(&running.tree, &mut running.child).await;
         }
+        context.files.shell_ran(began, std::time::SystemTime::now());
         if matches!(ended, Ended::Exited { code: 0, .. }) {
             self.mark_files_read(context, &started.command, directory);
         }

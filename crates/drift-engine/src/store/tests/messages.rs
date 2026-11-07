@@ -1,5 +1,5 @@
 use super::*;
-use crate::session::types::Visibility;
+use crate::session::types::{ToolStatus, Visibility};
 use crate::store::{NewSession, tests::store};
 
 fn new(workspace: &str) -> NewSession<'_> {
@@ -195,6 +195,44 @@ fn streaming_messages_are_abandoned_on_open() {
 
     assert_eq!(store.abandon_streaming_messages().unwrap(), 1);
     assert_eq!(store.abandon_streaming_messages().unwrap(), 0);
+}
+
+#[test]
+fn a_call_left_running_by_a_stopped_process_is_interrupted_on_open() {
+    let store = store();
+    let call = |status| Part::ToolCall {
+        call_id: String::new(),
+        name: "bash".into(),
+        input: serde_json::json!({}),
+        status,
+        title: None,
+        output: None,
+        metadata: None,
+        started_at: Some(1),
+        finished_at: None,
+    };
+    let cut_off = store.create_session(new("w")).unwrap();
+    let idle = store.create_session(new("w")).unwrap();
+    store.claim_turn(&cut_off.id).unwrap();
+    for session in [&cut_off, &idle] {
+        let reply = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        store
+            .add_part(&reply.id, &session.id, call(ToolStatus::Running))
+            .unwrap();
+        store.add_part(&reply.id, &session.id, call(ToolStatus::Done)).unwrap();
+    }
+
+    assert_eq!(
+        store.interrupt_running_calls().unwrap(),
+        1,
+        "only a session with a turn under way"
+    );
+    let parts = store.transcript(&cut_off.id).unwrap().remove(0).parts;
+    let Part::ToolCall { status, output, .. } = &parts[0].part else {
+        panic!("a call");
+    };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("interrupted"));
 }
 
 #[test]

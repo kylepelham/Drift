@@ -34,6 +34,11 @@ impl<'a> NewMessage<'a> {
 
 /// Read through `idx_message_streaming`, which holds only the replies still streaming.
 const ABANDON_STREAMING: &str = "UPDATE message SET status = 'aborted', finished_at = ?1 WHERE status = 'streaming'";
+/// Only conversations with a turn or worker under way can hold a running call, which keeps this off the whole table.
+const INTERRUPT_RUNNING_CALLS: &str = "UPDATE part SET json = json_set(json, '$.status', 'error',
+        '$.output', 'This call was interrupted when Drift stopped, before it produced a result.', '$.finishedAt', ?1)
+    WHERE session_id IN (SELECT session_id FROM turn_claim UNION SELECT session_id FROM task WHERE state IN ('queued', 'running'))
+    AND json_extract(json, '$.type') = 'tool_call' AND json_extract(json, '$.status') IN ('pending', 'running')";
 
 impl Store {
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
@@ -263,6 +268,11 @@ impl Store {
     /// Anything still streaming when the engine last stopped did not finish.
     pub fn abandon_streaming_messages(&self) -> rusqlite::Result<usize> {
         self.lock().execute(ABANDON_STREAMING, [id::now_ms()])
+    }
+
+    /// At startup, before workers are settled: a call left running by a stopped process ends as interrupted.
+    pub fn interrupt_running_calls(&self) -> rusqlite::Result<usize> {
+        self.lock().execute(INTERRUPT_RUNNING_CALLS, [id::now_ms()])
     }
 }
 
