@@ -334,3 +334,59 @@ async fn after_a_restart_unfinished_workers_are_interrupted_and_finished_results
         "only the delivered result started a turn"
     );
 }
+
+#[tokio::test]
+async fn an_undo_stops_only_the_workers_its_turns_launched_and_drops_their_results() {
+    let h = harness().await;
+    let mut later = launches(&[background("Drop", "CHILD drop")]);
+    if let Chunk::ToolUseStart { id, .. } = &mut later[0] {
+        *id = "later_0".into();
+    }
+    h.provider
+        .push_for("PARENT", launches(&[background("Keep", "CHILD keep")]))
+        .push_for("PARENT", text("one"))
+        .push_for("PARENT", later)
+        .push_stall_for("PARENT")
+        .push_slow_for("CHILD keep", Duration::from_millis(800), text("kept result"))
+        .push_slow_for("CHILD drop", Duration::from_millis(800), text("dropped result"))
+        .push_for("PARENT", text("thanks"));
+    h.engine.submit(&h.session.id, prompt("PARENT one")).await.unwrap();
+    until("the first turn ends", || {
+        !h.engine.turns.is_running(&h.session.id) && tasks(&h).len() == 1
+    })
+    .await;
+    h.engine.submit(&h.session.id, prompt("PARENT two")).await.unwrap();
+    until("both run", || tasks(&h).len() == 2).await;
+    let second = h
+        .engine
+        .store
+        .transcript(&h.session.id)
+        .unwrap()
+        .into_iter()
+        .find(|message| format!("{:?}", message.parts).contains("PARENT two"))
+        .unwrap()
+        .info
+        .id;
+
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    let by_name = |name: &str| tasks(&h).into_iter().find(|task| task.description == name).unwrap();
+    assert!(by_name("Drop").delivered, "its result is dropped");
+    until("the dropped worker stops", || by_name("Drop").state == TaskState::Stopped).await;
+    assert_eq!(
+        by_name("Keep").state,
+        TaskState::Running,
+        "an earlier turn's worker runs on"
+    );
+
+    until("the kept result arrives", || by_name("Keep").delivered).await;
+    until_idle(&h).await;
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    let results = delivered_results(&h.engine.store.transcript(&h.session.id).unwrap());
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(results[0].1.contains("kept result"), "{results:?}");
+    assert_eq!(
+        by_name("Drop").state,
+        TaskState::Stopped,
+        "shown stopped, never restarted"
+    );
+}

@@ -173,19 +173,67 @@ impl Engine {
     /// Hides `message_id`, a prompt, with everything after it, and undoes what those turns changed.
     /// Called again while undone it moves the point either way, and the files follow.
     pub async fn revert(&self, session_id: &str, message_id: &str) -> Result<Undone, RevertError> {
-        self.exclusively(session_id, self.revert_claimed(session_id, message_id, false))
-            .await
+        self.undoing(
+            session_id,
+            Some(message_id),
+            self.revert_claimed(session_id, message_id, false),
+        )
+        .await
     }
 
     /// As [`Self::revert`], but only the conversation moves: every file stays as it is now.
     pub async fn revert_keeping_files(&self, session_id: &str, message_id: &str) -> Result<Undone, RevertError> {
-        self.exclusively(session_id, self.revert_claimed(session_id, message_id, true))
-            .await
+        self.undoing(
+            session_id,
+            Some(message_id),
+            self.revert_claimed(session_id, message_id, true),
+        )
+        .await
     }
 
     /// Brings back everything an undo hid, and redoes what those turns changed.
     pub async fn unrevert(&self, session_id: &str) -> Result<Undone, RevertError> {
-        self.exclusively(session_id, self.unrevert_claimed(session_id)).await
+        self.undoing(session_id, None, self.unrevert_claimed(session_id)).await
+    }
+
+    /// Runs an undo or redo holding the session. It stops only the turn: workers launched before `from` run on, and
+    /// those launched in the turns it hides are stopped, their results dropped for good.
+    async fn undoing<T>(
+        &self,
+        session_id: &str,
+        from: Option<&str>,
+        work: impl Future<Output = Result<T, RevertError>>,
+    ) -> Result<T, RevertError> {
+        let done = self
+            .holding(session_id, || self.stop_turn(session_id), async {
+                let done = work.await?;
+                if let Some(from) = from {
+                    self.drop_workers_from(session_id, from);
+                }
+                Ok(done)
+            })
+            .await;
+        // A result that arrived while the session was held goes in now.
+        if let Some(engine) = self.me.upgrade() {
+            engine.retry_deliveries(Some(session_id));
+        }
+
+        done
+    }
+
+    /// Stops the workers launched in or after the turn of `from` and marks their results delivered, so none ever arrives.
+    fn drop_workers_from(&self, session_id: &str, from: &str) {
+        for task in self.store.tasks_of(session_id).unwrap_or_default() {
+            let call = self.store.call_part(session_id, &task.call_id).ok().flatten();
+            if task.delivered || call.is_none_or(|call| call.message_id.as_str() < from) {
+                continue;
+            }
+            let _ = self.store.mark_task_delivered(&task.id);
+            if !task.state.is_terminal() {
+                let _ = self.stop_task(&task.id);
+            }
+            self.publish_task(&task.id);
+        }
     }
 
     /// Runs `work` holding the session, so no turn starts while its files and history change
@@ -195,9 +243,18 @@ impl Engine {
         session_id: &str,
         work: impl Future<Output = Result<T, RevertError>>,
     ) -> Result<T, RevertError> {
+        self.holding(session_id, || self.abort(session_id), work).await
+    }
+
+    async fn holding<T>(
+        &self,
+        session_id: &str,
+        stop: impl Fn() -> bool,
+        work: impl Future<Output = Result<T, RevertError>>,
+    ) -> Result<T, RevertError> {
         let deadline = tokio::time::Instant::now() + STOP_WAIT;
         while !self.turns.claim(session_id, &CancellationToken::new()) {
-            self.abort(session_id);
+            stop();
             let until = CancellationToken::new();
             if tokio::time::timeout_at(deadline, self.turns.wait_idle(session_id, &until))
                 .await

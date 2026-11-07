@@ -735,8 +735,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   Measured in a 7,000-file repository: a writing shell step's overhead went from about 600ms to 270ms,
   and to about 100ms for a command whose writes are all ignored (a build or a test run); eight agents
   running commands at once paid 64 captures with 17 real ones.
-- Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
-  it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
+- Undo and redo stop a running turn first (as Stop's first press does, `Engine::stop_turn`) and wait
+  up to 15 s for it to end, then go ahead; only a job that does not stop in time makes them 409
+  `busy`. Workers launched in earlier turns run on. Those an undo hides (their `task` call is in a
+  hidden message) are stopped and marked delivered, so their results never arrive, late or owed; a
+  redo shows them stopped and never restarts them (`Engine::drop_workers_from`). A result that came
+  in while the session was held is offered again once it is free.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent or a compaction's boundary
   (undoing a compaction brings the history it summarised back into view). It hides that message and
   everything after it (`session.revert.messageId`, the UI filters) and puts each file the hidden
