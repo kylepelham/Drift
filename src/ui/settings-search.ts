@@ -60,14 +60,6 @@ const settingsSearchDefinitions = {
         { title: "drift.settings.collapseCommands.title", description: "drift.settings.collapseCommands.description" },
         { title: "drift.settings.groupTools.title", description: "drift.settings.groupTools.description" },
         { title: "drift.settings.editedFiles.title", description: "drift.settings.editedFiles.description" },
-        {
-            title: "drift.settings.composerCards.style.title",
-            description: "drift.settings.composerCards.style.description",
-        },
-        ...(["todos", "tasks", "revert"] as const).map((kind) => ({
-            title: `drift.settings.composerCards.${kind}.title`,
-            description: `drift.settings.composerCards.${kind}.description`,
-        })),
         { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
         { title: "drift.settings.compactAt.title", description: "drift.settings.compactAt.description" },
         {
@@ -97,6 +89,14 @@ const settingsSearchDefinitions = {
         { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
         { title: "drift.settings.thinking", description: "drift.settings.thinking.preview.description" },
         { title: "drift.settings.waiting.title", description: "drift.settings.waiting.description" },
+        {
+            title: "drift.settings.composerCards.style.title",
+            description: "drift.settings.composerCards.style.description",
+        },
+        ...(["todos", "tasks", "revert"] as const).map((kind) => ({
+            title: `drift.settings.composerCards.${kind}.title`,
+            description: `drift.settings.composerCards.${kind}.description`,
+        })),
         { title: "startup.settings.show.title", description: "startup.settings.show.description" },
         { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
         { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },

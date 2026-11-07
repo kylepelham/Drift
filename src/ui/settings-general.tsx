@@ -1,7 +1,6 @@
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs";
 import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { language, languages, setLanguage } from "../state/language";
-import { ComposerCardsSettings } from "./settings-composer-cards";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { filePreviewTypes } from "../file-preview-types";
 import { compactionExamples } from "./model-details";
@@ -231,8 +230,6 @@ export function GeneralSection() {
                     />
                 </SettingsRow>
             </SettingsGroup>
-
-            <ComposerCardsSettings />
 
             <SettingsGroup title={t("drift.preview.settings.title")}>
                 <SettingsRow

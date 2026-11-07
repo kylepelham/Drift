@@ -11,7 +11,7 @@ import {
     setComposerCardStyle,
 } from "../state/prefs";
 
-/** Settings > General > Above the composer: how its cards sit, and which ones show. */
+/** Settings > Appearance > Above the composer: how its cards sit, and which ones show. */
 export function ComposerCardsSettings() {
     return (
         <SettingsGroup title={t("drift.settings.composerCards")}>

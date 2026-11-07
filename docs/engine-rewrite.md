@@ -1431,7 +1431,7 @@ goal retires them.
     (`ShellOutput`), read from `GET /processes/{id}/output` (the newest 64 KB kept in memory, which
     marks nothing read for the model) when opened and every second while it runs. Ended ones join
     the finished history.
-  - The cards above the composer (Settings > General > Above the composer) tuck in behind it as one
+  - The cards above the composer (Settings > Appearance > Above the composer) tuck in behind it as one
     stack by default, or stand apart, each rounded on its own with a gap. The todo list, Background
     tasks and rolled back messages can each be hidden; permission requests and questions cannot,
     since a turn waits on them. Hidden background work still shows in Stop and the waiting
