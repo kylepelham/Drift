@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} workers",
     "drift.stop.commands.one": "{{count}} command",
     "drift.stop.commands.other": "{{count}} commands",
+    "drift.waiting": "Waiting",
+    "drift.waiting.on": "Waiting on {{work}}",
+    "drift.settings.waiting.title": "Show waiting on background work",
+    "drift.settings.waiting.description":
+        "When background commands or subagents will wake a conversation and nothing else runs, show an hourglass in the sidebar and the conversation instead of Thinking.",
     "prompt.attachment.remove": "Remove attachment",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Ask anything...",

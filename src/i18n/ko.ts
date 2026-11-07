@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "서브에이전트 {{count}}개",
     "drift.stop.commands.one": "명령 {{count}}개",
     "drift.stop.commands.other": "명령 {{count}}개",
+    "drift.waiting": "대기 중",
+    "drift.waiting.on": "{{work}} 대기 중",
+    "drift.settings.waiting.title": "백그라운드 작업 대기 표시",
+    "drift.settings.waiting.description":
+        "백그라운드 명령이나 하위 에이전트가 대화를 다시 시작할 예정이고 다른 작업이 없을 때, 사이드바와 대화에 생각 중 대신 모래시계를 표시합니다.",
     "prompt.attachment.remove": "첨부 파일 제거",
     "prompt.mode.shell": "셸",
     "prompt.placeholder.simple": "무엇이든 물어보세요...",

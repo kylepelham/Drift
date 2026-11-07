@@ -104,6 +104,11 @@ export const dict = {
     "drift.stop.workers.other": "podagenci: {{count}}",
     "drift.stop.commands.one": "polecenia: {{count}}",
     "drift.stop.commands.other": "polecenia: {{count}}",
+    "drift.waiting": "Oczekiwanie",
+    "drift.waiting.on": "Oczekiwanie na {{work}}",
+    "drift.settings.waiting.title": "Pokazuj oczekiwanie na pracę w tle",
+    "drift.settings.waiting.description":
+        "Gdy polecenia lub podagenci w tle wybudzą rozmowę, a nic innego nie działa, pasek boczny i rozmowa pokazują klepsydrę zamiast Myśli.",
     "prompt.attachment.remove": "Usuń załącznik",
     "prompt.mode.shell": "Terminal",
     "prompt.placeholder.simple": "Zapytaj o cokolwiek...",

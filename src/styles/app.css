@@ -1134,6 +1134,41 @@ textarea {
     font-size: 0.78rem;
 }
 
+/* Waiting on background work, not thinking: dashed like every background row, muted, with no shimmer. */
+.timeline-waiting {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: fit-content;
+    margin-top: 0.7rem;
+    padding: 0.2rem 0.65rem;
+    border: 1px dashed var(--edge-strong);
+    border-radius: 999px;
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+}
+
+@keyframes waiting-flip {
+    0%,
+    70% {
+        transform: rotate(0deg);
+    }
+    85%,
+    100% {
+        transform: rotate(180deg);
+    }
+}
+
+.waiting-hourglass {
+    animation: waiting-flip 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .waiting-hourglass {
+        animation: none;
+    }
+}
+
 .tool-row-title {
     color: var(--ink-muted);
     font-weight: 500;

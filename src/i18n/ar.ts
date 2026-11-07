@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} وكلاء",
     "drift.stop.commands.one": "{{count}} أمر",
     "drift.stop.commands.other": "{{count}} أوامر",
+    "drift.waiting": "في الانتظار",
+    "drift.waiting.on": "في انتظار {{work}}",
+    "drift.settings.waiting.title": "إظهار انتظار العمل في الخلفية",
+    "drift.settings.waiting.description":
+        "عندما ستوقظ أوامر أو وكلاء فرعيون في الخلفية محادثة ولا يعمل شيء آخر، تظهر ساعة رملية في الشريط الجانبي والمحادثة بدلا من التفكير.",
     "prompt.attachment.remove": "إزالة المرفق",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "اسأل أي شيء...",

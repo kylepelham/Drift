@@ -88,6 +88,7 @@ const settingsSearchDefinitions = {
         { title: "drift.textSize.icons", description: "drift.textSize.icons.description" },
         { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
         { title: "drift.settings.thinking", description: "drift.settings.thinking.preview.description" },
+        { title: "drift.settings.waiting.title", description: "drift.settings.waiting.description" },
         { title: "startup.settings.show.title", description: "startup.settings.show.description" },
         { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
         { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },

@@ -104,6 +104,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} underagenter",
     "drift.stop.commands.one": "{{count}} kommando",
     "drift.stop.commands.other": "{{count}} kommandoer",
+    "drift.waiting": "Venter",
+    "drift.waiting.on": "Venter på {{work}}",
+    "drift.settings.waiting.title": "Vis venten på baggrundsarbejde",
+    "drift.settings.waiting.description":
+        "Når kommandoer eller subagenter i baggrunden vil vække en samtale, og intet andet kører, vises et timeglas i sidepanelet og samtalen i stedet for Tænker.",
     "prompt.attachment.remove": "Fjern vedhæftning",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Spørg om hvad som helst...",

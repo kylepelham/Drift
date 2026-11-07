@@ -1,12 +1,15 @@
 import { createActions } from "../src/engine/actions";
+import { produce } from "solid-js/store";
 import { expect, test } from "bun:test";
 import {
     backgroundWork,
     createEngineState,
     mergeTasks,
     putTasks,
+    sessionWaiting,
     taskForWorker,
     taskTiming,
+    waitsOnBackground,
 } from "../src/engine/store";
 
 import type { Client, TaskRecord } from "../src/engine/native/client";
@@ -247,6 +250,48 @@ test("Stop counts the background workers and commands that run on after the turn
         { ...process, id: "q", state: "exited" },
     ] as ProcessRecord[]);
     expect(backgroundWork(state, "parent")).toEqual({ workers: 2, commands: 1 });
+});
+
+test("a conversation is waiting, not thinking, while only background work will wake it or its turn only waits on it", () => {
+    const [state, set] = createEngineState();
+    const call = (id: string, name: string, input: unknown, status = "running") =>
+        ({ ...receipt(id), name, input, status, finishedAt: undefined }) as ToolPart;
+    expect(sessionWaiting(state, "parent")).toBeNull();
+
+    set("processes", "parent", [
+        { id: "p", sessionId: "parent", command: "x", startedAt: 1, state: "running" },
+    ] as ProcessRecord[]);
+    expect(sessionWaiting(state, "parent"), "idle with a command that wakes it").toEqual({ workers: 0, commands: 1 });
+    set("tasks", "parent", [task("a"), task("c", { mode: "foreground" })]);
+    expect(sessionWaiting(state, "parent")).toEqual({ workers: 1, commands: 1 });
+
+    set("status", "parent", { type: "busy" });
+    expect(sessionWaiting(state, "parent"), "a busy turn with no call running is thinking").toBeNull();
+    set("liveTools", { part_w: "parent" });
+    set("waitCalls", { part_w: "parent" });
+    expect(sessionWaiting(state, "parent"), "its only call waits").toEqual({ workers: 1, commands: 1 });
+    set("liveTools", { part_w: "parent", part_b: "parent" });
+    expect(sessionWaiting(state, "parent"), "another call works beside the wait").toBeNull();
+    set("status", "parent", { type: "retry", attempt: 1, message: "busy", next: 0 } as never);
+    expect(sessionWaiting(state, "parent")).toBeNull();
+
+    set(
+        produce((draft) => {
+            draft.liveTools = {};
+            draft.waitCalls = {};
+        }),
+    );
+    set("status", "parent", { type: "busy" });
+    const message = { id: "m", sessionId: "parent", role: "assistant" } as never;
+    set("transcripts", "parent", [
+        { info: message, parts: [call("o", "task_output", { task_id: "a", wait_seconds: 600 })] },
+    ]);
+    expect(sessionWaiting(state, "parent"), "a turn loaded mid-wait").toEqual({ workers: 1, commands: 1 });
+    set("transcripts", "parent", [{ info: message, parts: [call("o", "task_output", { task_id: "a" })] }]);
+    expect(sessionWaiting(state, "parent"), "a task_output that answers at once is not a wait").toBeNull();
+    expect(waitsOnBackground({ name: "process", input: { action: "wait", id: "p" } })).toBeTrue();
+    expect(waitsOnBackground({ name: "process", input: { action: "output", id: "p" } })).toBeFalse();
+    expect(waitsOnBackground({ name: "bash", input: { command: "sleep 9" } })).toBeFalse();
 });
 
 test("a crowded dock puts live workers and owed results before newest-first finished history", async () => {

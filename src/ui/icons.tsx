@@ -272,6 +272,17 @@ export function IconStop(props: IconProps) {
     return frame(props, <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />);
 }
 
+export function IconHourglass(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <path d="M5 22h14M5 2h14" />
+            <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
+            <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
+        </>,
+    );
+}
+
 export function IconCheck(props: IconProps) {
     return frame(props, <path d="M20 6 9 17l-5-5" />);
 }

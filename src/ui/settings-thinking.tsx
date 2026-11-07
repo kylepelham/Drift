@@ -6,11 +6,13 @@ import { t } from "../state/i18n";
 import { Picker } from "./picker";
 import {
     pluginThinkingPrefix,
+    setWaitingIndicator,
     thinkingPrefs,
     thinkingSpeeds,
     thinkingStyles,
     thinkingTints,
     updateThinkingPrefs,
+    waitingIndicator,
 } from "../state/prefs";
 
 import type { ThinkingPrefs } from "../state/prefs";
@@ -131,6 +133,17 @@ export function ThinkingSettings() {
                     checked={prefs().shimmer}
                     disabled={!prefs().label}
                     onChange={toggleShimmer}
+                />
+            </SettingsRow>
+            <SettingsRow
+                title={t("drift.settings.waiting.title")}
+                description={t("drift.settings.waiting.description")}
+                onClick={() => setWaitingIndicator(!waitingIndicator())}
+            >
+                <Toggle
+                    label={t("drift.settings.waiting.title")}
+                    checked={waitingIndicator()}
+                    onChange={() => setWaitingIndicator(!waitingIndicator())}
                 />
             </SettingsRow>
         </SettingsGroup>

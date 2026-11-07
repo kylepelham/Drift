@@ -1,9 +1,10 @@
+import { collapseCompaction, compactionCollapsed, showReasoning, toolGroups, waitingIndicator } from "../state/prefs";
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
-import { collapseCompaction, compactionCollapsed, showReasoning, toolGroups } from "../state/prefs";
-import { compareMessages, messageRevisionKey, type MessageEntry } from "../engine/store";
+import { compareMessages, messageRevisionKey, sessionWaiting, type MessageEntry } from "../engine/store";
 import { groupAssistantEntries, ownGroups, type OwnGroups } from "./message-groups";
 import { clearReveal, revealTarget } from "./session-search";
 import { createRevertBackfill } from "./revert-backfill";
+import { WaitingIndicator } from "./waiting-indicator";
 import { selectedSession } from "../state/selection";
 import { messageProblem } from "../engine/messages";
 import { holdWheelInLock } from "./chat-wheel";
@@ -133,6 +134,10 @@ export function Chat(props: { dock: JSX.Element }) {
     const thinking = createMemo(() => {
         const id = selectedSession();
         return id ? thinkingState(entries(), engine.state.status[id]?.type) : null;
+    });
+    const waiting = createMemo(() => {
+        const id = selectedSession();
+        return id && waitingIndicator() ? sessionWaiting(engine.state, id) : null;
     });
     const retry = createMemo(() => {
         const id = selectedSession();
@@ -442,6 +447,7 @@ export function Chat(props: { dock: JSX.Element }) {
         offsets();
         sessionError();
         thinking();
+        waiting();
         if (untrack(stick)) {
             queueMicrotask(snapViewportToBottom);
             return;
@@ -579,7 +585,7 @@ export function Chat(props: { dock: JSX.Element }) {
                                             next={nextEntries().get(entry.info.id)}
                                             nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
                                             groups={assistantGroups().get(entry.info.id)}
-                                            thinking={thinking()?.messageID === entry.info.id && !retry()}
+                                            thinking={thinking()?.messageID === entry.info.id && !retry() && !waiting()}
                                             thinkingCompaction={thinking()?.compaction}
                                             thinkingHeading={thinking()?.heading}
                                             retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
@@ -597,6 +603,9 @@ export function Chat(props: { dock: JSX.Element }) {
                                     aria-hidden="true"
                                     style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
                                 />
+                                <Show when={!sessionError() && waiting()}>
+                                    {(work) => <WaitingIndicator work={work()} />}
+                                </Show>
                                 <Show when={sessionError()}>
                                     {(error) => (
                                         <div role="alert">

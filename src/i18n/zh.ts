@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} 个子代理",
     "drift.stop.commands.one": "{{count}} 个命令",
     "drift.stop.commands.other": "{{count}} 个命令",
+    "drift.waiting": "等待中",
+    "drift.waiting.on": "正在等待{{work}}",
+    "drift.settings.waiting.title": "显示等待后台工作",
+    "drift.settings.waiting.description":
+        "当后台命令或子代理将唤醒对话且没有其他任务运行时，在侧边栏和对话中显示沙漏，而不是“思考中”。",
     "prompt.attachment.remove": "移除附件",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "随便问点什么...",

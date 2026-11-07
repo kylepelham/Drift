@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "เอเจนต์ย่อย {{count}} ตัว",
     "drift.stop.commands.one": "คำสั่ง {{count}} รายการ",
     "drift.stop.commands.other": "คำสั่ง {{count}} รายการ",
+    "drift.waiting": "กำลังรอ",
+    "drift.waiting.on": "กำลังรอ {{work}}",
+    "drift.settings.waiting.title": "แสดงการรองานเบื้องหลัง",
+    "drift.settings.waiting.description":
+        "เมื่อคำสั่งหรือเอเจนต์ย่อยเบื้องหลังจะปลุกบทสนทนาและไม่มีอะไรอื่นทำงานอยู่ จะแสดงนาฬิกาทรายในแถบด้านข้างและบทสนทนาแทนกำลังคิด",
     "prompt.attachment.remove": "เอาไฟล์แนบออก",
     "prompt.mode.shell": "เชลล์",
     "prompt.placeholder.simple": "ถามอะไรก็ได้...",

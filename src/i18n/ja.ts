@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "サブエージェント {{count}} 件",
     "drift.stop.commands.one": "コマンド {{count}} 件",
     "drift.stop.commands.other": "コマンド {{count}} 件",
+    "drift.waiting": "待機中",
+    "drift.waiting.on": "{{work}}を待機中",
+    "drift.settings.waiting.title": "バックグラウンド作業の待機を表示",
+    "drift.settings.waiting.description":
+        "バックグラウンドのコマンドやサブエージェントが会話を再開させ、ほかに何も実行していないとき、サイドバーと会話に「考え中」の代わりに砂時計を表示します。",
     "prompt.attachment.remove": "添付ファイルを削除",
     "prompt.mode.shell": "シェル",
     "prompt.placeholder.simple": "何でも聞いてください...",

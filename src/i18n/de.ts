@@ -105,6 +105,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} Subagenten",
     "drift.stop.commands.one": "{{count}} Befehl",
     "drift.stop.commands.other": "{{count}} Befehle",
+    "drift.waiting": "Wartet",
+    "drift.waiting.on": "Wartet auf {{work}}",
+    "drift.settings.waiting.title": "Warten auf Hintergrundarbeit anzeigen",
+    "drift.settings.waiting.description":
+        "Wenn Hintergrundbefehle oder Subagenten eine Unterhaltung wecken und sonst nichts läuft, zeigen Seitenleiste und Unterhaltung eine Sanduhr statt Denkt nach.",
     "prompt.attachment.remove": "Anhang entfernen",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Fragen Sie alles...",

@@ -183,6 +183,8 @@ export type EngineState = {
     links: Record<string, string>;
     activity: Record<string, SessionActivity>;
     liveTools: Record<string, string>;
+    /** The live calls that only wait on background work, by part id: a `process` wait or a waiting `task_output`. */
+    waitCalls: Record<string, string>;
     cursors: Record<string, string | null>;
     revisions: Record<string, number>;
     version: string;
@@ -271,6 +273,7 @@ export function createEngineState() {
         links: { ...loadLinks() },
         activity: {},
         liveTools: {},
+        waitCalls: {},
         startupError: "",
         engineError: "",
         engineRestarting: false,
@@ -689,11 +692,48 @@ export function endedRuns(state: EngineState, running: Map<string, "busy" | "ret
     return ended;
 }
 
-/** What runs on after the turn: background workers and background commands. */
-export function backgroundWork(state: EngineState, id: string) {
+export type BackgroundWork = { workers: number; commands: number };
+
+/** What runs on after the turn: background workers and background commands, either of which wakes the conversation. */
+export function backgroundWork(state: EngineState, id: string): BackgroundWork {
     const workers = (state.tasks[id] ?? []).filter((task) => task.mode === "background" && taskActive(task)).length;
     const commands = (state.processes[id] ?? []).filter((process) => process.state === "running").length;
     return { workers, commands };
+}
+
+/** A call that only waits on background work: a `process` wait, or a `task_output` that waits. */
+export function waitsOnBackground(part: { name: string; input: unknown }) {
+    const input = (part.input ?? {}) as { action?: unknown; wait_seconds?: unknown };
+    if (part.name === "process") return input.action === "wait";
+    return part.name === "task_output" && Number(input.wait_seconds) > 0;
+}
+
+/** Whether the turn's running calls, as live events or the loaded transcript show them, all only wait. */
+function turnOnlyWaits(state: EngineState, id: string) {
+    const live = new Map<string, boolean>();
+    for (const [part, owner] of Object.entries(state.liveTools))
+        if (owner === id) live.set(part, state.waitCalls[part] === id);
+    const running = [...(state.transcripts[id] ?? [])]
+        .reverse()
+        .find((entry) => entry.info.role === "assistant" && !entry.info.finishedAt);
+    for (const part of running?.parts ?? [])
+        if (part.type === "tool_call" && (part.status === "pending" || part.status === "running"))
+            live.set(part.id, waitsOnBackground(part));
+
+    return live.size > 0 && [...live.values()].every(Boolean);
+}
+
+/**
+ * The background work a conversation waits on when that is all it does: idle until a command or worker wakes it, or
+ * in a turn whose only running calls wait on them. Null while it thinks, retries, or has nothing to wake it.
+ */
+export function sessionWaiting(state: EngineState, id: string): BackgroundWork | null {
+    const status = state.status[id]?.type;
+    if (status === "retry") return null;
+    const work = backgroundWork(state, id);
+    if (status === "busy") return turnOnlyWaits(state, id) ? work : null;
+
+    return work.workers + work.commands > 0 ? work : null;
 }
 
 export function sessionBusy(state: EngineState, id: string) {

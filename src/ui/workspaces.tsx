@@ -1,11 +1,12 @@
-import { normalizeDir, sessionBusy, sessionsFor, taskForWorker, workerQueued } from "../engine/store";
+import { normalizeDir, sessionBusy, sessionsFor, sessionWaiting, taskForWorker, workerQueued } from "../engine/store";
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache";
 import { ago, dayDividers, startOfDay, workspaceInitials } from "./workspace-presentation";
 import { IconArchive, IconBranch, IconDots, IconLayers, IconSquarePen } from "./icons";
+import { sidebarDayDividers, waitingIndicator } from "../state/prefs";
 import { selectedSession, selectSession } from "../state/selection";
 import { sidebarWorkers } from "../state/permission-attention";
-import { sidebarDayDividers } from "../state/prefs";
 import { useEngine, type Engine } from "../engine";
+import { WaitingMark } from "./waiting-indicator";
 import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
@@ -376,6 +377,9 @@ function StatusDot(props: { sessionId: string }) {
         <Switch>
             <Match when={attention()}>
                 <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
+            </Match>
+            <Match when={waitingIndicator() && sessionWaiting(engine.state, props.sessionId)}>
+                {(work) => <WaitingMark work={work()} />}
             </Match>
             <Match when={sessionBusy(engine.state, props.sessionId)}>
                 <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.thread.working")} />

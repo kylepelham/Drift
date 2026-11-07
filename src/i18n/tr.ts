@@ -105,6 +105,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} alt ajan",
     "drift.stop.commands.one": "{{count}} komut",
     "drift.stop.commands.other": "{{count}} komut",
+    "drift.waiting": "Bekliyor",
+    "drift.waiting.on": "{{work}} bekleniyor",
+    "drift.settings.waiting.title": "Arka plan işini beklemeyi göster",
+    "drift.settings.waiting.description":
+        "Arka plan komutları veya alt ajanlar bir konuşmayı uyandıracakken başka hiçbir şey çalışmıyorsa, kenar çubuğunda ve konuşmada Düşünüyor yerine bir kum saati gösterir.",
     "prompt.attachment.remove": "Eki kaldır",
     "prompt.mode.shell": "Kabuk",
     "prompt.placeholder.simple": "Bir şeyler sorun...",

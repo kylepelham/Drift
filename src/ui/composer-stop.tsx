@@ -1,4 +1,5 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import { backgroundWorkText } from "./waiting-indicator";
 import { IconStop } from "./icons";
 import { t } from "../state/i18n";
 
@@ -31,17 +32,7 @@ export function ComposerStop(props: {
     );
     onCleanup(() => clearTimeout(timer));
 
-    const label = () => {
-        const workers = t(props.workers === 1 ? "drift.stop.workers.one" : "drift.stop.workers.other", {
-            count: props.workers,
-        });
-        const commands = t(props.commands === 1 ? "drift.stop.commands.one" : "drift.stop.commands.other", {
-            count: props.commands,
-        });
-        if (!props.commands) return t("drift.stop.work", { work: workers });
-        if (!props.workers) return t("drift.stop.work", { work: commands });
-        return t("drift.stop.work", { work: t("drift.stop.both", { workers, commands }) });
-    };
+    const label = () => t("drift.stop.work", { work: backgroundWorkText(props) });
 
     return (
         <Show when={props.busy || working()}>

@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "субагентов: {{count}}",
     "drift.stop.commands.one": "команд: {{count}}",
     "drift.stop.commands.other": "команд: {{count}}",
+    "drift.waiting": "Ожидание",
+    "drift.waiting.on": "Ожидание: {{work}}",
+    "drift.settings.waiting.title": "Показывать ожидание фоновой работы",
+    "drift.settings.waiting.description":
+        "Когда фоновые команды или субагенты разбудят разговор, а больше ничего не выполняется, в боковой панели и разговоре вместо «Думает» показываются песочные часы.",
     "prompt.attachment.remove": "Удалить вложение",
     "prompt.mode.shell": "Оболочка",
     "prompt.placeholder.simple": "Спросите что угодно...",

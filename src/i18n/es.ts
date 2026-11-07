@@ -104,6 +104,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} subagentes",
     "drift.stop.commands.one": "{{count}} comando",
     "drift.stop.commands.other": "{{count}} comandos",
+    "drift.waiting": "Esperando",
+    "drift.waiting.on": "Esperando {{work}}",
+    "drift.settings.waiting.title": "Mostrar la espera de trabajo en segundo plano",
+    "drift.settings.waiting.description":
+        "Cuando comandos o subagentes en segundo plano van a reanudar una conversación y no se ejecuta nada más, muestra un reloj de arena en la barra lateral y la conversación en lugar de Pensando.",
     "prompt.attachment.remove": "Eliminar adjunto",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pregunta cualquier cosa...",

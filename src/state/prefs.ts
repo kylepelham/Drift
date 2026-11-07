@@ -157,6 +157,8 @@ export function setToolGroup(kind: ToolGroupKind, on: boolean) {
 }
 /** The card at the end of a turn listing the files it changed. */
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
+/** An hourglass in place of Thinking while a conversation only waits on background work that will wake it. */
+export const [waitingIndicator, setWaitingIndicator] = persisted<boolean>("drift.waiting.indicator", true);
 /** Built-in looks for the thinking indicator; a plugin's is stored as `plugin:<id>`. */
 export const thinkingStyles = ["orbs", "float", "dots", "pulse"] as const;
 export const thinkingTints = ["neutral", "accent", "spectrum"] as const;

@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "субагентів: {{count}}",
     "drift.stop.commands.one": "команд: {{count}}",
     "drift.stop.commands.other": "команд: {{count}}",
+    "drift.waiting": "Очікування",
+    "drift.waiting.on": "Очікування: {{work}}",
+    "drift.settings.waiting.title": "Показувати очікування фонової роботи",
+    "drift.settings.waiting.description":
+        "Коли фонові команди або субагенти розбудять розмову, а більше нічого не виконується, на бічній панелі та в розмові замість «Думає» показується пісочний годинник.",
     "prompt.attachment.remove": "Видалити вкладення",
     "prompt.mode.shell": "Команда",
     "prompt.placeholder.simple": "Запитайте що завгодно...",

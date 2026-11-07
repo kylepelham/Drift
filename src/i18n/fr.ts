@@ -106,6 +106,11 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} sous-agents",
     "drift.stop.commands.one": "{{count}} commande",
     "drift.stop.commands.other": "{{count}} commandes",
+    "drift.waiting": "En attente",
+    "drift.waiting.on": "En attente de {{work}}",
+    "drift.settings.waiting.title": "Afficher l'attente du travail en arrière-plan",
+    "drift.settings.waiting.description":
+        "Quand des commandes ou des sous-agents en arrière-plan vont réveiller une conversation et que rien d'autre ne tourne, un sablier remplace Réflexion dans la barre latérale et la conversation.",
     "prompt.attachment.remove": "Supprimer la pièce jointe",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Demandez n'importe quoi...",

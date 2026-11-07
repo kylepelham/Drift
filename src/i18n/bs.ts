@@ -103,6 +103,11 @@ export const dict = {
     "drift.stop.workers.other": "podagenata: {{count}}",
     "drift.stop.commands.one": "naredbi: {{count}}",
     "drift.stop.commands.other": "naredbi: {{count}}",
+    "drift.waiting": "Čeka",
+    "drift.waiting.on": "Čeka na {{work}}",
+    "drift.settings.waiting.title": "Prikaži čekanje na rad u pozadini",
+    "drift.settings.waiting.description":
+        "Kada će naredbe ili podagenti u pozadini probuditi razgovor, a ništa drugo ne radi, prikazuje pješčani sat u bočnoj traci i razgovoru umjesto Razmišlja.",
     "prompt.attachment.remove": "Ukloni prilog",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pitaj bilo šta...",
