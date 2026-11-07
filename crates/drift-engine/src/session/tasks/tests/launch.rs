@@ -364,3 +364,52 @@ async fn with_background_turned_off_an_explicit_request_is_refused_and_foregroun
         "foreground returns the result as the call's own"
     );
 }
+
+#[tokio::test]
+async fn a_worker_given_a_workdir_starts_there_and_follows_that_folders_instructions() {
+    let h = harness().await;
+    let package = h._dir.join("ws/sub/pkg");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(package.join("AGENTS.md"), "PKG RULES").unwrap();
+    std::fs::write(package.join("notes.txt"), "package notes").unwrap();
+    h.provider
+        .push_for(
+            "PARENT",
+            launches(&[
+                json!({ "description": "Inside", "prompt": "CHILD read", "workdir": "sub/pkg" }),
+                json!({ "description": "Outside", "prompt": "CHILD never", "workdir": ".." }),
+            ]),
+        )
+        .push_for(
+            "CHILD read",
+            crate::session::turn::tests::tool_call("read", r#"{"path":"notes.txt"}"#),
+        )
+        .push_for("CHILD read", text("read it"))
+        .push_for("PARENT", text("done"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until_idle(&h).await;
+
+    let inside = tasks(&h);
+    assert_eq!(inside.len(), 1, "a workdir outside the workspace launches nothing");
+    let worker = h.engine.store.session(&inside[0].session_id).unwrap().unwrap();
+    assert_eq!(worker.workdir.as_deref(), Some("sub/pkg"));
+    let transcript = format!("{:?}", h.engine.store.transcript(&worker.id).unwrap());
+    assert!(
+        transcript.contains("package notes"),
+        "a relative path starts in its folder"
+    );
+    let requests = h.provider.requests.lock().unwrap();
+    let asked = requests
+        .iter()
+        .find(|request| opens_with(request, "CHILD read"))
+        .unwrap();
+    assert!(asked.system.contains("PKG RULES"), "its folder's AGENTS.md applies");
+    let shown = crate::tool::canonical(&package).display().to_string();
+    assert!(
+        asked.system.contains(&format!("Working directory: {shown}")),
+        "{}",
+        asked.system
+    );
+    let parent = format!("{:?}", h.engine.store.transcript(&h.session.id).unwrap());
+    assert!(parent.contains("must be inside the workspace"), "the bad call says why");
+}

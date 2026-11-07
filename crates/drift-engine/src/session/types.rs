@@ -61,6 +61,9 @@ pub struct Session {
     /// start with it. Absent, the provider's account order decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// A subagent's own folder, relative to where it works: its commands, relative paths and searches start there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<String>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

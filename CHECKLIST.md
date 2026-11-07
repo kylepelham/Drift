@@ -462,7 +462,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Subagent cache: 5 minutes until it expires mid-run, then 1 hour for the rest of the run; a setting and an agent's `cacheTtl` force either
 - [x] Stop: the button stays while the turn, workers or background commands run; the first press stops the turn, the second (armed after a moment, labelled with what it stops) stops workers and commands; workers left running wake the conversation with their results
 - [x] Revert stops only workers started in the reverted turns and drops their results, while a turn runs too; un-revert shows them stopped
-- [ ] `task` takes `workdir` (the worker's root for bash, paths, grep and glob, the environment block and AGENTS.md), `model` and `effort`
+- [x] `task` takes `workdir` (the worker's root for bash, paths, grep and glob, the environment block and AGENTS.md), `model` and `effort`
 - [ ] Grep and glob are bounded: 20 s budget with partial results, early stop, a skip list for heavy and system folders unless named or asked for, files over 10 MB skipped, a cheaper per-file check
 - [ ] Grep takes Claude Code's options (`output_mode`, `-A`/`-B`/`-C`, `-i`, `type`, `multiline`, `head_limit`, `offset`) and can search ignored folders
 - [ ] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`

@@ -39,6 +39,7 @@ impl Tool for Task {
                     "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." },
                     "run_in_background": { "type": "boolean", "description": "Leave it running and carry on: this call returns at once with a task id, and the result arrives in this conversation when it finishes. For long work you do not need before your next step. Default: the subagent's own setting, else wait for it." },
                     "task_id": { "type": "string", "description": "Continue a finished subagent from this conversation instead of starting a new one: it keeps everything it saw and did, so `prompt` only needs the follow-up. Its agent stays as it was." },
+                    "workdir": { "type": "string", "description": "A folder inside the workspace for it to work in: its commands, relative paths and searches start there, and that folder's AGENTS.md applies. Default: this conversation's working directory." },
                     "model": { "type": "string", "description": "`provider/model` to run it on, such as a cheaper one for a read-only search. Default: the subagent's own model, else this conversation's." },
                     "effort": { "type": "string", "description": "Its reasoning level, as the model names them (such as low, medium, high). Default: the subagent's own, else this conversation's; a level the model lacks runs at its default." }
                 },
@@ -70,14 +71,7 @@ impl Tool for Task {
         Box::pin(async move {
             let description = required_str(&input, "description")?;
             let text = required_str(&input, "prompt")?;
-            let parent = ctx
-                .engine
-                .store
-                .session(&ctx.session_id)?
-                .ok_or(ToolError("parent session is gone".into()))?;
-            if parent.visibility == Visibility::Hidden {
-                return Err(ToolError("subagents cannot delegate".into()));
-            }
+            let parent = delegating(ctx)?;
             let resumed = resumable(ctx, &input)?;
             // A resumed subagent stays the agent it was, whatever this call names.
             let agent = resumed.as_ref().map_or_else(
@@ -86,13 +80,8 @@ impl Tool for Task {
             );
             let config = &ctx.config;
             let (mode, reason) = task_mode(ctx, &input, agent)?;
-            // A user's command may choose the model; else this call's; else the agent's pin from Settings or its definition; else the parent's.
-            let model = match ctx.command_model.clone() {
-                Some(chosen) => Some(chosen),
-                None => asked_model(ctx, &input)?,
-            }
-            .or_else(|| config.agent_model(agent))
-            .or(parent.model.clone());
+            let model = worker_model(ctx, &input, agent, &parent)?;
+            let workdir = asked_workdir(ctx, &input)?;
             let title = format!("{description} (@{agent} subagent)");
             let (scope, generation) = ctx.engine.worker_scope(&parent.id);
             let new = NewTask {
@@ -104,7 +93,11 @@ impl Tool for Task {
                 reason,
                 generation,
             };
-            let Launch { task, child, created } = match &resumed {
+            let Launch {
+                task,
+                mut child,
+                created,
+            } = match &resumed {
                 Some(earlier) => ctx.engine.store.resume_task(new, &earlier.session_id, &title)?,
                 None => {
                     let child = NewSession {
@@ -120,6 +113,10 @@ impl Tool for Task {
             };
             if !created {
                 return replay(ctx, task).await;
+            }
+            if let Some(workdir) = workdir {
+                ctx.engine.store.set_session_workdir(&child.id, &workdir)?;
+                child.workdir = Some(workdir);
             }
             ctx.engine.hub.publish(match resumed {
                 None => Event::SessionCreated { session: child.clone() },
@@ -178,6 +175,58 @@ fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'stati
         ctx.engine.background_enabled(),
     )
     .map_err(|error| ToolError(error.to_string()))
+}
+
+/// The folder this call names for its worker, relative to where the conversation works; it must be a folder inside it.
+fn asked_workdir(ctx: &Context, input: &Value) -> Result<Option<String>, ToolError> {
+    let Some(asked) = input["workdir"].as_str().filter(|asked| !asked.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let folder = ctx.resolve(asked);
+    let Ok(inside) = folder.strip_prefix(&ctx.workspace) else {
+        return Err(ToolError(format!(
+            "`workdir` must be inside the workspace, not {}",
+            folder.display()
+        )));
+    };
+    if !folder.is_dir() {
+        return Err(ToolError(format!("`workdir` {} is not a folder", folder.display())));
+    }
+
+    let inside = inside.to_string_lossy().replace('\\', "/");
+
+    Ok(Some(inside).filter(|inside| !inside.is_empty()))
+}
+
+/// The conversation making the call, which must be one the user sees: subagents do not delegate.
+fn delegating(ctx: &Context) -> Result<crate::session::types::Session, ToolError> {
+    let parent = ctx
+        .engine
+        .store
+        .session(&ctx.session_id)?
+        .ok_or(ToolError("parent session is gone".into()))?;
+    if parent.visibility == Visibility::Hidden {
+        return Err(ToolError("subagents cannot delegate".into()));
+    }
+
+    Ok(parent)
+}
+
+/// A user's command may choose the model; else this call's; else the agent's pin from Settings or its definition; else the parent's.
+fn worker_model(
+    ctx: &Context,
+    input: &Value,
+    agent: &str,
+    parent: &crate::session::types::Session,
+) -> Result<Option<crate::session::types::ModelRef>, ToolError> {
+    let chosen = match ctx.command_model.clone() {
+        Some(chosen) => Some(chosen),
+        None => asked_model(ctx, input)?,
+    };
+
+    Ok(chosen
+        .or_else(|| ctx.config.agent_model(agent))
+        .or(parent.model.clone()))
 }
 
 /// The model this call names, which must be one the catalog has.

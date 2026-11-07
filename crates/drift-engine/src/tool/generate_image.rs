@@ -190,7 +190,7 @@ impl Tool for GenerateImage {
 async fn references(ctx: &Context, paths: &[PathBuf]) -> Result<Vec<Image>, ToolError> {
     let mut images = Vec::new();
     for path in paths {
-        let name = display(path, &ctx.workspace);
+        let name = display(path, ctx.workdir());
         let bytes = tokio::fs::read(path)
             .await
             .map_err(|error| ToolError(format!("{name} could not be read: {error}")))?;
@@ -234,7 +234,7 @@ fn encoded(image: &Image, format: Format) -> Result<(Vec<u8>, u32, u32), ToolErr
 async fn save(ctx: &Context, targets: &Targets, generated: Generated) -> Result<Output, ToolError> {
     let (image, format) = (generated.image.clone(), targets.format);
     let (bytes, width, height) = tokio::task::spawn_blocking(move || encoded(&image, format)).await??;
-    let name = display(&targets.path, &ctx.workspace);
+    let name = display(&targets.path, ctx.workdir());
     super::fits_history(&name, bytes.len())?;
     super::stage::replace(&ctx.engine.store, &targets.path, &bytes).await?;
 

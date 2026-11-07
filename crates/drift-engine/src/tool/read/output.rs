@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// A path that does not exist, with up to three names beside it that it may have meant.
 pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
-    let shown = display(path, &context.workspace);
+    let shown = display(path, context.workdir());
     let wanted = path
         .file_name()
         .map(|name| name.to_string_lossy().to_lowercase())
@@ -21,7 +21,7 @@ pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
             // Short names would produce irrelevant suggestions for almost every missing file.
             wanted.len() >= 3 && name.len() >= 3 && (name.contains(&wanted) || wanted.contains(&name))
         })
-        .map(|entry| display(&entry.path(), &context.workspace))
+        .map(|entry| display(&entry.path(), context.workdir()))
         .collect();
 
     close.sort();
@@ -39,7 +39,7 @@ pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
 
 /// An image or PDF comes back for the model to look at, not as text.
 pub(super) fn attached(context: &Context, path: &Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
-    let name = display(path, &context.workspace);
+    let name = display(path, context.workdir());
     let (kind, limit) = if mime == image::PDF {
         ("a PDF", image::MAX_PDF_BYTES)
     } else {
@@ -76,7 +76,7 @@ pub(super) fn reminders(context: &Context, path: &Path) -> String {
             continue;
         }
 
-        let name = display(&file, &context.workspace);
+        let name = display(&file, context.workdir());
         let reminder =
             format!("\n\n<system-reminder>\nInstructions from {name}, for files under it:\n{text}\n</system-reminder>");
         if output.len() + reminder.len() <= REMINDER_BYTES {
@@ -122,5 +122,5 @@ pub(super) async fn list_dir(context: &Context, path: &Path) -> Result<Output, T
         .expect("writing to a String cannot fail");
     }
 
-    Ok(Output::new(display(path, &context.workspace), output))
+    Ok(Output::new(display(path, context.workdir()), output))
 }

@@ -92,8 +92,10 @@ impl Engine {
             .unwrap_or_else(|| session.variant.clone())
             .or_else(|| config.agent(&session.agent).and_then(|agent| agent.variant.clone()));
 
+        let workdir = own_folder(&workspace_path, session.workdir.as_deref());
         let mut plan = Plan {
             session,
+            workdir,
             workspace: workspace_path,
             root,
             owner,
@@ -421,6 +423,7 @@ impl Engine {
             base: &base,
             family: plan.model.prompt,
             workspace: &plan.workspace,
+            workdir: plan.workdir.as_deref(),
             config: &plan.config,
             agent: agent.as_ref(),
             delegates: tools.iter().any(|(spec, _)| spec.name == "task"),
@@ -557,4 +560,11 @@ pub(super) fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
             .map_err(|error| TurnError::Config(error.to_string())),
         _ => Err(TurnError::UnknownAgent),
     }
+}
+
+/// A worker's folder under where it works; one that has gone, or never was inside, leaves it at the top.
+fn own_folder(place: &Path, workdir: Option<&str>) -> Option<PathBuf> {
+    let folder = crate::tool::canonical(&place.join(workdir?));
+
+    (folder != place && folder.starts_with(place) && folder.is_dir()).then_some(folder)
 }

@@ -76,6 +76,7 @@ fn context(h: &Harness, session_id: &str, call_id: &str) -> crate::tool::Context
         progress: Default::default(),
         command_model: None,
         by_command: false,
+        workdir: None,
     }
 }
 

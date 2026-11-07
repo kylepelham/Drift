@@ -20,7 +20,10 @@ pub struct SessionFiles {
 }
 
 pub struct Context {
+    /// What permissions, undo and the inside-or-outside test are keyed to.
     pub workspace: PathBuf,
+    /// A subagent's own folder inside the workspace, where relative paths, commands and searches start; none is the workspace.
+    pub workdir: Option<PathBuf>,
     pub session_id: String,
     pub agent: String,
     pub message_id: String,
@@ -192,10 +195,15 @@ impl Context {
         let resolved = if path.is_absolute() {
             path
         } else {
-            self.workspace.join(path)
+            self.workdir().join(path)
         };
 
         canonical(&resolved)
+    }
+
+    /// Where relative paths, commands and searches start.
+    pub fn workdir(&self) -> &Path {
+        self.workdir.as_deref().unwrap_or(&self.workspace)
     }
 
     pub fn inside_workspace(&self, path: &Path) -> bool {

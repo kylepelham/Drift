@@ -217,6 +217,8 @@ pub(crate) struct Plan {
     pub(super) session: Session,
     /// Where the session works: the workspace folder, or its worktree after a move.
     pub(super) workspace: PathBuf,
+    /// A subagent's own folder inside it, from its `task` call's `workdir`.
+    pub(super) workdir: Option<PathBuf>,
     /// The workspace folder itself, whose config and MCP servers the turn uses wherever it works.
     pub(super) root: PathBuf,
     /// Whose undo history the turn's writes join: the workspace's, or its worktree's.

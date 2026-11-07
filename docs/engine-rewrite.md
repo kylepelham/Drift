@@ -328,6 +328,14 @@ Every job the engine does can run on its own model, chosen under Settings > Prom
   catalog must have), else the agent's pin, else the parent's. Its reasoning level is the call's `effort`,
   else the agent's own `variant` (applied when its turn is planned), else the parent's; a level the model
   lacks runs at its default.
+- A `task` call's `workdir` names a folder inside the workspace (or the worktree the conversation
+  works in) for its worker, kept on the worker's session (`session.workdir`, migration 52, relative
+  to where it works). It is the worker's `Context::workdir()` and `Plan::workdir`: commands start
+  there, relative paths resolve from it, `grep` and `glob` search it by default and show paths
+  relative to it, the environment block names it (and whether it is in a repository), and the
+  AGENTS.md files between the workspace and it are added after the workspace's own. Permissions,
+  undo and snapshots stay keyed to the workspace. A folder outside the workspace, or one that is
+  not a folder, fails the call before anything launches.
 - Actions are one request each (`session::oneshot`), text only. Tools stay defined, the
   workspace's MCP tools included, so a history with tool calls stays valid, but the request forbids
   calling them (`Request::no_tool_calls`: Anthropic, Bedrock and Vertex Claude

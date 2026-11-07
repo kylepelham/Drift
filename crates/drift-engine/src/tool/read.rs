@@ -76,12 +76,12 @@ impl Tool for Read {
                 return attached(ctx, &path, mime, &bytes);
             }
             if bytes.iter().take(8000).any(|byte| *byte == 0) {
-                return Err(ToolError(format!("{} is binary", display(&path, &ctx.workspace))));
+                return Err(ToolError(format!("{} is binary", display(&path, ctx.workdir()))));
             }
             let text = String::from_utf8_lossy(&bytes);
             let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
             let total = text.lines().count();
-            let name = display(&path, &ctx.workspace);
+            let name = display(&path, ctx.workdir());
             if total > 0 && offset > total {
                 return Err(ToolError(format!(
                     "{name} has {total} lines, so offset {offset} is past its end"
@@ -140,7 +140,7 @@ fn warm_servers(ctx: &Context, path: &std::path::Path) {
 
 /// Reads a bounded page from a large text file, without scanning the rest for a line count.
 async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit: usize) -> Result<Output, ToolError> {
-    let name = display(path, &ctx.workspace);
+    let name = display(path, ctx.workdir());
     let reminders = reminders(ctx, path);
     let budget = PAGE_BYTES.saturating_sub(reminders.len());
     let (file, stop) = (path.to_path_buf(), ctx.abort.clone());

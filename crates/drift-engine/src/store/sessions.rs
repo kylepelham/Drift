@@ -10,7 +10,7 @@ pub(super) use super::parts::save_part_in;
 #[path = "tests/sessions.rs"]
 mod tests;
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree, account";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree, account, workdir";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -182,6 +182,15 @@ impl Store {
         session_in(&connection, id)
     }
 
+    /// Sets the folder a worker works in, relative to its working place.
+    pub fn set_session_workdir(&self, id: &str, workdir: &str) -> rusqlite::Result<()> {
+        self.lock()
+            .prepare_cached("UPDATE session SET workdir = ?2 WHERE id = ?1")?
+            .execute(params![id, workdir])?;
+
+        Ok(())
+    }
+
     /// The sessions of a workspace working in its worktree `name`, archived ones included.
     pub fn sessions_in_worktree(&self, workspace_id: &str, name: &str) -> rusqlite::Result<Vec<Session>> {
         let connection = self.read();
@@ -264,6 +273,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
         auto_accept: row.get(14)?,
         worktree: row.get(15)?,
         account: row.get(16)?,
+        workdir: row.get(17)?,
         running: false,
     })
 }
@@ -295,6 +305,7 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         auto_accept: false,
         worktree: None,
         account: None,
+        workdir: None,
         running: false,
     }
 }

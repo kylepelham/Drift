@@ -371,7 +371,10 @@ async fn an_undo_stops_only_the_workers_its_turns_launched_and_drops_their_resul
     h.engine.revert(&h.session.id, &second).await.unwrap();
     let by_name = |name: &str| tasks(&h).into_iter().find(|task| task.description == name).unwrap();
     assert!(by_name("Drop").delivered, "its result is dropped");
-    until("the dropped worker stops", || by_name("Drop").state == TaskState::Stopped).await;
+    until("the dropped worker stops", || {
+        by_name("Drop").state == TaskState::Stopped
+    })
+    .await;
     assert_eq!(
         by_name("Keep").state,
         TaskState::Running,

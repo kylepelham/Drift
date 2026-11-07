@@ -51,7 +51,7 @@ impl Tool for SaveImage {
             let (mime, bytes) = pasted(ctx, number)?;
             matching_extension(&path, &mime)?;
 
-            let name = display(&path, &ctx.workspace);
+            let name = display(&path, ctx.workdir());
             super::fits_history(&name, bytes.len())?;
             super::stage::replace(&ctx.engine.store, &path, &bytes).await?;
 

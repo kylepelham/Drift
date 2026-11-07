@@ -32,7 +32,7 @@ impl Tool for Grep {
                 "type": "object",
                 "properties": {
                     "pattern": { "type": "string", "description": "Regular expression (Rust/ripgrep syntax) to search for." },
-                    "path": { "type": "string", "description": "Directory or file to search. Default: the workspace." },
+                    "path": { "type": "string", "description": "Directory or file to search. Default: the working directory." },
                     "include": { "type": "string", "description": "Only search files matching this glob, such as `*.rs` or `src/**/*.ts`." }
                 },
                 "required": ["pattern"]
@@ -65,7 +65,7 @@ impl Tool for Grep {
             let pattern = required_str(&input, "pattern")?.to_string();
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let include = input["include"].as_str().map(str::to_string);
-            let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
+            let (base, stop) = (ctx.workdir().to_path_buf(), ctx.abort.clone());
             let allowed = read_filter(ctx);
 
             let found = tokio::task::spawn_blocking(move || {
@@ -73,7 +73,7 @@ impl Tool for Grep {
                     root: &root,
                     pattern: &pattern,
                     include: include.as_deref(),
-                    workspace: &workspace,
+                    base: &base,
                     stop: &stop,
                     allowed: &allowed,
                 })
@@ -187,7 +187,7 @@ struct Search<'a> {
     root: &'a Path,
     pattern: &'a str,
     include: Option<&'a str>,
-    workspace: &'a Path,
+    base: &'a Path,
     stop: &'a CancellationToken,
     allowed: &'a (dyn Fn(&Path) -> bool + Sync),
 }
@@ -243,7 +243,7 @@ fn compile(
 fn search(search: Search<'_>) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let (root, pattern, include) = (search.root, search.pattern, search.include);
-    let (workspace, stop, allowed) = (search.workspace, search.stop, search.allowed);
+    let (base, stop, allowed) = (search.base, search.stop, search.allowed);
 
     let (matcher, include) = compile(root, pattern, include)?;
 
@@ -283,7 +283,7 @@ fn search(search: Search<'_>) -> Result<Found, ToolError> {
                 return WalkState::Continue;
             }
 
-            let name = display(entry.path(), workspace);
+            let name = display(entry.path(), base);
             let mut found = Vec::new();
             let searched = searcher.search_path(
                 matcher,

@@ -47,6 +47,7 @@ pub(super) fn context(engine: &Arc<crate::Engine>) -> Context {
         progress: Default::default(),
         command_model: None,
         by_command: false,
+        workdir: None,
     }
 }
 

@@ -62,6 +62,8 @@ pub struct Setting<'a> {
     /// The family `base` was chosen for: a switch to another family starts a new instruction baseline.
     pub family: PromptFamily,
     pub workspace: &'a Path,
+    /// A subagent's own folder inside the workspace: the environment names it, and its instruction files are added.
+    pub workdir: Option<&'a Path>,
     pub config: &'a Config,
     pub agent: Option<&'a Agent>,
     /// Whether the `task` tool is offered; only then are the subagents listed.
@@ -116,6 +118,50 @@ fn deferred_text(deferred: &[(String, Vec<String>)]) -> String {
     )
 }
 
+/// The workspace's instruction files, then those between it and a subagent's own folder.
+fn instruction_files(config: &Config, workspace: &Path, workdir: Option<&Path>) -> Vec<Source> {
+    let mut found: Vec<Source> = config
+        .instructions
+        .iter()
+        .map(|instruction| {
+            let text = format!("# Instructions from {}\n\n{}", instruction.name, instruction.text);
+            Source::new(format!("file:{}", instruction.name), instruction.name.clone(), text)
+        })
+        .collect();
+    let nested = workdir.map(|dir| crate::config::nested_instructions(workspace, &dir.join("AGENTS.md")));
+    for (file, text) in nested.unwrap_or_default() {
+        let name = crate::tool::display(&file, workspace);
+        let text = format!("# Instructions from {name}\n\n{text}");
+        found.push(Source::new(format!("file:{name}"), name, text));
+    }
+
+    found
+}
+
+fn environment(here: &Path, plans: Option<&Path>) -> Source {
+    let git = if crate::config::in_repository(here) {
+        "yes"
+    } else {
+        "no"
+    };
+    let plans = plans
+        .map(|plans| {
+            format!(
+                "\nPlans directory: {} (Markdown plans written in planning; read them without asking)",
+                plans.display()
+            )
+        })
+        .unwrap_or_default();
+    let environment = format!(
+        "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace){plans}",
+        here.display(),
+        std::env::consts::OS,
+        crate::tool::scratch_dir().display()
+    );
+
+    Source::new("environment", "the environment", environment)
+}
+
 /// The parts of the system prompt, most shared first: what every session of a model family has, then
 /// what this workspace and agent add, the date last.
 pub fn sources(setting: &Setting) -> Vec<Source> {
@@ -123,6 +169,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         base,
         family,
         workspace,
+        workdir,
         config,
         agent,
         model,
@@ -162,39 +209,11 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
             deferred_text(deferred),
         ));
     }
-    for instruction in &config.instructions {
-        let text = format!("# Instructions from {}\n\n{}", instruction.name, instruction.text);
-        found.push(Source::new(
-            format!("file:{}", instruction.name),
-            instruction.name.clone(),
-            text,
-        ));
-    }
-
+    found.extend(instruction_files(config, workspace, workdir));
     if let Some(listed) = references_text(references) {
         found.push(Source::new("references", "the references", listed));
     }
-
-    let git = if crate::config::in_repository(workspace) {
-        "yes"
-    } else {
-        "no"
-    };
-    let plans = plans
-        .map(|plans| {
-            format!(
-                "\nPlans directory: {} (Markdown plans written in planning; read them without asking)",
-                plans.display()
-            )
-        })
-        .unwrap_or_default();
-    let environment = format!(
-        "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace){plans}",
-        workspace.display(),
-        std::env::consts::OS,
-        crate::tool::scratch_dir().display()
-    );
-    found.push(Source::new("environment", "the environment", environment));
+    found.push(environment(workdir.unwrap_or(workspace), plans));
     found.push(Source::new("model", "the model", format!("Model: {model}")));
     found.push(Source::new(
         "date",
@@ -411,6 +430,7 @@ mod tests {
             base: family_prompt(PromptFamily::Claude),
             family: PromptFamily::Default,
             workspace: &workspace,
+            workdir: None,
             config: &config,
             agent: config.agent(agent),
             delegates,
@@ -497,6 +517,7 @@ mod tests {
                 base: "b",
                 family: PromptFamily::Default,
                 workspace: &workspace,
+                workdir: None,
                 config: &config,
                 agent: None,
                 delegates: true,
@@ -541,6 +562,7 @@ mod tests {
                 base: family_prompt(family),
                 family: PromptFamily::Default,
                 workspace: &workspace,
+                workdir: None,
                 config: &config,
                 agent: None,
                 delegates: false,
@@ -581,6 +603,7 @@ mod tests {
             base: "You are my agent.",
             family: PromptFamily::Default,
             workspace: &workspace,
+            workdir: None,
             config: &config,
             agent: None,
             delegates: false,

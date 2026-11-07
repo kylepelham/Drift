@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 51] = [
+pub(super) const MIGRATIONS: [&str; 52] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -234,6 +234,8 @@ pub(super) const MIGRATIONS: [&str; 51] = [
     "ALTER TABLE task ADD COLUMN edits TEXT;",
     // The provider account a chat is set to use; its subagents and spawned threads inherit it.
     "ALTER TABLE session ADD COLUMN account TEXT;",
+    // The folder a subagent was launched to work in, relative to where its session works.
+    "ALTER TABLE session ADD COLUMN workdir TEXT;",
 ];
 
 #[cfg(test)]

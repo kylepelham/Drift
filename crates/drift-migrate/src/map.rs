@@ -49,6 +49,7 @@ pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
         auto_accept: false,
         worktree: None,
         account: None,
+        workdir: None,
         running: false,
     }
 }

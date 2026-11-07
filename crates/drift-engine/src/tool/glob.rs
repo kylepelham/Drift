@@ -25,7 +25,7 @@ impl Tool for Glob {
                 "type": "object",
                 "properties": {
                     "pattern": { "type": "string", "description": "Glob such as `src/**/*.ts` or `**/Cargo.toml`, relative to `path`." },
-                    "path": { "type": "string", "description": "Directory to search. Default: the workspace." }
+                    "path": { "type": "string", "description": "Directory to search. Default: the working directory." }
                 },
                 "required": ["pattern"]
             }),
@@ -55,13 +55,13 @@ impl Tool for Glob {
         Box::pin(async move {
             let pattern = required_str(&input, "pattern")?.to_string();
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
-            let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
+            let (base, stop) = (ctx.workdir().to_path_buf(), ctx.abort.clone());
             let (found, total) = tokio::task::spawn_blocking(move || find(&root, &pattern, &stop))
                 .await
                 .map_err(|error| ToolError(error.to_string()))??;
 
             let truncated = total > found.len();
-            let mut lines: Vec<String> = found.iter().map(|(path, _)| display(path, &workspace)).collect();
+            let mut lines: Vec<String> = found.iter().map(|(path, _)| display(path, &base)).collect();
             if truncated {
                 lines.push(format!(
                     "(the {MAX_RESULTS} newest of {total} matches; narrow the pattern to see the rest)"

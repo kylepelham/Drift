@@ -96,6 +96,7 @@ impl Early {
         let scratch = Arc::new(files.scratch());
         let ctx = Context {
             workspace: plan.workspace.clone(),
+            workdir: plan.workdir.clone(),
             session_id: plan.session.id.clone(),
             agent: plan.session.agent.clone(),
             message_id: message.id.clone(),

@@ -3334,6 +3334,8 @@ export interface components {
             /** @description The reasoning variant the user last chose; turns the engine starts itself run with it too. */
             variant?: string | null;
             visibility: components["schemas"]["Visibility"];
+            /** @description A subagent's own folder, relative to where it works: its commands, relative paths and searches start there. */
+            workdir?: string | null;
             workspaceId: string;
             /** @description The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder. */
             worktree?: string | null;

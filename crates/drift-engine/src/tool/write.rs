@@ -40,7 +40,7 @@ impl Tool for Write {
         let format = TextFormat::detect(&before);
         let proposed = input["content"].as_str().map(|content| {
             diff(
-                &display(&path, &ctx.workspace),
+                &display(&path, ctx.workdir()),
                 &format.normalise(&before),
                 &format.normalise(content),
             )
@@ -63,7 +63,7 @@ impl Tool for Write {
             let content = input["content"]
                 .as_str()
                 .ok_or(ToolError("`content` is required".into()))?;
-            let name = display(&path, &ctx.workspace);
+            let name = display(&path, ctx.workdir());
             let existing = existing(ctx, &path, &name).await?;
 
             let ending = existing.as_deref().map(TextFormat::detect).unwrap_or_default();

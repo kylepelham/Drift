@@ -39,7 +39,7 @@ impl Tool for Edit {
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
         let ask = ctx.ask_to_write(&path, "Edit")?;
-        Some(ask.with_diff(proposed(&path, &display(&path, &ctx.workspace), input)))
+        Some(ask.with_diff(proposed(&path, &display(&path, ctx.workdir()), input)))
     }
 
     fn mutates(&self) -> bool {
@@ -58,7 +58,7 @@ impl Tool for Edit {
                 .as_str()
                 .ok_or(ToolError("`new_string` is required".into()))?;
             let replace_all = input["replace_all"].as_bool().unwrap_or(false);
-            let name = display(&path, &ctx.workspace);
+            let name = display(&path, ctx.workdir());
             if old == new {
                 return Err(ToolError("old_string and new_string are identical".into()));
             }

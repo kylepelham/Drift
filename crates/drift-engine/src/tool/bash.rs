@@ -82,8 +82,8 @@ impl Tool for Bash {
             command,
             input["description"].as_str().unwrap_or(command),
         );
-        // A workdir that is not a directory is refused at execution, so analysis starts in the workspace.
-        let directory = workdir(context, input).unwrap_or_else(|_| context.workspace.clone());
+        // A workdir that is not a directory is refused at execution, so analysis starts where calls do.
+        let directory = workdir(context, input).unwrap_or_else(|_| context.workdir().to_path_buf());
         drop_moves_within(context, &directory, &mut ask);
         enter_workdir(context, &directory, &mut ask);
         ask.reason = why_it_asks(context, &directory, &ask);
