@@ -968,7 +968,7 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   > Thinking indicator): a conversation that is idle while background commands or background workers
   run (each wakes it when it ends), or busy with only waiting calls running (a `process` wait, or
   `task_output` with `wait_seconds`), shows a flipping accent hourglass in the sidebar in place of the
-  pulsing accent dot, and the Thinking row laid out as usual, the hourglass in place of its figure and "Waiting on 1 worker, 2 commands" as its label (following the label and shimmer settings). A retrying request never counts. Live waiting calls are tracked by part id from
+  pulsing accent dot, and the Thinking row laid out as usual, the hourglass in place of its figure and "Waiting on 1 worker, 2 commands" as its label, shown even with the Thinking label off (shimmer follows its setting). A retrying request never counts. Live waiting calls are tracked by part id from
   events (`waitCalls`, beside `liveTools`), and a transcript loaded mid-wait is read directly.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
   never delivered as a prompt), before anything in the new process can launch a worker. An

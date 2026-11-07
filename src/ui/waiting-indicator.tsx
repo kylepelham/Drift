@@ -25,7 +25,7 @@ function waitingText(work: BackgroundWork) {
     return what ? t("drift.waiting.on", { work: what }) : t("drift.waiting");
 }
 
-/** In place of Thinking, laid out as it is: an hourglass for the figure and what it waits on for the label. */
+/** In place of Thinking, laid out as it is: an hourglass for the figure, and always what it waits on beside it. */
 export function WaitingIndicator(props: { work: BackgroundWork }) {
     const prefs = thinkingPrefs;
     const label = () => waitingText(props.work);
@@ -34,10 +34,8 @@ export function WaitingIndicator(props: { work: BackgroundWork }) {
         <div class="timeline-thinking select-none" role="status" aria-live="polite" aria-label={label()}>
             <span class="thinking-indicator" data-tint={prefs().tint}>
                 <IconHourglass class="waiting-hourglass size-3.5 shrink-0 text-accent" />
-                <Show when={prefs().label} fallback={<span class="sr-only">{label()}</span>}>
-                    <Show when={prefs().shimmer} fallback={<span class="thinking-label">{label()}</span>}>
-                        <TextShimmer text={label()} />
-                    </Show>
+                <Show when={prefs().shimmer} fallback={<span class="thinking-label">{label()}</span>}>
+                    <TextShimmer text={label()} />
                 </Show>
             </span>
         </div>
