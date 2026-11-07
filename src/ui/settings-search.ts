@@ -136,6 +136,40 @@ const settingsSearchDefinitions = {
             description: "drift.settings.shellTimeout.customDescription",
         },
         { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
+        { title: "drift.settings.resumeTurns.title", description: "drift.settings.resumeTurns.description" },
+        {
+            title: "drift.settings.promptCache.warming.title",
+            description: "drift.settings.promptCache.warming.description",
+        },
+        {
+            title: "drift.settings.promptCache.interval.title",
+            description: "drift.settings.promptCache.interval.description",
+        },
+        {
+            title: "drift.settings.promptCache.window.title",
+            description: "drift.settings.promptCache.window.description",
+        },
+        {
+            title: "drift.settings.promptCache.prompt.title",
+            description: "drift.settings.promptCache.prompt.description",
+        },
+        {
+            title: "drift.settings.promptCache.subagent.title",
+            description: "drift.settings.promptCache.subagent.description",
+        },
+        {
+            title: "drift.settings.webSearch.provider.title",
+            description: "drift.settings.webSearch.provider.description",
+        },
+        { title: "drift.settings.imageGeneration.provider.title" },
+        {
+            title: "drift.settings.imageGeneration.size.title",
+            description: "drift.settings.imageGeneration.size.description",
+        },
+        {
+            title: "drift.settings.imageGeneration.payFirst.title",
+            description: "drift.settings.imageGeneration.payFirst.description",
+        },
     ],
     Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
