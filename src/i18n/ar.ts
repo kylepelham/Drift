@@ -1096,6 +1096,7 @@ export const drift = {
     "drift.process.gone": "عملت في الخلفية؛ أُعيد تشغيل Drift منذ ذلك الحين.",
     "drift.process.ended": "انتهت العملية في الخلفية بالرمز {{code}}",
     "drift.process.endedStopped": "توقفت العملية في الخلفية",
+    "drift.process.endedRestart": "انتهت العملية في الخلفية عند إعادة تشغيل Drift",
     "drift.message.revertHere": "التراجع إلى هنا",
     "drift.message.revertKeepFiles": "انقر مع Shift لإبقاء الملفات كما هي",
     "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

@@ -1124,6 +1124,7 @@ export const drift = {
     "drift.process.gone": "Działał w tle; Drift został od tego czasu uruchomiony ponownie.",
     "drift.process.ended": "Proces w tle zakończony z kodem {{code}}",
     "drift.process.endedStopped": "Proces w tle zatrzymany",
+    "drift.process.endedRestart": "Proces w tle zakończony przy ponownym uruchomieniu Drift",
     "drift.message.revertHere": "Cofnij do tego miejsca",
     "drift.message.revertKeepFiles": "Shift+klik, aby zostawić pliki bez zmian",
     "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",

@@ -1123,6 +1123,7 @@ export const drift = {
     "drift.process.gone": "Выполнялся в фоне; с тех пор Drift перезапускался.",
     "drift.process.ended": "Фоновый процесс завершён с кодом {{code}}",
     "drift.process.endedStopped": "Фоновый процесс остановлен",
+    "drift.process.endedRestart": "Фоновый процесс завершён при перезапуске Drift",
     "drift.message.revertHere": "Вернуться сюда",
     "drift.message.revertKeepFiles": "Shift+щелчок оставляет файлы как есть",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",

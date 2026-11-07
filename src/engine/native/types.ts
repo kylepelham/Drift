@@ -2771,6 +2771,8 @@ export interface components {
             /** @description The end of what it printed. */
             output: string;
             processId: string;
+            /** @description Drift restarted while it ran, which ended it. */
+            restarted?: boolean;
             /** @enum {string} */
             type: "process_exit";
         } | {

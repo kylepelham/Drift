@@ -181,6 +181,8 @@ pub struct Turns {
     pub provider_override: Mutex<Option<Provider>>,
     /// The turns under way when the engine last stopped, as the store said at open; taken once, by resume.
     pub(crate) cut_off: Mutex<Vec<crate::store::TurnClaim>>,
+    /// The background processes that ended when the engine last stopped, as the store said at open; told once.
+    pub(crate) cut_off_processes: Mutex<Vec<crate::store::RunningProcess>>,
     /// Background workers a restart queued again, to start once the engine is up.
     pub(crate) restarting: Mutex<Vec<String>>,
     /// Conversations whose workers were started again, so their own resumed turn is told not to relaunch them.

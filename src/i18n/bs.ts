@@ -1115,6 +1115,7 @@ export const drift = {
     "drift.process.gone": "Radio je u pozadini; Drift je od tada ponovo pokrenut.",
     "drift.process.ended": "Proces u pozadini završen s kodom {{code}}",
     "drift.process.endedStopped": "Proces u pozadini zaustavljen",
+    "drift.process.endedRestart": "Proces u pozadini završen kada se Drift ponovo pokrenuo",
     "drift.message.revertHere": "Vrati do ovdje",
     "drift.message.revertKeepFiles": "Shift+klik da datoteke ostanu kakve jesu",
     "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

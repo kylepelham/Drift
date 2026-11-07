@@ -1135,6 +1135,7 @@ export const drift = {
     "drift.process.gone": "Lief im Hintergrund; Drift wurde seitdem neu gestartet.",
     "drift.process.ended": "Hintergrundprozess beendet mit Code {{code}}",
     "drift.process.endedStopped": "Hintergrundprozess gestoppt",
+    "drift.process.endedRestart": "Hintergrundprozess beim Neustart von Drift beendet",
     "drift.message.revertHere": "Bis hierher zurücksetzen",
     "drift.message.revertKeepFiles": "Mit Umschalt-Klick bleiben die Dateien, wie sie sind",
     "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",

@@ -11,8 +11,13 @@ use super::{Exit, Handle, Pipes, ProcessRecord};
 /// How often a running process's newest line is shown, at most.
 const SHOW_EVERY: Duration = Duration::from_secs(1);
 
+/// Told once, before a process is watched.
+type Started = Box<dyn FnOnce(&Handle) + Send + Sync>;
+
 /// Who hears about a process: each change worth showing, then its end, once.
 pub(crate) struct Watcher {
+    /// Told before the process is watched, so its end can never come first.
+    pub started: Option<Started>,
     pub changed: Box<dyn Fn(ProcessRecord) + Send + Sync>,
     pub ended: Box<dyn FnOnce(Arc<Handle>) + Send + Sync>,
 }

@@ -473,6 +473,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Waiting, not thinking: an accent hourglass in the sidebar and in the Thinking row, labelled "Waiting on" while only background commands or workers will wake a conversation, or its turn only waits on them; on by default
 - [x] Background commands in the dock show how long they have run and open to their output
 - [x] Cards above the composer tuck in or stand apart; the todo list, background tasks and rolled back messages can be hidden
+- [x] Background commands a restart ended are told to their conversation at the next start, with the command, the end of its log and the log path
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

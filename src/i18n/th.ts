@@ -1099,6 +1099,7 @@ export const drift = {
     "drift.process.gone": "ทำงานอยู่เบื้องหลัง Drift ถูกเริ่มใหม่ตั้งแต่นั้น",
     "drift.process.ended": "โปรเซสเบื้องหลังจบด้วยรหัส {{code}}",
     "drift.process.endedStopped": "หยุดโปรเซสเบื้องหลังแล้ว",
+    "drift.process.endedRestart": "โปรเซสเบื้องหลังจบลงเมื่อ Drift เริ่มใหม่",
     "drift.message.revertHere": "ย้อนกลับมาที่นี่",
     "drift.message.revertKeepFiles": "กด Shift ค้างแล้วคลิกเพื่อคงไฟล์ไว้ตามเดิม",
     "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",

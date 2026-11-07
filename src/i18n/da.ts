@@ -1120,6 +1120,7 @@ export const drift = {
     "drift.process.gone": "Kørte i baggrunden; Drift er genstartet siden.",
     "drift.process.ended": "Baggrundsproces afsluttet med kode {{code}}",
     "drift.process.endedStopped": "Baggrundsproces stoppet",
+    "drift.process.endedRestart": "Baggrundsproces afsluttet, da Drift genstartede",
     "drift.message.revertHere": "Rul tilbage hertil",
     "drift.message.revertKeepFiles": "Shift-klik for at beholde filerne, som de er",
     "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",

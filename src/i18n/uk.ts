@@ -1120,6 +1120,7 @@ export const drift = {
     "drift.process.gone": "Виконувався у фоні; відтоді Drift перезапускався.",
     "drift.process.ended": "Фоновий процес завершено з кодом {{code}}",
     "drift.process.endedStopped": "Фоновий процес зупинено",
+    "drift.process.endedRestart": "Фоновий процес завершено під час перезапуску Drift",
     "drift.message.revertHere": "Повернутися сюди",
     "drift.message.revertKeepFiles": "Shift+клік залишає файли як є",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",

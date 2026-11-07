@@ -1105,6 +1105,7 @@ export const drift = {
     "drift.process.gone": "백그라운드에서 실행되었습니다. 이후 Drift가 다시 시작되었습니다.",
     "drift.process.ended": "백그라운드 프로세스가 코드 {{code}}(으)로 종료됨",
     "drift.process.endedStopped": "백그라운드 프로세스 중지됨",
+    "drift.process.endedRestart": "Drift가 다시 시작되어 백그라운드 프로세스 종료됨",
     "drift.message.revertHere": "여기로 되돌리기",
     "drift.message.revertKeepFiles": "Shift+클릭하면 파일은 그대로 둡니다",
     "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",

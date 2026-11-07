@@ -1462,8 +1462,16 @@ goal retires them.
     process stops with its run, so it waits before reporting. `task_output` waits up to ten minutes
     (it was 120 s; 133 calls had timed out at it) and takes `task_ids` to return when the first of
     several finishes.
-  - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture
-    what a background process changes after its call returned.
+  - Processes live in memory: a restart of Drift ends them (the job holding them closes). Each
+    running one is noted in `drift.db` (`background_process`, migration 54) and removed when it
+    ends, is stopped or its conversation is archived, but not when Drift quits. One still noted at
+    the next start was ended by the restart: after resumed turns start, its conversation gets one
+    `process_exit` prompt (`restarted`, "Ended when Drift restarted") per conversation with each
+    command, the end of its log read from disk and the log path, and the model is told anything it
+    held (a lock, a half-written file) may need cleaning up before it runs again. A conversation
+    the user pressed Stop in since, a subagent's or an archived one is not told. (Ona's coordinator
+    lost an hour to a merge check killed this way: its lock stayed held and nothing said so.)
+    Undo cannot capture what a background process changes after its call returned.
 - Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
   the current commit in a folder under its data directory and says that uncommitted changes were
   not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never

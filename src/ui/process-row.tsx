@@ -142,10 +142,12 @@ export function ProcessRow(props: { process: ProcessRecord }) {
 
 /** Why a turn started by itself: a background process ended. Folded like an answer; open for its output. */
 export function ProcessExitRow(props: { part: ProcessExitPart }) {
-    const label = () =>
-        props.part.exitCode === undefined || props.part.exitCode === null
+    const label = () => {
+        if (props.part.restarted) return t("drift.process.endedRestart");
+        return props.part.exitCode === undefined || props.part.exitCode === null
             ? t("drift.process.endedStopped")
             : t("drift.process.ended", { code: props.part.exitCode });
+    };
 
     return (
         <div class="flex min-w-0 justify-end">

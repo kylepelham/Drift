@@ -1120,6 +1120,7 @@ export const drift = {
     "drift.process.gone": "バックグラウンドで実行されました。その後 Drift は再起動されています。",
     "drift.process.ended": "バックグラウンドプロセスがコード {{code}} で終了",
     "drift.process.endedStopped": "バックグラウンドプロセスを停止",
+    "drift.process.endedRestart": "Drift の再起動でバックグラウンドプロセスが終了",
     "drift.message.revertHere": "ここまで戻す",
     "drift.message.revertKeepFiles": "Shift+クリックでファイルはそのまま残します",
     "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",

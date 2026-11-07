@@ -1130,6 +1130,7 @@ export const drift = {
     "drift.process.gone": "Rodou em segundo plano; o Drift foi reiniciado desde então.",
     "drift.process.ended": "Processo em segundo plano terminou com código {{code}}",
     "drift.process.endedStopped": "Processo em segundo plano parado",
+    "drift.process.endedRestart": "Processo em segundo plano encerrado quando o Drift reiniciou",
     "drift.message.revertHere": "Reverter até aqui",
     "drift.message.revertKeepFiles": "Shift+clique para manter os arquivos como estão",
     "drift.message.tokenCounts": "{{input}} entrada / {{output}} saída",

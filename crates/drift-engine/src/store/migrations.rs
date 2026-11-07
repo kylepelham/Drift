@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 53] = [
+pub(super) const MIGRATIONS: [&str; 54] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -242,6 +242,15 @@ pub(super) const MIGRATIONS: [&str; 53] = [
         key TEXT NOT NULL,
         PRIMARY KEY(session_id, key)
     ) STRICT, WITHOUT ROWID;",
+    // Background processes running now, so one left at startup was ended by Drift stopping.
+    "CREATE TABLE background_process(
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        command TEXT NOT NULL,
+        description TEXT NOT NULL,
+        log TEXT NOT NULL,
+        generation INTEGER NOT NULL
+    ) STRICT;",
 ];
 
 #[cfg(test)]

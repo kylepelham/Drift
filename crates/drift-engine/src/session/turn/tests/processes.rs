@@ -119,6 +119,73 @@ async fn archiving_a_conversation_stops_its_processes() {
         .await;
 
     assert_eq!(process.record().state, crate::background::ProcessState::Stopped);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        h.engine.store.take_running_processes().unwrap().is_empty(),
+        "a process stopped while Drift runs is not told after a restart"
+    );
+}
+
+#[tokio::test]
+async fn a_process_drift_s_quitting_ended_is_told_to_its_conversation_at_the_next_start() {
+    let h = harness().await;
+    let gate = match crate::tool::bash::Bash::detect().shell() {
+        crate::tool::bash::Shell::Bash(_) => "echo gate-started; sleep 60",
+        crate::tool::bash::Shell::PowerShell(_) => "Write-Output gate-started; Start-Sleep 60",
+    };
+    start_in_background(&h, gate);
+    h.engine.submit(&h.session.id, prompt("run the gate")).await.await_ok();
+    until_idle(&h).await;
+    let process = h.engine.processes.of(&h.session.id).pop().unwrap();
+    for _ in 0..100 {
+        if process.tail(1024).contains("gate-started") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    h.engine.processes.stop_all();
+    let never = tokio_util::sync::CancellationToken::new();
+    process.wait(None, Duration::from_secs(20), &never).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cut_off = h.engine.store.take_running_processes().unwrap();
+    assert_eq!(cut_off.len(), 1, "quitting leaves it noted");
+    assert_eq!(cut_off[0].command, gate);
+
+    h.provider.push(text("releasing the lock and running it again"));
+    *h.engine.turns.cut_off_processes.lock().unwrap() = cut_off.clone();
+    h.engine.report_cut_off_processes();
+    let messages = until_messages(&h, 5).await;
+    let Part::ProcessExit {
+        restarted,
+        exit_code,
+        output,
+        log,
+        ..
+    } = &messages[3].parts[0].part
+    else {
+        panic!("{:?}", messages[3].parts);
+    };
+    assert!(*restarted);
+    assert_eq!(*exit_code, None);
+    assert!(output.contains("gate-started"), "{output}");
+    assert_eq!(log, &cut_off[0].log);
+    let told = {
+        let requests = h.provider.requests.lock().unwrap();
+        requests.last().unwrap().messages.last().unwrap().blocks.clone()
+    };
+    assert!(
+        told.iter()
+            .any(|block| matches!(block, llm::Block::Text(text) if text.contains("ended when Drift restarted"))),
+        "{told:?}"
+    );
+
+    // A Stop since it started means nobody waits on it.
+    h.engine.abort(&h.session.id);
+    *h.engine.turns.cut_off_processes.lock().unwrap() = cut_off;
+    h.engine.report_cut_off_processes();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(transcript(&h).len(), 5);
 }
 
 #[tokio::test]

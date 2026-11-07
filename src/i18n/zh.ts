@@ -1074,6 +1074,7 @@ export const drift = {
     "drift.process.gone": "曾在后台运行；此后 Drift 已重启。",
     "drift.process.ended": "后台进程以代码 {{code}} 退出",
     "drift.process.endedStopped": "后台进程已停止",
+    "drift.process.endedRestart": "Drift 重启时后台进程已结束",
     "drift.message.revertHere": "还原到此处",
     "drift.message.revertKeepFiles": "按住 Shift 点击可保持文件不变",
     "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",

@@ -1122,6 +1122,7 @@ export const drift = {
     "drift.process.gone": "Arka planda çalıştı; Drift o zamandan beri yeniden başlatıldı.",
     "drift.process.ended": "Arka plan işlemi {{code}} koduyla çıktı",
     "drift.process.endedStopped": "Arka plan işlemi durduruldu",
+    "drift.process.endedRestart": "Arka plan işlemi Drift yeniden başlatılınca sona erdi",
     "drift.message.revertHere": "Buraya geri dön",
     "drift.message.revertKeepFiles": "Dosyaları olduğu gibi bırakmak için Shift ile tıklayın",
     "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

@@ -92,6 +92,7 @@ fn started(processes: &Processes, line: &str) -> (Arc<Handle>, Arc<Mutex<Vec<Pro
     let heard = Arc::new(Mutex::new(Vec::new()));
     let recording = heard.clone();
     let watcher = Watcher {
+        started: None,
         changed: Box::new(move |record| recording.lock().unwrap().push(record)),
         ended: Box::new(|_| {}),
     };

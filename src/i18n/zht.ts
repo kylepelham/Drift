@@ -1076,6 +1076,7 @@ export const drift = {
     "drift.process.gone": "曾在背景執行；此後 Drift 已重新啟動。",
     "drift.process.ended": "背景程序以代碼 {{code}} 結束",
     "drift.process.endedStopped": "背景程序已停止",
+    "drift.process.endedRestart": "Drift 重新啟動時背景程序已結束",
     "drift.message.revertHere": "還原到此處",
     "drift.message.revertKeepFiles": "按住 Shift 點擊可保持檔案不變",
     "drift.message.tokenCounts": "輸入 {{input}} / 輸出 {{output}}",

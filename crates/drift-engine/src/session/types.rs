@@ -262,6 +262,9 @@ pub enum Part {
         output: String,
         /// Where everything it printed is.
         log: String,
+        /// Drift restarted while it ran, which ended it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        restarted: bool,
     },
     /// The user's answer to a question the model asked without waiting, delivered as its own prompt.
     #[serde(rename_all = "camelCase")]

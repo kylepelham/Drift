@@ -1139,6 +1139,7 @@ export const drift = {
     "drift.process.gone": "Exécuté en arrière-plan ; Drift a redémarré depuis.",
     "drift.process.ended": "Processus en arrière-plan terminé avec le code {{code}}",
     "drift.process.endedStopped": "Processus en arrière-plan arrêté",
+    "drift.process.endedRestart": "Processus en arrière-plan terminé au redémarrage de Drift",
     "drift.message.revertHere": "Revenir ici",
     "drift.message.revertKeepFiles": "Maj+clic pour garder les fichiers tels quels",
     "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",
