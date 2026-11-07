@@ -9,6 +9,8 @@ use super::{Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError, display,
 use crate::llm::ToolSpec;
 
 const MAX_RESULTS: usize = 100;
+/// How long a walk goes on before it answers with what it has.
+const BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub struct Glob;
 
@@ -25,7 +27,8 @@ impl Tool for Glob {
                 "type": "object",
                 "properties": {
                     "pattern": { "type": "string", "description": "Glob such as `src/**/*.ts` or `**/Cargo.toml`, relative to `path`." },
-                    "path": { "type": "string", "description": "Directory to search. Default: the working directory." }
+                    "path": { "type": "string", "description": "Directory to search. Default: the working directory." },
+                    "include_ignored": { "type": "boolean", "description": "Also list what .gitignore and the built-in skip list leave out (node_modules, target, dist, build and the like). Default false." }
                 },
                 "required": ["pattern"]
             }),
@@ -56,22 +59,19 @@ impl Tool for Glob {
             let pattern = required_str(&input, "pattern")?.to_string();
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let (base, stop) = (ctx.workdir().to_path_buf(), ctx.abort.clone());
-            let (found, total) = tokio::task::spawn_blocking(move || find(&root, &pattern, &stop))
+            let everything = input["include_ignored"].as_bool().unwrap_or(false);
+            let walked = tokio::task::spawn_blocking(move || find(&root, &pattern, everything, &stop))
                 .await
                 .map_err(|error| ToolError(error.to_string()))??;
+            let (found, total) = (&walked.found, walked.total);
 
             let truncated = total > found.len();
             let mut lines: Vec<String> = found.iter().map(|(path, _)| display(path, &base)).collect();
-            if truncated {
-                lines.push(format!(
-                    "(the {MAX_RESULTS} newest of {total} matches; narrow the pattern to see the rest)"
-                ));
+            if lines.is_empty() {
+                lines.push("No files matched".into());
             }
-            let output = if lines.is_empty() {
-                "No files matched".to_string()
-            } else {
-                lines.join("\n")
-            };
+            lines.extend(walked.notes());
+            let output = lines.join("\n");
 
             Ok(Output {
                 title: input["pattern"].as_str().unwrap_or_default().into(),
@@ -89,36 +89,79 @@ impl Tool for Glob {
 
 type Found = Vec<(std::path::PathBuf, SystemTime)>;
 
+/// The newest matches, how many matched in all, and what the walk left out.
+struct Walked {
+    found: Found,
+    total: usize,
+    out_of_time: bool,
+    skipped: Vec<String>,
+}
+
+impl Walked {
+    fn notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if self.total > self.found.len() {
+            notes.push(format!(
+                "(the {MAX_RESULTS} newest of {} matches; narrow the pattern to see the rest)",
+                self.total
+            ));
+        }
+        if self.out_of_time {
+            notes.push(format!(
+                "(the walk stopped after {} s, so results may be incomplete; narrow `path`)",
+                BUDGET.as_secs()
+            ));
+        }
+        if !self.skipped.is_empty() {
+            notes.push(format!(
+                "(not searched: {}; name one in `path`, or pass `include_ignored: true`)",
+                self.skipped.join(", ")
+            ));
+        }
+
+        notes
+    }
+}
+
 /// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all. The walk runs on
-/// several threads, as grep's does; a Stop ends it.
-fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, usize), ToolError> {
+/// several threads, as grep's does, within [`BUDGET`]; a Stop ends it.
+fn find(root: &Path, pattern: &str, everything: bool, stop: &CancellationToken) -> Result<Walked, ToolError> {
     use ignore::WalkState;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let glob = FileGlob::new(root, pattern).map_err(|error| ToolError(format!("invalid glob: {error}")))?;
     let matched = std::sync::Mutex::new(Vec::new());
+    let skipped = std::sync::Arc::new(super::Skipped::default());
+    let deadline = std::time::Instant::now() + BUDGET;
+    let out_of_time = AtomicBool::new(false);
 
-    super::walker(root).build_parallel().run(|| {
-        let (glob, matched) = (&glob, &matched);
-        Box::new(move |entry| {
-            if stop.is_cancelled() {
-                return WalkState::Quit;
-            }
-            let Ok(entry) = entry else {
-                return WalkState::Continue;
-            };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) || !glob.matches(entry.path()) {
-                return WalkState::Continue;
-            }
+    super::search_walker(root, everything, &skipped)
+        .build_parallel()
+        .run(|| {
+            let (glob, matched, out_of_time) = (&glob, &matched, &out_of_time);
+            Box::new(move |entry| {
+                if std::time::Instant::now() >= deadline {
+                    out_of_time.store(true, Ordering::Relaxed);
+                }
+                if stop.is_cancelled() || out_of_time.load(Ordering::Relaxed) {
+                    return WalkState::Quit;
+                }
+                let Ok(entry) = entry else {
+                    return WalkState::Continue;
+                };
+                if !entry.file_type().is_some_and(|kind| kind.is_file()) || !glob.matches(entry.path()) {
+                    return WalkState::Continue;
+                }
 
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|meta| meta.modified().ok())
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            matched.lock().unwrap().push((entry.into_path(), modified));
-            WalkState::Continue
-        })
-    });
+                let modified = entry
+                    .metadata()
+                    .ok()
+                    .and_then(|meta| meta.modified().ok())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
+                matched.lock().unwrap().push((entry.into_path(), modified));
+                WalkState::Continue
+            })
+        });
     if stop.is_cancelled() {
         return Err(ToolError("stopped".into()));
     }
@@ -131,7 +174,12 @@ fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, 
     });
     found.truncate(MAX_RESULTS);
 
-    Ok((found, total))
+    Ok(Walked {
+        found,
+        total,
+        out_of_time: out_of_time.into_inner(),
+        skipped: skipped.names(),
+    })
 }
 
 /// Paths the walk looks at before settling for what it has: a mention search must answer while typing.
@@ -272,7 +320,7 @@ mod tests {
         sandbox.file("a.txt", "");
         let stop = CancellationToken::new();
         stop.cancel();
-        assert!(find(&sandbox.ctx.workspace, "*.txt", &stop).is_err());
+        assert!(find(&sandbox.ctx.workspace, "*.txt", false, &stop).is_err());
     }
 
     #[test]
@@ -333,9 +381,9 @@ mod tests {
             .unwrap()
             .set_modified(old + std::time::Duration::from_secs(60))
             .unwrap();
-        let (found, total) = find(&sandbox.ctx.workspace, "**/*.txt", &CancellationToken::new()).unwrap();
-        assert_eq!((found.len(), total), (MAX_RESULTS, MAX_RESULTS + 21));
-        assert_eq!(found[0].0, newest, "the newest file wherever the walk meets it");
+        let walked = find(&sandbox.ctx.workspace, "**/*.txt", false, &CancellationToken::new()).unwrap();
+        assert_eq!((walked.found.len(), walked.total), (MAX_RESULTS, MAX_RESULTS + 21));
+        assert_eq!(walked.found[0].0, newest, "the newest file wherever the walk meets it");
     }
 
     #[tokio::test]

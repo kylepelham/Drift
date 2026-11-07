@@ -28,6 +28,20 @@ pub fn scratch_dir() -> PathBuf {
     canonical(&crate::platform::temp::root().join("scratch"))
 }
 
+/// Folders a search skips unless its `path` is in one or it asks for everything: dependencies, build output, caches.
+const HEAVY_DIRS: [&str; 8] = [
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".next",
+    ".gradle",
+];
+/// Folders at the top of a drive or the home folder that a search there skips too (`Program Files*` by prefix).
+const SYSTEM_DIRS: [&str; 5] = ["Windows", "Program Files", "ProgramData", "AppData", "$Recycle.Bin"];
+
 /// Walks `root` as git would list it (ignore rules apply, hidden files included) without descending
 /// into version-control internals.
 pub fn walk(root: &Path) -> ignore::Walk {
@@ -36,13 +50,69 @@ pub fn walk(root: &Path) -> ignore::Walk {
 
 /// [`walk`]'s settings, for a walk that runs on several threads.
 pub fn walker(root: &Path) -> ignore::WalkBuilder {
+    keeping(root, |_| true)
+}
+
+fn keeping(root: &Path, keep: impl Fn(&ignore::DirEntry) -> bool + Send + Sync + 'static) -> ignore::WalkBuilder {
     let mut builder = ignore::WalkBuilder::new(root);
-    builder
-        .hidden(false)
-        .require_git(false)
-        .filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)));
+    builder.hidden(false).require_git(false).filter_entry(move |entry| {
+        !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)) && keep(entry)
+    });
 
     builder
+}
+
+/// The folders a search walk left out by name, to say so.
+#[derive(Default)]
+pub struct Skipped(std::sync::Mutex<std::collections::BTreeSet<String>>);
+
+impl Skipped {
+    pub fn names(&self) -> Vec<String> {
+        self.0.lock().unwrap().iter().cloned().collect()
+    }
+}
+
+/// A `grep` or `glob` walk: [`walker`] without [`HEAVY_DIRS`], and at the top of a drive or the home folder without
+/// [`SYSTEM_DIRS`], unless `everything`, which also drops ignore rules, or `root` is inside such a folder already.
+pub fn search_walker(root: &Path, everything: bool, skipped: &std::sync::Arc<Skipped>) -> ignore::WalkBuilder {
+    let named = root
+        .components()
+        .any(|part| part.as_os_str().to_str().is_some_and(|name| HEAVY_DIRS.contains(&name)));
+    if everything || named {
+        let mut builder = walker(root);
+        builder.standard_filters(!everything).hidden(false);
+        return builder;
+    }
+
+    let (system, skipped) = (top_of_system(root), skipped.clone());
+    keeping(root, move |entry| {
+        let skip = entry.file_type().is_some_and(|kind| kind.is_dir())
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| HEAVY_DIRS.contains(&name) || (system && entry.depth() == 1 && system_dir(name)));
+        if skip {
+            skipped
+                .0
+                .lock()
+                .unwrap()
+                .insert(entry.file_name().to_string_lossy().into_owned());
+        }
+        !skip
+    })
+}
+
+fn system_dir(name: &str) -> bool {
+    SYSTEM_DIRS.contains(&name) || name.starts_with("Program Files")
+}
+
+/// A drive's root or the home folder, where system folders sit beside the user's own.
+fn top_of_system(root: &Path) -> bool {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(|home| canonical(Path::new(&home)));
+
+    root.parent().is_none() || home.is_some_and(|home| home == root)
 }
 
 /// Resolves through the deepest existing ancestor, so a file that does not exist yet still lands where it will.

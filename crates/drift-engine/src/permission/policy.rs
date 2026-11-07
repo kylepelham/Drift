@@ -137,6 +137,13 @@ impl Compiled {
             .map(|(rule, _)| rule.decision)
     }
 
+    /// Whether any rule could refuse or ask about an ask of `kind`; without one, every such ask is allowed.
+    pub fn restricts(&self, kind: &str) -> bool {
+        self.0
+            .iter()
+            .any(|(rule, _)| (rule.kind == kind || rule.kind == "*") && rule.decision != Decision::Allow)
+    }
+
     /// Whether every ask of `kind` is denied: the first rule for it that covers everything (`*`)
     /// denies, and no rule before it allows or asks about anything narrower.
     pub fn denies_all(&self, kind: &str) -> bool {

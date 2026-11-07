@@ -2719,11 +2719,20 @@ Settled after the first external review of M1; each has a regression test.
   grows the buffer with the file's size. Memory holds one page;
   it gives no line count, which would mean reading the whole file, and says whether more lines
   follow. Such a file can be read but not edited: undo keeps nothing over 10 MB.
-- `grep` searches on several threads, as ripgrep does: it lists the first 200 matches by file then
-  line and says how many there were in all, so a cut list is not just whichever files a thread
-  reached first. Past 2000 matches it stops, so a broad pattern in a large tree returns at once,
-  and says so: the 200 shown are then sorted from the files it reached, and earlier files may be
-  missing. A Stop ends the walk and the file search in progress.
+- `grep` searches on several threads, as ripgrep does, and takes Claude Code's `Grep` options:
+  `output_mode` (`content`, the default, `files_with_matches`, `count`), `-A`, `-B`, `-C`/`context`,
+  `-i`, `-n`, `type` (ripgrep's file types), `multiline`, `head_limit` (default 250, 0 for all) and
+  `offset`, beside Drift's own `include` glob. Results are sorted by path. It stops once it has one
+  entry past the page (not for `count`, nor for a later page, which needs the whole search in
+  order) and says more exist; then the entries are the first it found, not the first by path. It
+  collects 20000 entries at most. A Stop ends the walk and the file search in progress.
+- Bounds on `grep` and `glob` (`tool::search_walker`): each answers after 20 s with what it has
+  and says results may be incomplete; folders named node_modules, target, dist, build, .venv,
+  __pycache__, .next or .gradle are skipped, and at the top of a drive or the home folder so are
+  Windows, Program Files*, ProgramData, AppData and $Recycle.Bin; the result names what it skipped.
+  A `path` inside such a folder, or `include_ignored: true` (which also drops ignore rules), searches
+  them. `grep` skips files over 10 MB unless `path` names one. When no read rule could refuse or
+  ask (`Compiled::restricts`), `grep` checks nothing per file.
 - Writers reserve canonical paths atomically across sessions and workers (`tool::lock`). File
   reservations deduplicate their complete path set. Tree reservations conflict with overlapping
   tree roots and every file beneath the root, regardless of the writer's workspace. A fixer in

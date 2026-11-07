@@ -41,7 +41,7 @@ pub(crate) mod tests;
 pub use crate::session::types::ToolMetadata;
 pub use ask::{Ask, MAX_ASK_DIFF, Reason};
 pub use context::{Context, Progress, SessionFiles, read_ask};
-pub use paths::{FileGlob, canonical, display, scratch_dir, walk, walker};
+pub use paths::{FileGlob, Skipped, canonical, display, scratch_dir, search_walker, walk, walker};
 pub use registry::Registry;
 
 use crate::llm::ToolSpec;
