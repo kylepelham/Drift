@@ -160,13 +160,14 @@ pub fn canonical(path: &Path) -> PathBuf {
     resolved
 }
 
-/// Windows canonical paths carry `\\?\`; nothing downstream wants it.
+/// Windows canonical paths carry `\\?\` (`\\?\UNC\` for a share); nothing downstream wants it.
 fn strip_verbatim(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
 
     match text.strip_prefix(r"\\?\") {
-        Some(plain) if !plain.starts_with("UNC") => PathBuf::from(plain),
-        _ => path,
+        Some(share) if share.starts_with(r"UNC\") => PathBuf::from(format!(r"\\{}", &share[4..])),
+        Some(plain) => PathBuf::from(plain),
+        None => path,
     }
 }
 
@@ -190,5 +191,19 @@ mod tests {
             canonical(Path::new("a/../../drift-missing")),
             parent.join("drift-missing")
         );
+    }
+
+    #[test]
+    fn a_share_s_canonical_path_loses_its_verbatim_prefix() {
+        let share = PathBuf::from(r"\\?\UNC\wsl.localhost\Ubuntu\tmp\a.txt");
+        assert_eq!(
+            strip_verbatim(share),
+            PathBuf::from(r"\\wsl.localhost\Ubuntu\tmp\a.txt")
+        );
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"\\?\C:\a.txt")),
+            PathBuf::from(r"C:\a.txt")
+        );
+        assert_eq!(strip_verbatim(PathBuf::from(r"C:\a.txt")), PathBuf::from(r"C:\a.txt"));
     }
 }

@@ -112,3 +112,39 @@ async fn a_tracked_file_that_grows_past_the_limit_leaves_the_store_without_readi
 
     std::fs::remove_dir_all(base).ok();
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_file_another_program_will_not_let_be_read_is_waited_for_then_named() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (base, workspace) = dirs();
+    let snapshots = Snapshots::new(&base.join("data"));
+    let file = workspace.join("held.txt");
+    std::fs::write(&file, "held\n").unwrap();
+    let lock = || {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&file)
+            .unwrap()
+    };
+
+    let brief = lock();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(brief);
+    });
+    assert!(
+        snapshots.record(&workspace, "held.txt").await.unwrap().is_some(),
+        "released moments later"
+    );
+    release.join().unwrap();
+
+    let _held = lock();
+    let error = snapshots.record(&workspace, "held.txt").await.unwrap_err();
+    assert!(matches!(error, Error::Held(_)), "{error}");
+    assert!(
+        error.to_string().contains("held.txt open without letting it be read"),
+        "{error}"
+    );
+}
