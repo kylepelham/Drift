@@ -460,6 +460,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/processes/{id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A process's newest output, for its row in the dock; reading it marks nothing read for the model. */
+        get: operations["processOutput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/processes/{id}/stop": {
         parameters: {
             query?: never;
@@ -2882,6 +2899,10 @@ export interface components {
          * @enum {string}
          */
         Preview: "lines" | "binary" | "large" | "unavailable";
+        ProcessOutput: {
+            /** @description The newest output, at most 64 KB, with colours and cursor moves taken out. */
+            output: string;
+        };
         /** @description A background process as the dock and the API show it. */
         ProcessRecord: {
             command: string;
@@ -4685,6 +4706,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PluginInfo"][];
                 };
+            };
+        };
+    };
+    processOutput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessOutput"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

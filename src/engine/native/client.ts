@@ -293,6 +293,7 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        processOutput: (id: string) => request<Json<"processOutput", 200>>("GET", `/processes/${id}/output`),
         browser: (id: string) => request<Json<"getBrowser", 200>>("GET", `/sessions/${id}/browser`),
         startBrowser: (id: string) => request<Json<"startBrowser", 200>>("POST", `/sessions/${id}/browser`),
         stopBrowser: (id: string) => request<Json<"stopBrowser", 200>>("POST", `/sessions/${id}/browser/stop`),

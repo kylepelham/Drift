@@ -189,6 +189,17 @@ export function createActions(
         }
     }
 
+    /** A background process's newest output for its dock row; empty once the engine no longer has it. */
+    async function processOutput(processId: string) {
+        return (
+            (
+                await requireClient()
+                    .processOutput(processId)
+                    .catch(() => undefined)
+            )?.output ?? ""
+        );
+    }
+
     /** Starts a session's browser at the user's request; the pane opens when `browser.updated` reports it. */
     async function startBrowser(sessionId: string) {
         try {
@@ -518,6 +529,7 @@ export function createActions(
         abort,
         stopTask,
         stopProcess,
+        processOutput,
         startBrowser,
         stopBrowser,
         /** Watches a session's browser: frames of its active page and its cursor out, the user's input in. */

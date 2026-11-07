@@ -190,6 +190,7 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(processes::list))
         .routes(routes!(processes::stop))
+        .routes(routes!(processes::output))
 }
 
 /// A conversation's browser and its view socket, and what Settings > Browser manages.

@@ -960,9 +960,17 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   count alone: background workers and commands run on and their ends still wake the conversation.
   The composer's Stop sends `only=turn` while the turn runs; once it is idle and background work
   remains, the icon-only button names it in its tooltip ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
-  a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop` and `POST /tasks/{id}/abort` cancel one
-  worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
-  and question asks carry the worker's session id and inherit the owner's approvals.
+  a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop`
+  and `POST /tasks/{id}/abort` cancel one worker's token; a Stop that arrives before the worker
+  registers waits for it. Worker permission and question asks carry the worker's session id and
+  inherit the owner's approvals.
+- Waiting, not thinking (`sessionWaiting` in `engine/store.ts`, on by default, Settings > Appearance
+  > Thinking indicator): a conversation that is idle while background commands or background workers
+  run (each wakes it when it ends), or busy with only waiting calls running (a `process` wait, or
+  `task_output` with `wait_seconds`), shows a flipping grey hourglass in the sidebar in place of the
+  pulsing accent dot, and a dashed pill ("Waiting on 1 worker, 2 commands") in the transcript in
+  place of Thinking. A retrying request never counts. Live waiting calls are tracked by part id from
+  events (`waitCalls`, beside `liveTools`), and a transcript loaded mid-wait is read directly.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
   never delivered as a prompt), before anything in the new process can launch a worker. An
   interrupted foreground result remains owed until its parent call is closed, even
@@ -1419,7 +1427,11 @@ goal retires them.
     when it was stopped, or when the user pressed Stop since it started; it then shows only in the
     dock. A conversation busy with another job is offered it every 30 s, ten times.
   - Processes show in the Background tasks dock beside background subagents while any runs, with a
-    live last line, an Open link for a printed URL, and Stop. Ended ones join the finished history.
+    live last line, how long each has run (ticking each second, fixed once it ends), an Open link for
+    a printed URL, and Stop. A row opens to its command and output in the shell call's own view
+    (`ShellOutput`), read from `GET /processes/{id}/output` (the newest 64 KB kept in memory, which
+    marks nothing read for the model) when opened and every second while it runs. Ended ones join
+    the finished history.
     The prompt a process's end adds folds like an answered question (`NoteBox`): how it ended and
     its description, opening to its command, the end of its output and the full log. The
     orchestrator's status and its nudges fold the same way.

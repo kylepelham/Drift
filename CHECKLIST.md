@@ -470,6 +470,8 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
 - [x] Plugin language servers start at the edited file's git root
 - [x] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
+- [x] Waiting, not thinking: an hourglass in the sidebar and a dashed "Waiting on" pill in the transcript while only background commands or workers will wake a conversation, or its turn only waits on them; on by default
+- [x] Background commands in the dock show how long they have run and open to their output
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

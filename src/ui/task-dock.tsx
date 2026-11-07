@@ -93,7 +93,7 @@ export function TaskDock() {
                 <Show when={open()}>
                     <div id={bodyID} class="border-t border-edge">
                         <ul
-                            class="max-h-[min(12rem,24dvh)] space-y-0.5 overflow-y-auto overscroll-contain px-2 py-2"
+                            class="max-h-[min(12rem,24dvh)] space-y-0.5 overflow-y-auto overscroll-contain px-2 py-2 has-aria-expanded:max-h-[min(30rem,55dvh)]"
                             tabIndex={0}
                             aria-label={t("drift.task.title")}
                         >
@@ -135,7 +135,7 @@ function FinishedTasks(props: { tasks: TaskRecord[]; processes: ProcessRecord[];
             <Show when={open()}>
                 <ul
                     id={props.id}
-                    class="max-h-[min(8rem,16dvh)] space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-2"
+                    class="max-h-[min(8rem,16dvh)] space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-2 has-aria-expanded:max-h-[min(30rem,55dvh)]"
                     tabIndex={0}
                     aria-label={t("drift.task.finished")}
                 >
