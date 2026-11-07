@@ -134,6 +134,7 @@ impl Engine {
     pub fn open_with(data_dir: &Path, options: Options) -> Result<Arc<Self>, Error> {
         let store = Arc::new(store::open(data_dir)?);
         store.abandon_streaming_messages()?;
+        store.interrupt_running_calls()?;
         // Background workers that may start again are queued; `start` restarts them once the servers are up.
         let resumes: bool = store.setting(session::turn::resume::RESUME_KEY)?.unwrap_or(true);
         let restarting = store.interrupt_unfinished_tasks(resumes)?;

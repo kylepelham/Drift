@@ -161,10 +161,10 @@ fn network_reason(context: &Context, path: &Path) -> Option<Reason> {
     (!context.inside_workspace(path)).then_some(Reason::Outside)
 }
 
-/// Where a call runs: its `workdir`, which must be a directory, else the workspace.
+/// Where a call runs: its `workdir`, which must be a directory, else the session's own folder.
 pub(super) fn workdir(context: &Context, input: &Value) -> Result<PathBuf, ToolError> {
     let Some(asked) = input["workdir"].as_str().filter(|directory| !directory.is_empty()) else {
-        return Ok(context.workspace.clone());
+        return Ok(context.workdir().to_path_buf());
     };
     let directory = context.resolve(asked);
     if !directory.is_dir() {

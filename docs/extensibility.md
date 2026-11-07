@@ -558,7 +558,9 @@ search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds anothe
 Settings > Prompts with their prompts and model pickers, never in the composer. A workspace agent
 with `mode: all`, or no `mode` at all (as opencode reads one), is both: in the composer and offered
 for delegation. `hidden: true` keeps one out of the composer; `disable: true` removes it. The engine runs a
-`task` subagent on its agent's pinned model, falling back to the parent's.
+`task` subagent on its agent's pinned model, falling back to the parent's; the call may name another
+`model` and an `effort`. `cacheTtl: 5m` or `1h` fixes how long its runs keep their prompt cache, over
+Settings > Execution > Prompt cache > Subagent cache.
 Threads from `/spawn` start on the source conversation's model.
 
 The action agents `title` and `compaction` have the same model picker and prompt editor. Title

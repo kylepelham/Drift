@@ -81,7 +81,7 @@ impl Tool for ApplyPatch {
             let mut plan = Plan::default();
             for op in &ops {
                 let path = ctx.resolve(op.path());
-                let name = display(&path, &ctx.workspace);
+                let name = display(&path, ctx.workdir());
                 plan.prepare(ctx, op, &path)
                     .await
                     .map_err(|error| ToolError(format!("{name}: {}", error.0)))?;
@@ -90,7 +90,7 @@ impl Tool for ApplyPatch {
 
             for step in &plan.steps {
                 super::fits_history(
-                    &display(&step.path, &ctx.workspace),
+                    &display(&step.path, ctx.workdir()),
                     step.after.as_ref().map_or(0, Vec::len),
                 )?;
             }
@@ -186,7 +186,7 @@ impl Plan {
         let kind = if target == path { "update" } else { "move" };
         self.changes.push(Change::new(
             target,
-            &display(target, &ctx.workspace),
+            &display(target, ctx.workdir()),
             kind,
             &before,
             &after,
@@ -205,7 +205,7 @@ impl Plan {
         if self.steps.iter().any(|step| step.path == target) {
             return Err(ToolError(format!(
                 "moves onto {}, which the patch also changes",
-                display(target, &ctx.workspace)
+                display(target, ctx.workdir())
             )));
         }
         let displaced = existing(ctx, target, true).await?;
@@ -231,7 +231,7 @@ impl Plan {
             Some(Err(_)) => {
                 return Err(ToolError(format!(
                     "{} already exists and is not UTF-8 text, so Add File would overwrite it",
-                    display(path, &ctx.workspace)
+                    display(path, ctx.workdir())
                 )));
             }
             Some(Ok(text)) => text.to_owned(),
@@ -242,7 +242,7 @@ impl Plan {
 
         self.changes.push(Change::new(
             path,
-            &display(path, &ctx.workspace),
+            &display(path, ctx.workdir()),
             kind,
             &format.normalise(&before_text),
             &format.normalise(content),
@@ -264,7 +264,7 @@ impl Plan {
 
         self.changes.push(Change::new(
             path,
-            &display(path, &ctx.workspace),
+            &display(path, ctx.workdir()),
             "delete",
             &String::from_utf8_lossy(&before),
             "",

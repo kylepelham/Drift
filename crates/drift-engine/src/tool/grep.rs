@@ -1,21 +1,27 @@
-use std::fmt::Write;
 use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use grep::regex::RegexMatcherBuilder;
-use grep::searcher::sinks::UTF8;
-use grep::searcher::{BinaryDetection, SearcherBuilder};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 use super::ToolMetadata;
-use super::sensitive::is_sensitive;
 use super::{Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
-const MAX_MATCHES: usize = 200;
-/// Past this many matches the search stops: a broad pattern in a large tree returns at once.
-const MAX_COUNTED: usize = 2000;
+mod search;
+
+use search::{FileHits, Search, Tally};
+
+/// Entries shown when the call does not say.
+const DEFAULT_LIMIT: usize = 250;
+/// Entries a search collects at most, however many it is asked to show.
+const MAX_COLLECTED: usize = 20_000;
 const MAX_LINE_CHARS: usize = 300;
+/// How long a search walks before it answers with what it has.
+const BUDGET: Duration = Duration::from_secs(20);
+/// Files larger than this are skipped unless the search names one.
+const LARGE_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 pub struct Grep;
 
@@ -28,15 +34,7 @@ impl Tool for Grep {
         ToolSpec {
             name: "grep".into(),
             description: include_str!("prompts/grep.txt").trim().into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "Regular expression (Rust/ripgrep syntax) to search for." },
-                    "path": { "type": "string", "description": "Directory or file to search. Default: the workspace." },
-                    "include": { "type": "string", "description": "Only search files matching this glob, such as `*.rs` or `src/**/*.ts`." }
-                },
-                "required": ["pattern"]
-            }),
+            input_schema: schema(),
         }
     }
 
@@ -62,45 +60,117 @@ impl Tool for Grep {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let pattern = required_str(&input, "pattern")?.to_string();
-            let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
-            let include = input["include"].as_str().map(str::to_string);
-            let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
+            let request = Request {
+                pattern: required_str(&input, "pattern")?.to_string(),
+                options: Options::from(&input)?,
+                root: ctx.resolve(input["path"].as_str().unwrap_or(".")),
+                include: input["include"].as_str().map(str::to_string),
+            };
+            let (base, stop) = (ctx.workdir().to_path_buf(), ctx.abort.clone());
             let allowed = read_filter(ctx);
 
-            let found = tokio::task::spawn_blocking(move || {
-                search(Search {
-                    root: &root,
-                    pattern: &pattern,
-                    include: include.as_deref(),
-                    workspace: &workspace,
-                    stop: &stop,
-                    allowed: &allowed,
-                })
+            let (found, request) = tokio::task::spawn_blocking(move || {
+                let allowed = allowed
+                    .as_ref()
+                    .map(|allowed| allowed as &(dyn Fn(&Path) -> bool + Sync));
+                searched(&request, &stop, allowed).map(|found| (found, request))
             })
             .await
             .map_err(|error| ToolError(error.to_string()))??;
 
-            let metadata = ToolMetadata {
-                count: Some(found.lines.len()),
-                total: Some(found.total.min(MAX_COUNTED)),
-                capped: Some(found.total > MAX_COUNTED),
-                truncated: Some(found.total > found.lines.len()),
-                withheld: Some(found.withheld),
-                restricted: Some(found.restricted),
-                ..Default::default()
-            };
-            Ok(Output {
-                title: input["pattern"].as_str().unwrap_or_default().into(),
-                output: found.report(),
-                metadata,
-            })
+            Ok(found.output(&request.options, &base, &request.pattern))
         })
     }
 }
 
-/// Whether a file under the search may be read without asking, by the session's rules and approvals.
-fn read_filter(ctx: &Context) -> impl Fn(&Path) -> bool + Send + Sync + 'static {
+fn schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string", "description": "Regular expression (Rust/ripgrep syntax) to search for." },
+            "path": { "type": "string", "description": "File or directory to search. Default: the working directory." },
+            "include": { "type": "string", "description": "Only search files matching this glob, such as `*.rs` or `src/**/*.ts`." },
+            "type": { "type": "string", "description": "Only search this file type, as ripgrep names them (rg --type): rust, js, ts, py, go, java, and so on." },
+            "output_mode": { "type": "string", "enum": ["content", "files_with_matches", "count"], "description": "`content` shows matching lines (default), `files_with_matches` the files that match, `count` how many lines match in each file." },
+            "-A": { "type": "integer", "description": "Lines to show after each match (rg -A). Content mode only." },
+            "-B": { "type": "integer", "description": "Lines to show before each match (rg -B). Content mode only." },
+            "-C": { "type": "integer", "description": "Alias for context." },
+            "context": { "type": "integer", "description": "Lines to show before and after each match (rg -C). Content mode only." },
+            "-n": { "type": "boolean", "description": "Show line numbers (rg -n). Content mode only. Default true." },
+            "-i": { "type": "boolean", "description": "Case insensitive search (rg -i)." },
+            "multiline": { "type": "boolean", "description": "`.` matches newlines and a pattern may span lines (rg -U --multiline-dotall). Default false." },
+            "head_limit": { "type": "integer", "description": "Show at most this many lines or entries, like `| head -N`. Default 250; 0 shows all (use sparingly)." },
+            "offset": { "type": "integer", "description": "Skip this many lines or entries first, like `| tail -n +N`. Default 0." },
+            "include_ignored": { "type": "boolean", "description": "Also search what .gitignore and the built-in skip list leave out (node_modules, target, dist, build and the like). Default false." }
+        },
+        "required": ["pattern"]
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Content,
+    Files,
+    Count,
+}
+
+/// A call's options, as Claude Code's `Grep` names them.
+struct Options {
+    mode: Mode,
+    before: usize,
+    after: usize,
+    line_numbers: bool,
+    ignore_case: bool,
+    multiline: bool,
+    file_type: Option<String>,
+    /// Entries to show; none shows all.
+    limit: Option<usize>,
+    offset: usize,
+    include_ignored: bool,
+}
+
+impl Options {
+    fn from(input: &Value) -> Result<Self, ToolError> {
+        let mode = match input["output_mode"].as_str().unwrap_or("content") {
+            "content" => Mode::Content,
+            "files_with_matches" => Mode::Files,
+            "count" => Mode::Count,
+            other => return Err(ToolError(format!("unknown output_mode `{other}`"))),
+        };
+        let number = |key: &str| input[key].as_u64().map(|value| value as usize);
+        let context = number("-C").or_else(|| number("context")).unwrap_or(0);
+        let limit = number("head_limit").unwrap_or(DEFAULT_LIMIT);
+        let flag = |key: &str, default: bool| input[key].as_bool().unwrap_or(default);
+
+        Ok(Self {
+            mode,
+            before: number("-B").unwrap_or(context),
+            after: number("-A").unwrap_or(context),
+            line_numbers: flag("-n", true),
+            ignore_case: flag("-i", false),
+            multiline: flag("multiline", false),
+            file_type: input["type"]
+                .as_str()
+                .filter(|kind| !kind.is_empty())
+                .map(str::to_string),
+            limit: (limit > 0).then_some(limit),
+            offset: number("offset").unwrap_or(0),
+            include_ignored: flag("include_ignored", false),
+        })
+    }
+
+    /// Entries worth collecting before stopping early: one past the page shows more exist. A count needs every file,
+    /// and a later page needs the whole search in order.
+    fn enough(&self) -> Option<usize> {
+        let page = self.limit.filter(|_| self.mode != Mode::Count && self.offset == 0)?;
+
+        Some(page + 1)
+    }
+}
+
+/// Whether a file under the search may be read without asking, by the session's rules and approvals; none when no
+/// rule could refuse a read, so the search checks nothing per file.
+fn read_filter(ctx: &Context) -> Option<impl Fn(&Path) -> bool + Send + Sync + 'static> {
     let (engine, session, policy, read_root) = (
         ctx.engine.clone(),
         ctx.session_id.clone(),
@@ -109,8 +179,11 @@ fn read_filter(ctx: &Context) -> impl Fn(&Path) -> bool + Send + Sync + 'static 
     );
     let agent_policy = ctx.config.agent_policy(&ctx.agent);
     let rules = engine.permissions.compiled(&policy, &agent_policy);
+    if !rules.restricts("read") {
+        return None;
+    }
 
-    move |path: &Path| {
+    Some(move |path: &Path| {
         super::read_ask(&read_root, path, "Search").is_none_or(|ask| {
             engine.permissions.covered_by_approval(
                 &session,
@@ -122,108 +195,26 @@ fn read_filter(ctx: &Context) -> impl Fn(&Path) -> bool + Send + Sync + 'static 
                 &ask,
             )
         })
-    }
+    })
 }
 
-struct Found {
-    lines: Vec<String>,
-    /// Every match, listed or not; past [`MAX_COUNTED`] the search stopped.
-    total: usize,
-    /// Files skipped because they may hold secrets.
-    withheld: usize,
-    restricted: usize,
-    /// Files or folders the search could not read, so their matches are missing.
-    unreadable: usize,
+/// What a call asks for.
+struct Request {
+    pattern: String,
+    options: Options,
+    root: std::path::PathBuf,
+    include: Option<String>,
 }
 
-impl Found {
-    /// The listed matches, then a note for each limit or skip that hid any.
-    fn report(&self) -> String {
-        let mut output = if self.lines.is_empty() {
-            "No matches".to_string()
-        } else {
-            self.lines.join("\n")
-        };
-
-        if self.total > MAX_COUNTED {
-            write!(output, "\n(more than {MAX_COUNTED} matches, so the search stopped; these {MAX_MATCHES} are sorted from the files it reached and earlier files may be missing. Narrow the pattern, `path` or `include`)").expect("writing to a String cannot fail");
-        } else if self.total > self.lines.len() {
-            write!(output, "\n({} matches; these are the first {MAX_MATCHES} by file and line. Narrow the pattern, `path` or `include` to see the rest)", self.total).expect("writing to a String cannot fail");
-        }
-        if self.withheld > 0 {
-            write!(
-                output,
-                "\n({} files that may hold secrets were not searched; read one directly and the user is asked)",
-                self.withheld
-            )
-            .expect("writing to a String cannot fail");
-        }
-        if self.restricted > 0 {
-            write!(
-                output,
-                "\n({} files were excluded by read policy or need read approval; use read on an allowed file)",
-                self.restricted
-            )
-            .expect("writing to a String cannot fail");
-        }
-        if self.unreadable > 0 {
-            write!(
-                output,
-                "
-({} files or folders could not be read, so any matches in them are missing)",
-                self.unreadable
-            )
-            .expect("writing to a String cannot fail");
-        }
-
-        output
-    }
-}
-
-/// One matching line: the file as shown, its line number, and the line.
-type Hit = (String, u64, String);
-
-struct Search<'a> {
-    root: &'a Path,
-    pattern: &'a str,
-    include: Option<&'a str>,
-    workspace: &'a Path,
-    stop: &'a CancellationToken,
-    allowed: &'a (dyn Fn(&Path) -> bool + Sync),
-}
-
-/// The first [`MAX_MATCHES`] hits by file then line, whatever order the threads find them in.
-#[derive(Default)]
-struct First(std::sync::Mutex<Vec<Hit>>);
-
-impl First {
-    fn add(&self, found: Vec<Hit>) {
-        let mut hits = self.0.lock().unwrap();
-        hits.extend(found);
-        if hits.len() > 2 * MAX_MATCHES {
-            hits.sort();
-            hits.truncate(MAX_MATCHES);
-        }
-    }
-
-    fn into_sorted(self) -> Vec<Hit> {
-        let mut hits = self.0.into_inner().unwrap();
-        hits.sort();
-        hits.truncate(MAX_MATCHES);
-        hits
-    }
-}
-
-/// The search's regex and its include glob, read relative to the folder searched.
-fn compile(
-    root: &Path,
-    pattern: &str,
-    include: Option<&str>,
-) -> Result<(grep::regex::RegexMatcher, Option<FileGlob>), ToolError> {
-    let matcher = RegexMatcherBuilder::new()
-        .line_terminator(Some(b'\n'))
-        .build(pattern)
-        .map_err(|error| ToolError(format!("invalid regex: {error}")))?;
+/// Searches under the request's root within [`BUDGET`]; a Stop fails it.
+fn searched(
+    request: &Request,
+    stop: &tokio_util::sync::CancellationToken,
+    allowed: Option<&(dyn Fn(&Path) -> bool + Sync)>,
+) -> Result<Found, ToolError> {
+    let (root, options) = (request.root.as_path(), &request.options);
+    let matcher = matcher(&request.pattern, options)?;
+    let include = request.include.as_deref();
     let base = if root.is_file() {
         root.parent().unwrap_or(root)
     } else {
@@ -233,93 +224,221 @@ fn compile(
         .map(|glob| FileGlob::new(base, glob))
         .transpose()
         .map_err(|error| ToolError(format!("invalid include glob: {error}")))?;
-    Ok((matcher, include))
-}
+    let skipped = Arc::new(super::Skipped::default());
+    let mut walk = super::search_walker(root, options.include_ignored, &skipped);
+    if let Some(kind) = &options.file_type {
+        walk.types(file_type(kind)?);
+    }
 
-/// Searches files on several threads, as ripgrep does, and lists the first matches by file then
-/// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
-/// their search at the first NUL; files that may hold secrets are skipped unless the search names
-/// one directly, which has already asked. A Stop ends the walk and every file search in it.
-fn search(search: Search<'_>) -> Result<Found, ToolError> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let (root, pattern, include) = (search.root, search.pattern, search.include);
-    let (workspace, stop, allowed) = (search.workspace, search.stop, search.allowed);
-
-    let (matcher, include) = compile(root, pattern, include)?;
-
-    let first = First::default();
-    let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
-    let (restricted, unreadable) = (AtomicUsize::new(0), AtomicUsize::new(0));
-    super::walker(root).build_parallel().run(|| {
-        let mut searcher = SearcherBuilder::new()
-            .line_number(true)
-            .binary_detection(BinaryDetection::quit(0))
-            .build();
-        let (matcher, include, first, total) = (&matcher, &include, &first, &total);
-        let (withheld, restricted, unreadable) = (&withheld, &restricted, &unreadable);
-        Box::new(move |entry| {
-            use ignore::WalkState;
-
-            // Skip what is not a file, outside the include glob, secret or not readable here.
-            if stop.is_cancelled() || total.load(Ordering::Relaxed) > MAX_COUNTED {
-                return WalkState::Quit;
-            }
-            let Ok(entry) = entry else {
-                unreadable.fetch_add(1, Ordering::Relaxed);
-                return WalkState::Continue;
-            };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                return WalkState::Continue;
-            }
-            if include.as_ref().is_some_and(|glob| !glob.matches(entry.path())) {
-                return WalkState::Continue;
-            }
-            if entry.path() != root && is_sensitive(entry.path()) {
-                withheld.fetch_add(1, Ordering::Relaxed);
-                return WalkState::Continue;
-            }
-            if entry.path() != root && !allowed(entry.path()) {
-                restricted.fetch_add(1, Ordering::Relaxed);
-                return WalkState::Continue;
-            }
-
-            let name = display(entry.path(), workspace);
-            let mut found = Vec::new();
-            let searched = searcher.search_path(
-                matcher,
-                entry.path(),
-                UTF8(|line_number, line| {
-                    let counted = total.fetch_add(1, Ordering::Relaxed) + 1;
-                    // Later lines of this file sort after these, so past the limit only the count matters.
-                    if found.len() < MAX_MATCHES {
-                        found.push((name.clone(), line_number, clip(line.trim_end())));
-                    }
-                    Ok(counted <= MAX_COUNTED && !stop.is_cancelled())
-                }),
-            );
-            if searched.is_err() {
-                unreadable.fetch_add(1, Ordering::Relaxed);
-            }
-            first.add(found);
-            WalkState::Continue
-        })
-    });
+    let tally = Tally::default();
+    let search = Search {
+        root,
+        matcher: &matcher,
+        include: include.as_ref(),
+        options,
+        stop,
+        allowed,
+        deadline: Instant::now() + BUDGET,
+        enough: Some(options.enough().unwrap_or(MAX_COLLECTED).min(MAX_COLLECTED)),
+    };
+    search.run(&walk, &tally);
     if stop.is_cancelled() {
         return Err(ToolError("stopped".into()));
     }
 
-    let lines = first
-        .into_sorted()
-        .into_iter()
-        .map(|(name, line, text)| format!("{name}:{line}: {text}"))
-        .collect();
-    Ok(Found {
-        lines,
-        total: total.into_inner(),
-        withheld: withheld.into_inner(),
-        restricted: restricted.into_inner(),
-        unreadable: unreadable.into_inner(),
-    })
+    Ok(Found::from(tally, skipped.names()))
+}
+
+fn matcher(pattern: &str, options: &Options) -> Result<grep::regex::RegexMatcher, ToolError> {
+    let mut builder = RegexMatcherBuilder::new();
+    builder.case_insensitive(options.ignore_case);
+    if options.multiline {
+        builder.multi_line(true).dot_matches_new_line(true);
+    } else {
+        builder.line_terminator(Some(b'\n'));
+    }
+
+    builder
+        .build(pattern)
+        .map_err(|error| ToolError(format!("invalid regex: {error}")))
+}
+
+fn file_type(kind: &str) -> Result<ignore::types::Types, ToolError> {
+    let mut types = ignore::types::TypesBuilder::new();
+    types.add_defaults();
+    types.select(kind);
+
+    types
+        .build()
+        .ok()
+        .filter(|types| types.definitions().iter().any(|known| known.name() == kind))
+        .ok_or_else(|| {
+            ToolError(format!(
+                "unknown file type `{kind}`; use ripgrep's names, such as rust, js, ts, py"
+            ))
+        })
+}
+
+/// What the search collected, sorted by path, and everything it left out.
+struct Found {
+    files: Vec<FileHits>,
+    withheld: usize,
+    restricted: usize,
+    unreadable: usize,
+    large: usize,
+    out_of_time: bool,
+    /// It stopped once it had enough to show (or hit [`MAX_COLLECTED`]), so more may exist.
+    stopped_early: bool,
+    skipped: Vec<String>,
+}
+
+impl Found {
+    fn from(tally: Tally, skipped: Vec<String>) -> Self {
+        let mut files = tally.hits.into_inner().unwrap();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        Self {
+            files,
+            withheld: tally.withheld.into_inner(),
+            restricted: tally.restricted.into_inner(),
+            unreadable: tally.unreadable.into_inner(),
+            large: tally.large.into_inner(),
+            out_of_time: tally.out_of_time.into_inner(),
+            stopped_early: tally.enough.into_inner(),
+            skipped,
+        }
+    }
+
+    /// Every entry in order, as text, each saying whether a `--` goes before it.
+    fn entries(&self, options: &Options, base: &Path) -> Vec<(bool, String)> {
+        let mut entries = Vec::new();
+        let grouped = options.mode == Mode::Content && options.before + options.after > 0;
+        for (index, file) in self.files.iter().enumerate() {
+            let name = display(&file.path, base);
+            match options.mode {
+                Mode::Files => entries.push((false, name)),
+                Mode::Count => entries.push((false, format!("{name}:{}", file.count))),
+                Mode::Content => {
+                    for (at, line) in file.lines.iter().enumerate() {
+                        let apart = grouped && ((at == 0 && index > 0) || line.gap);
+                        entries.push((apart, content_line(&name, line, options.line_numbers)));
+                    }
+                }
+            }
+        }
+
+        entries
+    }
+
+    fn output(&self, options: &Options, base: &Path, title: &str) -> Output {
+        let entries = self.entries(options, base);
+        let total = entries.len();
+        let page: Vec<&(bool, String)> = entries
+            .iter()
+            .skip(options.offset)
+            .take(options.limit.unwrap_or(usize::MAX))
+            .collect();
+        let more = total > options.offset + page.len();
+        let mut text = String::new();
+        for (index, (apart, line)) in page.iter().enumerate() {
+            if *apart && index > 0 {
+                text.push_str("--\n");
+            }
+            text.push_str(line);
+            text.push('\n');
+        }
+        let mut text = text.trim_end().to_string();
+        if text.is_empty() {
+            text = self.nothing(options.offset, total);
+        }
+        self.notes(&mut text, options, page.len(), total);
+
+        Output {
+            title: title.into(),
+            output: text,
+            metadata: ToolMetadata {
+                count: Some(page.len()),
+                total: Some(total),
+                truncated: Some(more || self.stopped_early),
+                capped: Some(self.stopped_early || self.out_of_time),
+                withheld: Some(self.withheld),
+                restricted: Some(self.restricted),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn nothing(&self, offset: usize, total: usize) -> String {
+        if offset > 0 && total > 0 {
+            return format!("Nothing past offset {offset}; there are {total} in all");
+        }
+
+        "No matches".into()
+    }
+
+    /// A note for each limit or skip that hid anything.
+    fn notes(&self, text: &mut String, options: &Options, shown: usize, total: usize) {
+        let mut note = |line: String| {
+            text.push_str("\n(");
+            text.push_str(&line);
+            text.push(')');
+        };
+        if self.out_of_time {
+            note(format!(
+                "the search stopped after {} s, so results may be incomplete; narrow `path`",
+                BUDGET.as_secs()
+            ));
+        }
+        if self.stopped_early {
+            note("more matches exist; the search stopped once it had enough to show, so these are the first it found, not the first by path. Narrow the pattern, `path`, `include` or `type`".into());
+        } else if total > options.offset + shown {
+            let next = options.offset + shown;
+            note(format!(
+                "{} to {next} of {total}; pass `offset: {next}` for more, or narrow the search",
+                options.offset + 1
+            ));
+        }
+        self.skip_notes(note);
+    }
+
+    fn skip_notes(&self, mut note: impl FnMut(String)) {
+        if !self.skipped.is_empty() {
+            note(format!(
+                "not searched: {}; name one in `path`, or pass `include_ignored: true`",
+                self.skipped.join(", ")
+            ));
+        }
+        let counted = [
+            (
+                self.large,
+                "files over 10 MB were not searched; name one in `path` to search it",
+            ),
+            (
+                self.withheld,
+                "files that may hold secrets were not searched; read one directly and the user is asked",
+            ),
+            (
+                self.restricted,
+                "files were excluded by read policy or need read approval; use read on an allowed file",
+            ),
+            (
+                self.unreadable,
+                "files or folders could not be read, so any matches in them are missing",
+            ),
+        ];
+        for (count, why) in counted.into_iter().filter(|(count, _)| *count > 0) {
+            note(format!("{count} {why}"));
+        }
+    }
+}
+
+fn content_line(name: &str, line: &search::Line, numbers: bool) -> String {
+    let mark = if line.matched { ':' } else { '-' };
+    if numbers {
+        format!("{name}{mark}{}{mark} {}", line.number, line.text)
+    } else {
+        format!("{name}{mark} {}", line.text)
+    }
 }
 
 fn clip(line: &str) -> String {

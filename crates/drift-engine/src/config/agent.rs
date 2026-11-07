@@ -32,12 +32,38 @@ pub struct Agent {
     pub permissions: Vec<Rule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
+    /// Front matter `cacheTtl: 5m|1h`: how long its runs as a subagent keep their prompt cache, over Settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<CacheTtl>,
     /// Why this agent cannot run (a broken file or override); only its own turns, tasks and actions are refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
     /// Front matter `hidden: true`: left out of the composer's list; `task` can still run it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+}
+
+/// How long a subagent's prompt cache lives: auto is five minutes until it expires mid-run, then an hour.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum CacheTtl {
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "5m")]
+    Short,
+    #[serde(rename = "1h")]
+    Hour,
+}
+
+impl CacheTtl {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim() {
+            "auto" => Some(Self::Auto),
+            "5m" => Some(Self::Short),
+            "1h" => Some(Self::Hour),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]

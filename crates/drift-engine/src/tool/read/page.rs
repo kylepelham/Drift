@@ -42,6 +42,24 @@ impl Page {
     }
 }
 
+/// How many lines the file has, read a buffer at a time; a Stop ends the count.
+pub(super) fn count_lines(path: &Path, stop: &CancellationToken) -> std::io::Result<usize> {
+    let mut reader = std::io::BufReader::with_capacity(1 << 16, std::fs::File::open(path)?);
+    let (mut lines, mut last) = (0, b'\n');
+    while !stop.is_cancelled() {
+        let chunk = reader.fill_buf()?;
+        let Some(&end) = chunk.last() else {
+            break;
+        };
+        lines += chunk.iter().filter(|byte| **byte == b'\n').count();
+        last = end;
+        let read = chunk.len();
+        reader.consume(read);
+    }
+
+    Ok(lines + usize::from(last != b'\n'))
+}
+
 /// Lines `offset..` of `path`, numbered as [`page`] does, read a buffer at a time: no line is held past [`LINE_BYTES`], and a Stop is seen between buffers.
 pub(super) fn large_page(
     path: &Path,

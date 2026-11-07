@@ -97,6 +97,12 @@ export const dict = {
     "prompt.action.attachFile": "Додати файли",
     "prompt.action.send": "Надіслати",
     "prompt.action.stop": "Зупинити",
+    "drift.stop.work": "Зупинити {{work}}",
+    "drift.stop.both": "{{workers}}, {{commands}}",
+    "drift.stop.workers.one": "субагентів: {{count}}",
+    "drift.stop.workers.other": "субагентів: {{count}}",
+    "drift.stop.commands.one": "команд: {{count}}",
+    "drift.stop.commands.other": "команд: {{count}}",
     "prompt.attachment.remove": "Видалити вкладення",
     "prompt.mode.shell": "Команда",
     "prompt.placeholder.simple": "Запитайте що завгодно...",
@@ -531,6 +537,12 @@ export const drift = {
     "drift.settings.promptCache.prompt.description":
         "Про що просить кожен підтримувальний запит. Відповідь відкидається.",
     "drift.settings.promptCache.prompt.placeholder": "Нічого не роби, не використовуй інструменти, відповідай OK",
+    "drift.settings.promptCache.subagent.title": "Кеш субагентів",
+    "drift.settings.promptCache.subagent.description":
+        "Скільки живе кеш субагента. Авто починає з 5 хвилин і переходить на 1 годину, якщо запуск триває довше.",
+    "drift.settings.promptCache.subagent.auto": "Авто",
+    "drift.settings.promptCache.subagent.short": "5 хв",
+    "drift.settings.promptCache.subagent.hour": "1 година",
     "drift.settings.toolSearch.group": "Завантаження інструментів",
     "drift.settings.toolSearch.title": "Завантажувати інструменти великих серверів MCP за запитом",
     "drift.settings.toolSearch.description":

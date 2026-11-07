@@ -71,7 +71,7 @@ async fn skips_secrets_git_internals_and_binaries() {
 }
 
 #[tokio::test]
-async fn many_files_searched_together_list_in_order_and_stop_past_the_limit() {
+async fn many_files_list_in_order_and_page_with_offset() {
     let sandbox = Sandbox::new("grep-many");
     for i in 0..60 {
         sandbox.file(&format!("f{i:02}.txt"), "hit\nmiss\nhit\n");
@@ -87,48 +87,130 @@ async fn many_files_searched_together_list_in_order_and_stop_past_the_limit() {
         "by file then line: {lines:?}"
     );
     let all = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
+    assert_eq!((all.metadata.count, all.metadata.truncated), (Some(120), Some(false)));
+
+    let page = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": "hit", "head_limit": 10, "offset": 10 }),
+        )
+        .await
+        .unwrap();
+    let lines: Vec<&str> = page.output.lines().collect();
     assert_eq!(
-        (all.metadata.count, all.metadata.truncated),
-        (Some(120), Some(false)),
-        "120 matches fit"
-    );
-    for i in 60..110 {
-        sandbox.file(&format!("g{i}.txt"), "hit\nhit\n");
-    }
-    let past = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
-    assert_eq!(
-        (past.metadata.count, past.metadata.total, past.metadata.truncated),
-        (Some(MAX_MATCHES), Some(220), Some(true))
-    );
-    let lines: Vec<&str> = past.output.lines().collect();
-    assert_eq!(
-        (lines[0], lines[MAX_MATCHES - 1]),
-        ("f00.txt:1: hit", "g89.txt:2: hit"),
-        "the first by file and line, not the first found"
+        (lines[0], lines[9]),
+        ("f05.txt:1: hit", "f09.txt:3: hit"),
+        "{}",
+        page.output
     );
     assert!(
-        past.output
-            .contains("220 matches; these are the first 200 by file and line"),
+        page.output.contains("11 to 20 of 120; pass `offset: 20`"),
         "{}",
-        past.output
+        page.output
     );
 }
 
 #[tokio::test]
-async fn a_broad_search_stops_past_the_count_cap() {
-    let sandbox = Sandbox::new("grep-cap");
+async fn a_broad_search_stops_once_it_has_enough_to_show() {
+    let sandbox = Sandbox::new("grep-enough");
     for i in 0..30 {
         sandbox.file(&format!("f{i:02}.txt"), &"hit\n".repeat(100));
     }
     let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
     assert_eq!(
-        (out.metadata.capped, out.metadata.total, out.metadata.count),
-        (Some(true), Some(MAX_COUNTED), Some(MAX_MATCHES))
+        (out.metadata.count, out.metadata.capped, out.metadata.truncated),
+        (Some(DEFAULT_LIMIT), Some(true), Some(true))
     );
+    assert!(out.metadata.total.unwrap() < 3000, "it did not search everything");
+    assert!(out.output.contains("more matches exist"), "{}", out.output);
+
+    let counted = Grep
+        .run(&sandbox.ctx, json!({ "pattern": "hit", "output_mode": "count" }))
+        .await
+        .unwrap();
+    assert_eq!(counted.metadata.count, Some(30), "a count searches every file");
+    assert!(counted.output.starts_with("f00.txt:100\n"), "{}", counted.output);
+}
+
+#[tokio::test]
+async fn takes_claude_codes_options() {
+    let sandbox = Sandbox::new("grep-options");
+    sandbox.file("src/a.rs", "one\nTwo\nthree\nfour\nfive\n");
+    sandbox.file("src/b.rs", "nothing\n");
+    sandbox.file("notes.md", "two\n");
+    let run = |input: serde_json::Value| {
+        let ctx = &sandbox.ctx;
+        async move { Grep.run(ctx, input).await.unwrap().output }
+    };
+
+    assert_eq!(
+        run(json!({ "pattern": "two", "-i": true, "output_mode": "files_with_matches" })).await,
+        "notes.md\nsrc/a.rs"
+    );
+    assert_eq!(
+        run(json!({ "pattern": "Two", "-C": 1 })).await,
+        "src/a.rs-1- one\nsrc/a.rs:2: Two\nsrc/a.rs-3- three"
+    );
+    assert_eq!(
+        run(json!({ "pattern": "Two", "-A": 1, "-n": false })).await,
+        "src/a.rs: Two\nsrc/a.rs- three"
+    );
+    assert_eq!(
+        run(json!({ "pattern": "one.two", "multiline": true, "-i": true })).await,
+        "src/a.rs:1: one\nsrc/a.rs:2: Two"
+    );
+    assert_eq!(
+        run(json!({ "pattern": "two", "-i": true, "type": "rust" })).await,
+        "src/a.rs:2: Two"
+    );
+    let unknown = Grep
+        .run(&sandbox.ctx, json!({ "pattern": "x", "type": "klingon" }))
+        .await
+        .unwrap_err();
+    assert!(unknown.0.contains("unknown file type"), "{}", unknown.0);
+}
+
+#[tokio::test]
+async fn heavy_folders_and_large_files_are_skipped_unless_named_or_asked_for() {
+    let sandbox = Sandbox::new("grep-heavy");
+    sandbox.file("src/a.rs", "needle\n");
+    sandbox.file("node_modules/lib/index.js", "needle\n");
+    sandbox.file("ignored/b.rs", "needle\n");
+    sandbox.file(".gitignore", "ignored/\n");
+    let big = format!("needle\n{}", "x".repeat(LARGE_FILE_BYTES as usize));
+    sandbox.file("big.log", &big);
+
+    let out = Grep.run(&sandbox.ctx, json!({ "pattern": "needle" })).await.unwrap();
+    assert!(out.output.starts_with("src/a.rs:1: needle\n("), "{}", out.output);
+    assert!(out.output.contains("not searched: node_modules"), "{}", out.output);
     assert!(
-        out.output.contains("more than 2000 matches, so the search stopped"),
+        out.output.contains("1 files over 10 MB were not searched"),
         "{}",
         out.output
+    );
+
+    let named = Grep
+        .run(&sandbox.ctx, json!({ "pattern": "needle", "path": "node_modules" }))
+        .await
+        .unwrap();
+    assert_eq!(named.output, "node_modules/lib/index.js:1: needle");
+    let big = Grep
+        .run(&sandbox.ctx, json!({ "pattern": "needle", "path": "big.log" }))
+        .await
+        .unwrap();
+    assert_eq!(big.output, "big.log:1: needle", "a large file named is searched");
+
+    let everything = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": "needle", "include_ignored": true, "output_mode": "files_with_matches" }),
+        )
+        .await
+        .unwrap();
+    assert!(
+        everything.output.contains("ignored/b.rs") && everything.output.contains("node_modules/lib/index.js"),
+        "{}",
+        everything.output
     );
 }
 

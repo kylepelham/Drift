@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -23,8 +22,6 @@ pub const BACKGROUND_TASKS_KEY: &str = "backgroundTasks";
 pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
-/// The longest `task_output` may wait for a worker to finish; one long wait beats many short polls.
-pub const MAX_WAIT: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

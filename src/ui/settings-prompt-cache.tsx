@@ -1,12 +1,19 @@
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { createSignal, onMount, Show } from "solid-js";
+import { Segmented, Toggle } from "./controls";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 
 import type { components } from "../engine/native/types";
 
 type PromptCache = components["schemas"]["PromptCache"];
+type CacheTtl = components["schemas"]["CacheTtl"];
+
+const lifetimes = [
+    { id: "auto", key: "drift.settings.promptCache.subagent.auto" },
+    { id: "5m", key: "drift.settings.promptCache.subagent.short" },
+    { id: "1h", key: "drift.settings.promptCache.subagent.hour" },
+] as const satisfies readonly { id: CacheTtl; key: string }[];
 
 const input =
     "rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:border-edge-strong";
@@ -96,6 +103,17 @@ export function PromptCacheGroup() {
                             />
                         </SettingsRow>
                     </Show>
+                    <SettingsRow
+                        title={t("drift.settings.promptCache.subagent.title")}
+                        description={t("drift.settings.promptCache.subagent.description")}
+                    >
+                        <Segmented
+                            label={t("drift.settings.promptCache.subagent.title")}
+                            options={lifetimes.map((lifetime) => ({ id: lifetime.id, label: t(lifetime.key) }))}
+                            value={current().subagent ?? "auto"}
+                            onChange={(subagent) => void change({ subagent })}
+                        />
+                    </SettingsRow>
                     <Show when={error()}>
                         <div class="text-xs text-danger">{error()}</div>
                     </Show>

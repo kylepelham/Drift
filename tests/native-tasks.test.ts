@@ -1,8 +1,16 @@
-import { createEngineState, mergeTasks, putTasks, taskForWorker, taskTiming } from "../src/engine/store";
 import { createActions } from "../src/engine/actions";
 import { expect, test } from "bun:test";
+import {
+    backgroundWork,
+    createEngineState,
+    mergeTasks,
+    putTasks,
+    taskForWorker,
+    taskTiming,
+} from "../src/engine/store";
 
 import type { Client, TaskRecord } from "../src/engine/native/client";
+import type { ProcessRecord } from "../src/engine/processes";
 import type { ToolPart } from "../src/engine/parts";
 
 if (!("localStorage" in globalThis))
@@ -221,6 +229,24 @@ test("the dock lists background workers while any is going or owed, and never fo
     expect(dockTasks([done, task("c", { state: "stopped", delivered: true })])).toEqual([]);
     // A result held back by Stop stays listed until a prompt carries it.
     expect(dockTasks([done, task("c", { state: "replied", held: true })]).map((t) => t.id)).toEqual(["c", "a"]);
+});
+
+test("Stop counts the background workers and commands that run on after the turn", () => {
+    const [state, set] = createEngineState();
+    expect(backgroundWork(state, "parent")).toEqual({ workers: 0, commands: 0 });
+
+    set("tasks", "parent", [
+        task("a"),
+        task("b", { state: "queued" }),
+        task("c", { mode: "foreground" }),
+        task("d", { state: "replied" }),
+    ]);
+    const process = { id: "p", sessionId: "parent", command: "x", startedAt: 1 };
+    set("processes", "parent", [
+        { ...process, state: "running" },
+        { ...process, id: "q", state: "exited" },
+    ] as ProcessRecord[]);
+    expect(backgroundWork(state, "parent")).toEqual({ workers: 2, commands: 1 });
 });
 
 test("a crowded dock puts live workers and owed results before newest-first finished history", async () => {

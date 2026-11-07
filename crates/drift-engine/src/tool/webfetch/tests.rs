@@ -312,3 +312,25 @@ async fn a_fetch_nobody_was_asked_about_never_connects_to_this_machine() {
         Ok(Fetched::Thin(_))
     ));
 }
+
+#[test]
+fn a_long_page_is_read_in_parts_from_an_offset() {
+    let text = "ab".repeat(super::super::spool::SHORT_RESULT_BYTES);
+    let first = from_offset(Output::new("page", text.clone()), 0).unwrap();
+    let next = first
+        .output
+        .rsplit("`offset: ")
+        .next()
+        .unwrap()
+        .trim_end_matches(" for the rest)");
+    let next: usize = next.trim_end_matches('`').parse().unwrap();
+    assert!(
+        first.output.starts_with("abab") && next > 0,
+        "{}",
+        &first.output[first.output.len() - 120..]
+    );
+
+    let rest = from_offset(Output::new("page", text.clone()), next).unwrap();
+    assert!(rest.output.starts_with(&text[next..next + 10]));
+    assert!(from_offset(Output::new("page", text.clone()), text.len()).is_err());
+}

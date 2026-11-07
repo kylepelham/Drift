@@ -230,10 +230,36 @@ pub(super) async fn submit(
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }
 
-#[utoipa::path(post, path = "/sessions/{id}/abort", operation_id = "abortTurn", responses((status = 200, body = Aborted)))]
-pub(super) async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Json<Aborted> {
+#[derive(Deserialize, IntoParams)]
+pub(super) struct AbortQuery {
+    /// `turn` stops only the turn, so background workers run on and their results still wake it; by default the
+    /// turn, its workers and its background commands all stop.
+    #[serde(default)]
+    #[param(inline)]
+    pub only: Option<AbortOnly>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum AbortOnly {
+    Turn,
+}
+
+#[utoipa::path(post, path = "/sessions/{id}/abort", operation_id = "abortTurn", params(AbortQuery), responses((status = 200, body = Aborted)))]
+pub(super) async fn abort(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Query(query): Query<AbortQuery>,
+) -> Json<Aborted> {
+    if query.only.is_some() {
+        return Json(Aborted {
+            aborted: engine.stop_turn(&id),
+        });
+    }
+    let commands = engine.processes.stop_session(&id);
+
     Json(Aborted {
-        aborted: engine.abort(&id),
+        aborted: engine.abort(&id) || commands,
     })
 }
 

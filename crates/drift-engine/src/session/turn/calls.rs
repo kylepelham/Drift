@@ -207,6 +207,7 @@ impl Engine {
             .and_then(crate::config::parse_model);
         let context = Context {
             workspace: scope.plan.workspace.clone(),
+            workdir: scope.plan.workdir.clone(),
             session_id: scope.plan.session.id.clone(),
             agent: scope.plan.session.agent.clone(),
             message_id: scope.message.id.clone(),

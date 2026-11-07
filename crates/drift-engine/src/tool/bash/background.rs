@@ -38,7 +38,13 @@ pub(super) async fn start(context: &Context, started: Started, seen: Vec<u8>) ->
 }
 
 /// The command reached its limit: what it printed so far, and where it goes on.
-pub(super) async fn moved(context: &Context, started: Started, spooled: Spooled, limit: Option<Duration>) -> Output {
+pub(super) async fn moved(
+    context: &Context,
+    started: Started,
+    spooled: Spooled,
+    limit: Option<Duration>,
+    cut: Option<Duration>,
+) -> Output {
     let title = started.title.clone();
     let mut output = Output {
         title,
@@ -54,10 +60,13 @@ pub(super) async fn moved(context: &Context, started: Started, spooled: Spooled,
     };
 
     let seconds = limit.map_or(0, |limit| limit.as_secs());
+    let cut = cut.map_or_else(String::new, |asked| {
+        format!(" Its `timeout` of {} s was cut to the user's limit.", asked.as_secs())
+    });
     note(
         &mut output,
         &format!(
-            "It was still running after {seconds} s, so it moved to the background. {}",
+            "It was still running after {seconds} s, so it moved to the background.{cut} {}",
             running_note(context, &handle)
         ),
     );

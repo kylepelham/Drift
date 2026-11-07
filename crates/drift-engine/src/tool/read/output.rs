@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// A path that does not exist, with up to three names beside it that it may have meant.
 pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
-    let shown = display(path, &context.workspace);
+    let shown = display(path, context.workdir());
     let wanted = path
         .file_name()
         .map(|name| name.to_string_lossy().to_lowercase())
@@ -21,7 +21,7 @@ pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
             // Short names would produce irrelevant suggestions for almost every missing file.
             wanted.len() >= 3 && name.len() >= 3 && (name.contains(&wanted) || wanted.contains(&name))
         })
-        .map(|entry| display(&entry.path(), &context.workspace))
+        .map(|entry| display(&entry.path(), context.workdir()))
         .collect();
 
     close.sort();
@@ -39,7 +39,7 @@ pub(super) fn missing(context: &Context, path: &Path) -> ToolError {
 
 /// An image or PDF comes back for the model to look at, not as text.
 pub(super) fn attached(context: &Context, path: &Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
-    let name = display(path, &context.workspace);
+    let name = display(path, context.workdir());
     let (kind, limit) = if mime == image::PDF {
         ("a PDF", image::MAX_PDF_BYTES)
     } else {
@@ -67,16 +67,19 @@ pub(super) fn attached(context: &Context, path: &Path, mime: &str, bytes: &[u8])
     })
 }
 
+/// Folders whose instruction files are samples of the thing, not rules for working there.
+const SAMPLE_DIRS: [&str; 3] = ["templates", "fixtures", "examples"];
+
 /// Subdirectory instruction files not yet shown this session, within half a result; one that does
 /// not fit is named so the model can read it.
 pub(super) fn reminders(context: &Context, path: &Path) -> String {
     let mut output = String::new();
     for (file, text) in crate::config::nested_instructions(&context.workspace, path) {
-        if file == path || !context.files.first_showing(&file) {
+        if file == path || needs_no_showing(context, &file, &text) || !context.files.first_showing(&file, &text) {
             continue;
         }
 
-        let name = display(&file, &context.workspace);
+        let name = display(&file, context.workdir());
         let reminder =
             format!("\n\n<system-reminder>\nInstructions from {name}, for files under it:\n{text}\n</system-reminder>");
         if output.len() + reminder.len() <= REMINDER_BYTES {
@@ -95,6 +98,24 @@ pub(super) fn reminders(context: &Context, path: &Path) -> String {
     }
 
     output
+}
+
+/// A sample folder's file, or one the system prompt already holds by path or by text.
+fn needs_no_showing(context: &Context, file: &Path, text: &str) -> bool {
+    let dir = file.parent().unwrap_or(file);
+    let sample = dir.strip_prefix(&context.workspace).is_ok_and(|inner| {
+        inner
+            .iter()
+            .any(|part| SAMPLE_DIRS.iter().any(|sample| part == *sample))
+    });
+
+    sample
+        || context.workdir().starts_with(dir)
+        || context
+            .config
+            .instructions
+            .iter()
+            .any(|shown| shown.text.trim() == text.trim())
 }
 
 pub(super) async fn list_dir(context: &Context, path: &Path) -> Result<Output, ToolError> {
@@ -122,5 +143,5 @@ pub(super) async fn list_dir(context: &Context, path: &Path) -> Result<Output, T
         .expect("writing to a String cannot fail");
     }
 
-    Ok(Output::new(display(path, &context.workspace), output))
+    Ok(Output::new(display(path, context.workdir()), output))
 }

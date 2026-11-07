@@ -2,7 +2,9 @@
 //! The result names them as `references`; the Anthropic wire sends those as `tool_reference` blocks and the OpenAI
 //! wire as a `tool_search_output` of their definitions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
+use std::path::Path;
 
 use serde_json::{Value, json};
 
@@ -22,14 +24,41 @@ impl crate::Engine {
     }
 }
 
-/// The deferred tools a turn offers, with the server each comes from.
+/// The deferred tools a turn offers, with the server each comes from, and the instructions of servers
+/// none of whose tools are sent up front.
 pub struct ToolSearch {
     tools: Vec<(ToolSpec, String)>,
+    instructions: BTreeMap<String, String>,
 }
 
 impl ToolSearch {
-    pub fn new(tools: Vec<(ToolSpec, String)>) -> Self {
-        Self { tools }
+    pub fn new(tools: Vec<(ToolSpec, String)>, instructions: BTreeMap<String, String>) -> Self {
+        Self { tools, instructions }
+    }
+
+    /// The instructions of the servers `found` comes from, each the first time this session loads one of its tools.
+    fn reminders(&self, ctx: &Context, found: &[String]) -> String {
+        let servers: BTreeSet<&str> = self
+            .tools
+            .iter()
+            .filter(|(spec, _)| found.contains(&spec.name))
+            .map(|(_, server)| server.as_str())
+            .collect();
+        let mut output = String::new();
+        for server in servers {
+            let Some(text) = self.instructions.get(server) else {
+                continue;
+            };
+            if ctx.files.first_showing(Path::new(&format!("mcp:{server}")), text) {
+                write!(
+                    output,
+                    "\n\n<system-reminder>\nInstructions from the {server} MCP server:\n{text}\n</system-reminder>"
+                )
+                .expect("writing to a String cannot fail");
+            }
+        }
+
+        output
     }
 
     /// The tools `select:a,b` names, matched exactly or ignoring case.
@@ -134,7 +163,7 @@ impl Tool for ToolSearch {
         None
     }
 
-    fn run<'a>(&'a self, _ctx: &'a Context, input: Value) -> RunFuture<'a> {
+    fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let query = super::required_str(&input, "query")?.trim();
             let limit = input["limit"].as_u64().map_or(DEFAULT_LIMIT, |limit| {
@@ -152,7 +181,11 @@ impl Tool for ToolSearch {
 
             Ok(Output {
                 title: format!("Loaded {}", found.join(", ")),
-                output: format!("Loaded {}. Call them as usual.", found.join(", ")),
+                output: format!(
+                    "Loaded {}. Call them as usual.{}",
+                    found.join(", "),
+                    self.reminders(ctx, &found)
+                ),
                 metadata: ToolMetadata {
                     references: Some(found),
                     ..Default::default()
@@ -192,20 +225,24 @@ mod tests {
     }
 
     fn search() -> ToolSearch {
-        ToolSearch::new(vec![
-            (
-                spec("apophis_get_fogbugz_case", "Read a case", "case_number"),
-                "apophis".into(),
-            ),
-            (
-                spec("apophis_search_emails", "Search my mailbox", "query"),
-                "apophis".into(),
-            ),
-            (
-                spec("sqlcompare_compare", "Compares two schemas", "project"),
-                "sqlcompare".into(),
-            ),
-        ])
+        let instructions = BTreeMap::from([("apophis".to_string(), "Cases are numbers.".to_string())]);
+        ToolSearch::new(
+            vec![
+                (
+                    spec("apophis_get_fogbugz_case", "Read a case", "case_number"),
+                    "apophis".into(),
+                ),
+                (
+                    spec("apophis_search_emails", "Search my mailbox", "query"),
+                    "apophis".into(),
+                ),
+                (
+                    spec("sqlcompare_compare", "Compares two schemas", "project"),
+                    "sqlcompare".into(),
+                ),
+            ],
+            instructions,
+        )
     }
 
     #[test]
@@ -224,6 +261,25 @@ mod tests {
         assert_eq!(
             search().selected("sqlcompare_compare, Apophis_Search_Emails,nothing"),
             ["sqlcompare_compare", "apophis_search_emails"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_s_instructions_come_with_the_first_load_of_its_tools() {
+        let sandbox = crate::tool::tests::Sandbox::new("tool-search-instructions");
+        let search = search();
+        let run = |query: &str| search.run(&sandbox.ctx, json!({ "query": query }));
+        let first = run("select:apophis_get_fogbugz_case").await.unwrap().output;
+        assert!(
+            first.contains("Instructions from the apophis MCP server:\nCases are numbers."),
+            "{first}"
+        );
+        let again = run("select:apophis_search_emails").await.unwrap().output;
+        assert!(!again.contains("Cases are numbers"), "once a session");
+        let other = run("select:sqlcompare_compare").await.unwrap().output;
+        assert!(
+            !other.contains("system-reminder"),
+            "a server without instructions adds none"
         );
     }
 }

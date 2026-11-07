@@ -90,6 +90,10 @@ async fn a_large_mcp_server_is_loaded_on_request_and_a_search_loads_its_tools() 
     assert!(!first.tools.iter().any(|tool| tool.name.starts_with("echo_")));
     assert_eq!(first.deferred_tools.len(), 12);
     assert!(first.system.contains("- echo: echo_echo, echo_shout, echo_note_0"));
+    assert!(
+        !first.system.contains("Echo repeats what it is given."),
+        "a server sent only on request keeps its instructions out of the prompt"
+    );
     assert_eq!(
         requests[1].tool_references.values().collect::<Vec<_>>(),
         [&vec!["echo_note_3".to_string()]]
@@ -97,6 +101,17 @@ async fn a_large_mcp_server_is_loaded_on_request_and_a_search_loads_its_tools() 
     drop(requests);
 
     let messages = transcript(&h);
+    let loaded = messages
+        .iter()
+        .flat_map(|message| message.parts.iter())
+        .map(tool_view_of)
+        .find(|(name, _)| name == "tool_search");
+    assert!(
+        loaded
+            .and_then(|(_, output)| output)
+            .is_some_and(|output| output.contains("Echo repeats what it is given.")),
+        "they come with the search that loads its tools"
+    );
     let ran = messages
         .iter()
         .flat_map(|message| message.parts.iter())

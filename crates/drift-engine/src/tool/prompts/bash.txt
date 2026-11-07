@@ -1,10 +1,10 @@
 Runs a command in {shell} from the workspace root and returns its combined output.
 
-- Use it for builds, tests, git and package managers. Use `read`, `glob` and `grep` for looking at files; they are faster and need no permission.
+- Use it for builds, tests, git and package managers. Prefer `read`, `glob` and `grep` for the repository's files; they are faster and need no permission.
 - Quote paths that contain spaces. In one command, {chain}; run independent commands as separate calls.
 - To run in a subdirectory, pass `workdir` rather than starting with `cd`.
 {limits}
-- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it, which you can `read` or `grep`. Rely on that rather than piping through `head` or `tail`, unless filtering is the point.
+- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it. Filter build and test output to what you need (the failures, the summary); `read` or `grep` the saved file when you need all of it.
 - Give a short `description` of what the command does; it is shown to the user while it runs.
 
 Git:

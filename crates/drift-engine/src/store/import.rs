@@ -244,6 +244,7 @@ mod tests {
             auto_accept: false,
             worktree: None,
             account: None,
+            workdir: None,
             running: false,
         }
     }

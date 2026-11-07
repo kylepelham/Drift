@@ -111,6 +111,12 @@ pub(super) fn instruction_file(dir: &Path) -> Option<(&'static str, String)> {
         .find_map(|name| std::fs::read_to_string(dir.join(name)).ok().map(|text| (*name, text)))
 }
 
+/// Whether `path` is named as an instruction file is.
+pub fn is_instruction_file(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| INSTRUCTION_FILES.iter().any(|file| name == *file))
+}
+
 /// Instruction files in the directories between the workspace (not included) and `file`, outermost
 /// first: rules for a part of the tree that the system prompt does not carry.
 pub fn nested_instructions(workspace: &Path, file: &Path) -> Vec<(PathBuf, String)> {
@@ -155,7 +161,8 @@ pub(super) fn markdown_files(dir: &Path) -> Vec<(String, frontmatter::Document)>
     files
 }
 
-pub(super) fn clip(text: &str) -> String {
+/// An instruction file's text as prompts carry it: trimmed, and cut past the limit.
+pub fn clip(text: &str) -> String {
     if text.chars().count() <= MAX_INSTRUCTION_CHARS {
         return text.trim().into();
     }

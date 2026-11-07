@@ -224,7 +224,8 @@ export function createClient(target: Target) {
                 undefined,
                 signal,
             ),
-        abort: (id: string) => request<Json<"abortTurn", 200>>("POST", `/sessions/${id}/abort`),
+        abort: (id: string, only?: "turn") =>
+            request<Json<"abortTurn", 200>>("POST", `/sessions/${id}/abort${query({ only })}`),
         providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
         setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),
         removeProviderCredentials: (id: string) => request<void>("DELETE", `/providers/${id}/credentials`),

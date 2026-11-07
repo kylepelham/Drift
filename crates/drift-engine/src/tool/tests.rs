@@ -31,6 +31,7 @@ impl Sandbox {
                 progress: Default::default(),
                 command_model: None,
                 by_command: false,
+                workdir: None,
                 workspace,
                 session_id: "ses_test".into(),
                 message_id: "msg_test".into(),
@@ -56,6 +57,7 @@ impl Sandbox {
             progress: self.ctx.progress.clone(),
             command_model: self.ctx.command_model.clone(),
             by_command: self.ctx.by_command,
+            workdir: self.ctx.workdir.clone(),
         }
     }
 

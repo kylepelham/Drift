@@ -2,6 +2,7 @@ use super::{Ask, ToolMetadata, canonical, display, scratch_dir, sensitive};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 use tokio_util::sync::CancellationToken;
 
 /// Shared across one session: which files the model has read, so edits are never blind, and which
@@ -11,13 +12,21 @@ pub struct SessionFiles {
     read: Mutex<HashSet<PathBuf>>,
     /// Each file's size and modification time when this run last read or wrote it, to notice a change since.
     stamps: Mutex<HashMap<PathBuf, Stamp>>,
-    shown: Mutex<HashSet<PathBuf>>,
+    /// Shared with this session's speculative reads, so two at once never show the same file twice.
+    shown: Arc<Mutex<Shown>>,
+    /// What a speculative read added to `shown`, taken back if its result is thrown away.
+    claims: Mutex<Vec<Claim>>,
+    /// When this run's foreground commands ran, so a file one of them wrote counts as the model's own.
+    shell_runs: Mutex<Vec<(SystemTime, SystemTime)>>,
     /// Where the reads are kept, so they outlast a restart; none in a bare test context.
     kept: Option<(Arc<crate::store::Store>, String)>,
 }
 
 pub struct Context {
+    /// What permissions, undo and the inside-or-outside test are keyed to.
     pub workspace: PathBuf,
+    /// A subagent's own folder inside the workspace, where relative paths, commands and searches start; none is the workspace.
+    pub workdir: Option<PathBuf>,
     pub session_id: String,
     pub agent: String,
     pub message_id: String,
@@ -37,6 +46,26 @@ pub struct Context {
 }
 
 type Stamp = (u64, Option<std::time::SystemTime>);
+
+/// The instruction files shown this session, by path and by text, so a copy under another name says nothing.
+#[derive(Default)]
+struct Shown {
+    paths: HashSet<PathBuf>,
+    texts: HashSet<u64>,
+}
+
+/// One showing's new entries in [`Shown`].
+struct Claim {
+    path: Option<PathBuf>,
+    text: Option<u64>,
+}
+
+fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.trim().hash(&mut hasher);
+    hasher.finish()
+}
 
 fn stamp(path: &Path) -> Option<Stamp> {
     std::fs::metadata(path)
@@ -66,14 +95,37 @@ impl SessionFiles {
         }
     }
 
-    /// True the first time an instruction file is shown in this session; later reads near it say nothing.
-    pub fn first_showing(&self, path: &Path) -> bool {
-        self.shown.lock().unwrap().insert(path.to_path_buf())
+    /// True the first time an instruction file, or the same text under another name, is shown in this session.
+    pub fn first_showing(&self, path: &Path, text: &str) -> bool {
+        let mut shown = self.shown.lock().unwrap();
+        let claim = Claim {
+            path: shown.paths.insert(path.to_path_buf()).then(|| path.to_path_buf()),
+            text: Some(text_hash(text)).filter(|hash| shown.texts.insert(*hash)),
+        };
+        let first = claim.path.is_some() && claim.text.is_some();
+        if claim.path.is_some() || claim.text.is_some() {
+            self.claims.lock().unwrap().push(claim);
+        }
+
+        first
     }
 
     /// After a compaction the reads that carried instruction files are summarised away; show them again.
     pub fn forget_shown(&self) {
-        self.shown.lock().unwrap().clear();
+        *self.shown.lock().unwrap() = Shown::default();
+    }
+
+    /// A speculative read's result was thrown away: what it showed was never seen.
+    pub fn discard(&self) {
+        let mut shown = self.shown.lock().unwrap();
+        for claim in self.claims.lock().unwrap().drain(..) {
+            if let Some(path) = claim.path {
+                shown.paths.remove(&path);
+            }
+            if let Some(text) = claim.text {
+                shown.texts.remove(&text);
+            }
+        }
     }
 
     pub fn mark_read(&self, path: &Path) {
@@ -86,6 +138,23 @@ impl SessionFiles {
 
     pub fn was_read(&self, path: &Path) -> bool {
         self.read.lock().unwrap().contains(path)
+    }
+
+    pub fn shell_ran(&self, started: SystemTime, ended: SystemTime) {
+        self.shell_runs.lock().unwrap().push((started, ended));
+    }
+
+    /// Whether the file was last modified while one of this run's commands ran: the model wrote it.
+    pub fn shell_wrote(&self, path: &Path) -> bool {
+        // File times are coarse on some file systems, so each window is widened a little.
+        const SLACK: Duration = Duration::from_secs(2);
+        let Some(modified) = std::fs::metadata(path).and_then(|metadata| metadata.modified()).ok() else {
+            return false;
+        };
+
+        self.shell_runs.lock().unwrap().iter().any(|&(started, ended)| {
+            started.checked_sub(SLACK).is_none_or(|from| modified >= from) && modified <= ended + SLACK
+        })
     }
 
     /// Takes the file as it is now for the version last seen: after the model's own write, or a formatter's.
@@ -106,12 +175,14 @@ impl SessionFiles {
     pub fn scratch(&self) -> Self {
         let read = self.read.lock().unwrap().clone();
         let stamps = self.stamps.lock().unwrap().clone();
-        let shown = self.shown.lock().unwrap().clone();
+        let shell_runs = self.shell_runs.lock().unwrap().clone();
 
         Self {
             read: Mutex::new(read),
             stamps: Mutex::new(stamps),
-            shown: Mutex::new(shown),
+            shown: self.shown.clone(),
+            claims: Mutex::default(),
+            shell_runs: Mutex::new(shell_runs),
             kept: None,
         }
     }
@@ -128,11 +199,7 @@ impl SessionFiles {
                 .iter()
                 .map(|(path, stamp)| (path.clone(), *stamp)),
         );
-
-        self.shown
-            .lock()
-            .unwrap()
-            .extend(scratch.shown.lock().unwrap().iter().cloned());
+        scratch.claims.lock().unwrap().clear();
     }
 }
 
@@ -149,6 +216,18 @@ impl Progress {
 }
 
 impl Context {
+    /// A subagent's run: nothing wakes it later, so it may wait and run in front for longer.
+    pub fn in_worker(&self) -> bool {
+        let session = self.engine.store.session(&self.session_id).ok().flatten();
+
+        session.is_some_and(|session| session.visibility == crate::session::types::Visibility::Hidden)
+    }
+
+    /// How long a `wait_seconds` may hold this call: ten minutes, or an hour in a subagent.
+    pub fn wait_cap(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.in_worker() { 3600 } else { 600 })
+    }
+
     /// The path a call really touches: `~` expanded, absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
         let home = std::env::var_os("USERPROFILE")
@@ -158,10 +237,15 @@ impl Context {
         let resolved = if path.is_absolute() {
             path
         } else {
-            self.workspace.join(path)
+            self.workdir().join(path)
         };
 
         canonical(&resolved)
+    }
+
+    /// Where relative paths, commands and searches start.
+    pub fn workdir(&self) -> &Path {
+        self.workdir.as_deref().unwrap_or(&self.workspace)
     }
 
     pub fn inside_workspace(&self, path: &Path) -> bool {

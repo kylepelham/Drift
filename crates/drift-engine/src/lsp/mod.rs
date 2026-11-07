@@ -42,8 +42,8 @@ pub struct Spec {
     unless: &'static [&'static str],
 }
 
-/// A server the user names in drift.json roots at the workspace.
-static WORKSPACE: table::Root = table::Root::Nearest(&[]);
+/// A server drift.json or a plugin names roots at the edited file's git repository, else the workspace.
+static GIT_ROOT: table::Root = table::Root::Nearest(&[&[".git"]]);
 
 /// The built-ins less those the config turns off or replaces, then the config's own.
 pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
@@ -74,7 +74,7 @@ pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
             commands: vec![command.clone()],
             extensions: extensions.clone(),
             language: language.clone(),
-            root: &WORKSPACE,
+            root: &GIT_ROOT,
             unless: &[],
         }),
         _ => None,

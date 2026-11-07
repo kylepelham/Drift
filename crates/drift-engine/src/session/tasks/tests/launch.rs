@@ -34,6 +34,60 @@ fn the_mode_is_what_was_asked_then_the_agents_default_then_the_foreground() {
 }
 
 #[tokio::test]
+async fn a_call_may_pick_its_workers_model_and_level_and_an_agents_own_level_beats_the_parents() {
+    let h = harness().await;
+    h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
+    let agents = h._dir.join("ws/.drift/agents");
+    std::fs::create_dir_all(&agents).unwrap();
+    std::fs::write(
+        agents.join("quick.md"),
+        "---\ndescription: Quick looks\nmode: subagent\nvariant: high\n---\nLook quickly.",
+    )
+    .unwrap();
+    let cheaper = h.engine.catalog.read().unwrap().providers["anthropic"]
+        .models
+        .keys()
+        .find(|id| id.as_str() != crate::session::turn::tests::model().model)
+        .unwrap()
+        .clone();
+    h.provider
+        .push_for(
+            "PARENT",
+            launches(&[
+                json!({ "description": "Own", "prompt": "OWN look", "subagent_type": "quick" }),
+                json!({ "description": "Picked", "prompt": "PICKED look", "model": format!("anthropic/{cheaper}"), "effort": "high" }),
+            ]),
+        )
+        .push_for("OWN", text("own"))
+        .push_for("PICKED", text("picked"))
+        .push_for("PARENT", text("done"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap();
+    let reasoning = |opening: &str| {
+        let request = requests
+            .iter()
+            .find(|request| format!("{:?}", request.messages).contains(opening))
+            .unwrap();
+        format!("{:?}", request.reasoning)
+    };
+    assert_ne!(
+        reasoning("OWN look"),
+        reasoning("PARENT go"),
+        "the agent's own high, not the parent's max"
+    );
+    assert!(
+        reasoning("PICKED look").contains("high"),
+        "{}",
+        reasoning("PICKED look")
+    );
+    let picked = tasks(&h).into_iter().find(|task| task.description == "Picked").unwrap();
+    let picked = h.engine.store.session(&picked.session_id).unwrap().unwrap();
+    assert_eq!(picked.model.unwrap().model, cheaper);
+}
+
+#[tokio::test]
 async fn a_worker_thinks_at_its_parents_reasoning_level() {
     let h = harness().await;
     h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
@@ -309,4 +363,53 @@ async fn with_background_turned_off_an_explicit_request_is_refused_and_foregroun
             .starts_with("waited result\n\n(task_id:"),
         "foreground returns the result as the call's own"
     );
+}
+
+#[tokio::test]
+async fn a_worker_given_a_workdir_starts_there_and_follows_that_folders_instructions() {
+    let h = harness().await;
+    let package = h._dir.join("ws/sub/pkg");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(package.join("AGENTS.md"), "PKG RULES").unwrap();
+    std::fs::write(package.join("notes.txt"), "package notes").unwrap();
+    h.provider
+        .push_for(
+            "PARENT",
+            launches(&[
+                json!({ "description": "Inside", "prompt": "CHILD read", "workdir": "sub/pkg" }),
+                json!({ "description": "Outside", "prompt": "CHILD never", "workdir": ".." }),
+            ]),
+        )
+        .push_for(
+            "CHILD read",
+            crate::session::turn::tests::tool_call("read", r#"{"path":"notes.txt"}"#),
+        )
+        .push_for("CHILD read", text("read it"))
+        .push_for("PARENT", text("done"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until_idle(&h).await;
+
+    let inside = tasks(&h);
+    assert_eq!(inside.len(), 1, "a workdir outside the workspace launches nothing");
+    let worker = h.engine.store.session(&inside[0].session_id).unwrap().unwrap();
+    assert_eq!(worker.workdir.as_deref(), Some("sub/pkg"));
+    let transcript = format!("{:?}", h.engine.store.transcript(&worker.id).unwrap());
+    assert!(
+        transcript.contains("package notes"),
+        "a relative path starts in its folder"
+    );
+    let requests = h.provider.requests.lock().unwrap();
+    let asked = requests
+        .iter()
+        .find(|request| opens_with(request, "CHILD read"))
+        .unwrap();
+    assert!(asked.system.contains("PKG RULES"), "its folder's AGENTS.md applies");
+    let shown = crate::tool::canonical(&package).display().to_string();
+    assert!(
+        asked.system.contains(&format!("Working directory: {shown}")),
+        "{}",
+        asked.system
+    );
+    let parent = format!("{:?}", h.engine.store.transcript(&h.session.id).unwrap());
+    assert!(parent.contains("must be inside the workspace"), "the bad call says why");
 }

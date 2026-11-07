@@ -312,15 +312,6 @@ async fn subtask_commands_use_owned_foreground_workers_and_textual_parent_result
         requests[0].model, "claude-haiku-4-5",
         "the command's model reaches the worker through metadata"
     );
-    assert!(
-        requests[0]
-            .tools
-            .iter()
-            .chain(&requests[1].tools)
-            .filter(|tool| tool.name == "task")
-            .all(|tool| tool.input_schema["properties"].get("model").is_none()),
-        "the model cannot pick one"
-    );
     assert_eq!(requests[1].model, model().model);
     assert!(
         requests[1]

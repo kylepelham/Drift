@@ -15,6 +15,7 @@ const MIN_PROMPT_TOKENS: u64 = 1024;
 
 /// A provider keeps a cache at least this long; a miss after a longer pause is most likely its expiry.
 const SHORTEST_CACHE_MS: i64 = 5 * 60 * 1000;
+const EXPIRED: &str = "Expired after";
 
 /// What a request was made of, as hashes by segment, how many prompt tokens it came to, and when it was answered.
 struct Sent {
@@ -43,7 +44,7 @@ impl CacheWatch {
         let idle_minutes = (now.at - previous.at) / 60_000;
         let reason = first_change(&previous.segments, &now.segments).unwrap_or_else(|| {
             if now.at - previous.at >= SHORTEST_CACHE_MS {
-                format!("Expired after {idle_minutes} idle minutes")
+                format!("{EXPIRED} {idle_minutes} idle minutes")
             } else {
                 "Dropped by the provider".into()
             }
@@ -53,6 +54,11 @@ impl CacheWatch {
             tokens(usage.cache_read),
             tokens(previous.prompt_tokens)
         ))
+    }
+
+    /// Whether a miss `observe` reported was the cache running out while idle.
+    pub(super) fn expired(why: &str) -> bool {
+        why.starts_with(EXPIRED)
     }
 
     pub(in crate::session) fn forget(&self, session_id: &str) {
@@ -191,6 +197,17 @@ mod tests {
         );
         let dropped = seen(&watch, "s", &edited, &["one", "two", "three", "four"], usage(5500, 0)).unwrap();
         assert!(dropped.starts_with("Dropped by the provider"), "{dropped}");
+        assert!(!CacheWatch::expired(&dropped));
+        watch.0.lock().unwrap().get_mut("s").unwrap().at -= SHORTEST_CACHE_MS;
+        let expired = seen(
+            &watch,
+            "s",
+            &edited,
+            &["one", "two", "three", "four", "five"],
+            usage(5600, 0),
+        )
+        .unwrap();
+        assert!(CacheWatch::expired(&expired), "{expired}");
     }
 
     #[test]

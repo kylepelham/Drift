@@ -1579,6 +1579,7 @@ export interface components {
             /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
             background?: boolean | null;
             builtin: boolean;
+            cacheTtl?: components["schemas"]["CacheTtl"] | null;
             description: string;
             /** @description Front matter `hidden: true`: left out of the composer's list; `task` can still run it. */
             hidden?: boolean;
@@ -1771,6 +1772,11 @@ export interface components {
             name: string;
             server: string;
         };
+        /**
+         * @description How long a subagent's prompt cache lives: auto is five minutes until it expires mid-run, then an hour.
+         * @enum {string}
+         */
+        CacheTtl: "auto" | "5m" | "1h";
         /** @description A check is a command over files with the given extensions; `$FILE` runs it once per written file, without it once per call. */
         CheckConfig: boolean | {
             command: string[];
@@ -2929,6 +2935,11 @@ export interface components {
              */
             prompt: string;
             /**
+             * @description How long a subagent's requests keep their cache, unless its agent says.
+             * @default auto
+             */
+            subagent: components["schemas"]["CacheTtl"];
+            /**
              * @description Keep an idle conversation's prompt cache warm.
              * @default false
              */
@@ -3323,6 +3334,8 @@ export interface components {
             /** @description The reasoning variant the user last chose; turns the engine starts itself run with it too. */
             variant?: string | null;
             visibility: components["schemas"]["Visibility"];
+            /** @description A subagent's own folder, relative to where it works: its commands, relative paths and searches start there. */
+            workdir?: string | null;
             workspaceId: string;
             /** @description The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder. */
             worktree?: string | null;
@@ -5409,7 +5422,13 @@ export interface operations {
     };
     abortTurn: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description `turn` stops only the turn, so background workers run on and their results still wake it; by default the
+                 *     turn, its workers and its background commands all stop.
+                 */
+                only?: "turn" | null;
+            };
             header?: never;
             path: {
                 id: string;

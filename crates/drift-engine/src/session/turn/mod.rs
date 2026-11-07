@@ -217,6 +217,8 @@ pub(crate) struct Plan {
     pub(super) session: Session,
     /// Where the session works: the workspace folder, or its worktree after a move.
     pub(super) workspace: PathBuf,
+    /// A subagent's own folder inside it, from its `task` call's `workdir`.
+    pub(super) workdir: Option<PathBuf>,
     /// The workspace folder itself, whose config and MCP servers the turn uses wherever it works.
     pub(super) root: PathBuf,
     /// Whose undo history the turn's writes join: the workspace's, or its worktree's.
@@ -240,6 +242,10 @@ pub(crate) struct Plan {
     turn_only: bool,
     /// A switch the user may still make after a retry's wait, until the retried request opens.
     retry_switch: Option<tokio::sync::oneshot::Receiver<Switch>>,
+    /// A reply of this turn has come back, so a later expired cache expired within it.
+    requested: bool,
+    /// Its cache expired between two of its own requests: a worker keeps the rest of the run for an hour.
+    cache_stretched: bool,
 }
 
 /// How a prompt is admitted beyond the session itself.
@@ -523,6 +529,18 @@ impl Engine {
     pub fn abort(&self, session_id: &str) -> bool {
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
+
+        self.cancel_turn(session_id) || workers
+    }
+
+    /// Stops only the session's turn and the workers in front of it; background workers run on and wake it with their results.
+    pub fn stop_turn(&self, session_id: &str) -> bool {
+        let _owners = self.workers.fence();
+
+        self.cancel_turn(session_id)
+    }
+
+    fn cancel_turn(&self, session_id: &str) -> bool {
         let turn = self.turns.cancel(session_id);
         self.turns.hold_queue(session_id);
         let worker = self
@@ -532,7 +550,7 @@ impl Engine {
             .flatten()
             .is_some_and(|task| !task.state.is_terminal() && self.workers.cancel(&task.id));
 
-        turn || workers || worker
+        turn || worker
     }
 
     /// Checks for an unanswered steered prompt or an orchestrator nudge under the steering lock.

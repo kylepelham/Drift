@@ -9,6 +9,7 @@ fn warm(h: &Harness, window_minutes: u32) {
         interval_minutes: 1,
         window_minutes,
         prompt: KEEP_ALIVE.into(),
+        ..PromptCache::default()
     };
     h.engine.store.set_setting(PROMPT_CACHE_KEY, &settings).unwrap();
 }

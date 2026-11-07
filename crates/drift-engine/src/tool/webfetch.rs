@@ -36,6 +36,7 @@ impl Tool for WebFetch {
                 "properties": {
                     "url": { "type": "string", "description": "Absolute http or https URL." },
                     "format": { "type": "string", "enum": ["markdown", "text", "html"], "description": "How to return HTML pages. Default markdown." },
+                    "offset": { "type": "integer", "description": "Character to start from, to read a long page in parts; the result says where the next part starts. Default 0." },
                     "private": { "type": "boolean", "description": "Set only after a fetch said the host is on this machine or its network: asks the user first." }
                 },
                 "required": ["url"]
@@ -64,20 +65,52 @@ impl Tool for WebFetch {
             }
             let format = input["format"].as_str().unwrap_or("markdown");
 
-            match direct(ctx, url, format, unasked(url, &input)).await? {
-                Fetched::Done(output) => Ok(output),
-                Fetched::Thin(output) => Ok(match through_provider(ctx, url).await {
+            let fetched = match direct(ctx, url, format, unasked(url, &input)).await? {
+                Fetched::Done(output) => output,
+                Fetched::Thin(output) => match through_provider(ctx, url).await {
                     Some(Ok(rendered)) => rendered,
                     _ => output,
-                }),
-                Fetched::Blocked(error) => match through_provider(ctx, url).await {
-                    Some(Ok(rendered)) => Ok(rendered),
-                    Some(Err(why)) => Err(ToolError(format!("{}; {why}", error.0))),
-                    None => Err(error),
                 },
+                Fetched::Blocked(error) => match through_provider(ctx, url).await {
+                    Some(Ok(rendered)) => rendered,
+                    Some(Err(why)) => return Err(ToolError(format!("{}; {why}", error.0))),
+                    None => return Err(error),
+                },
+            };
+
+            match input["offset"].as_u64() {
+                Some(offset) if fetched.metadata.images.is_none() => from_offset(fetched, offset as usize),
+                _ => Ok(fetched),
             }
         })
     }
+}
+
+/// The page's text from character `offset`, as much as one result holds, and where the next part starts.
+fn from_offset(mut output: Output, offset: usize) -> Result<Output, ToolError> {
+    let total = output.output.chars().count();
+    if offset >= total && offset > 0 {
+        return Err(ToolError(format!(
+            "the page has {total} characters, so offset {offset} is past its end"
+        )));
+    }
+    let room = super::spool::SHORT_RESULT_BYTES - 256;
+    let mut part = String::new();
+    for character in output.output.chars().skip(offset) {
+        if part.len() + character.len_utf8() > room {
+            break;
+        }
+        part.push(character);
+    }
+    let end = offset + part.chars().count();
+    if end < total {
+        let note =
+            format!("\n\n(characters {offset} to {end} of {total}; fetch again with `offset: {end}` for the rest)");
+        part.push_str(&note);
+    }
+    output.output = part;
+
+    Ok(output)
 }
 
 /// What fetching the page itself got.
