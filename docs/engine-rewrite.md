@@ -942,8 +942,13 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   Each held result is claimed for that admission, so `task_output` and the prompt cannot both carry
   it. `delivered` therefore always means a saved prompt or call result holds it, except rows a
   restart interrupts, which are settled at startup as before.
-- Stop: session Stop (`POST /sessions/{id}/abort`) reaches its workers even with no turn running
-  and reports whether anything was stopped. `task_stop` and `POST /tasks/{id}/abort` cancel one
+- Stop: session Stop (`POST /sessions/{id}/abort`) reaches its workers and its background commands
+  even with no turn running and reports whether anything was stopped. `?only=turn`
+  (`Engine::stop_turn`) stops the turn and the foreground workers under it, and leaves the Stop
+  count alone: background workers and commands run on and their ends still wake the conversation.
+  The composer's Stop sends `only=turn` while the turn runs; once it is idle and background work
+  remains, the button names it ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
+  a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop` and `POST /tasks/{id}/abort` cancel one
   worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
   and question asks carry the worker's session id and inherit the owner's approvals.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,

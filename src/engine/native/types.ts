@@ -5420,7 +5420,13 @@ export interface operations {
     };
     abortTurn: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description `turn` stops only the turn, so background workers run on and their results still wake it; by default the
+                 *     turn, its workers and its background commands all stop.
+                 */
+                only?: "turn" | null;
+            };
             header?: never;
             path: {
                 id: string;

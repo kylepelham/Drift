@@ -527,6 +527,18 @@ impl Engine {
     pub fn abort(&self, session_id: &str) -> bool {
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
+
+        self.cancel_turn(session_id) || workers
+    }
+
+    /// Stops only the session's turn and the workers in front of it; background workers run on and wake it with their results.
+    pub fn stop_turn(&self, session_id: &str) -> bool {
+        let _owners = self.workers.fence();
+
+        self.cancel_turn(session_id)
+    }
+
+    fn cancel_turn(&self, session_id: &str) -> bool {
         let turn = self.turns.cancel(session_id);
         self.turns.hold_queue(session_id);
         let worker = self
@@ -536,7 +548,7 @@ impl Engine {
             .flatten()
             .is_some_and(|task| !task.state.is_terminal() && self.workers.cancel(&task.id));
 
-        turn || workers || worker
+        turn || worker
     }
 
     /// Checks for an unanswered steered prompt or an orchestrator nudge under the steering lock.

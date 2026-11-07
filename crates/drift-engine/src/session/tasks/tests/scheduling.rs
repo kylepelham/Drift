@@ -110,6 +110,45 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
 }
 
 #[tokio::test]
+async fn stopping_only_the_turn_leaves_background_workers_running_and_their_results_wake_it() {
+    let h = harness().await;
+    h.provider
+        .push_for("PARENT", launches(&[background("Look", "CHILD look")]))
+        .push_stall_for("PARENT")
+        .push_slow_for("CHILD look", Duration::from_millis(600), text("found it"))
+        .push_for("PARENT", text("thanks"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until("the worker runs", || {
+        tasks(&h).first().is_some_and(|task| task.state == TaskState::Running)
+    })
+    .await;
+    let (_, before) = h.engine.worker_scope(&h.session.id);
+
+    assert!(h.engine.stop_turn(&h.session.id));
+    until("the turn stops", || !h.engine.turns.is_running(&h.session.id)).await;
+    assert_eq!(tasks(&h)[0].state, TaskState::Running, "the worker runs on");
+    assert_eq!(
+        h.engine.worker_scope(&h.session.id).1,
+        before,
+        "not a Stop for its workers"
+    );
+
+    until("its result is delivered", || tasks(&h)[0].delivered).await;
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(delivered_results(&transcript).len(), 1);
+    assert!(
+        h.provider
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| format!("{:?}", request.messages).contains("found it")),
+        "the result woke the conversation"
+    );
+}
+
+#[tokio::test]
 async fn stopping_one_worker_leaves_the_others_running() {
     let h = harness().await;
     h.provider

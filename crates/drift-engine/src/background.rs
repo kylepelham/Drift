@@ -225,11 +225,18 @@ impl Processes {
         handles
     }
 
-    /// Stops every process a conversation started, as when it is archived or its subagent run ends.
-    pub fn stop_session(&self, session_id: &str) {
-        for handle in self.of(session_id) {
+    /// Stops every process a conversation started, as when it is archived or its subagent run ends; true if one was running.
+    pub fn stop_session(&self, session_id: &str) -> bool {
+        let running: Vec<_> = self
+            .of(session_id)
+            .into_iter()
+            .filter(|handle| handle.exit().is_none())
+            .collect();
+        for handle in &running {
             handle.stop();
         }
+
+        !running.is_empty()
     }
 
     /// Ends every process now, without waiting for their watchers, as Drift shuts down.

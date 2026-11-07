@@ -689,6 +689,13 @@ export function endedRuns(state: EngineState, running: Map<string, "busy" | "ret
     return ended;
 }
 
+/** What runs on after the turn: background workers and background commands. */
+export function backgroundWork(state: EngineState, id: string) {
+    const workers = (state.tasks[id] ?? []).filter((task) => task.mode === "background" && taskActive(task)).length;
+    const commands = (state.processes[id] ?? []).filter((process) => process.state === "running").length;
+    return { workers, commands };
+}
+
 export function sessionBusy(state: EngineState, id: string) {
     const status = state.status[id]?.type;
     return status === "busy" || status === "retry";

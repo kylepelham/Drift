@@ -461,8 +461,9 @@ export function createActions(
         await requireClient().editQueued(queued.id, { ...queued.prompt, parts });
     }
 
-    async function abort(id: string) {
-        await requireClient().abort(id);
+    /** Stops the turn, its workers and its background commands; with `only: "turn"`, the turn alone. */
+    async function abort(id: string, only?: "turn") {
+        await requireClient().abort(id, only);
     }
 
     /** Paths in the current workspace for an @ mention; the engine ranks them and applies ignore rules. */

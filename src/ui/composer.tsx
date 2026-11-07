@@ -1,8 +1,8 @@
+import { backgroundWork, modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
-import { modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
-import { IconBranch, IconMic, IconPaperclip, IconPlug, IconShieldCheck, IconStop } from "./icons";
+import { IconBranch, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
@@ -31,6 +31,7 @@ import { ComposerQueue } from "./composer-queue";
 import { variantNames } from "../engine/catalog";
 import { openSettings } from "../state/settings";
 import { ComposerSend } from "./composer-send";
+import { ComposerStop } from "./composer-stop";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
@@ -173,6 +174,15 @@ export function Composer() {
     const busy = () => {
         const id = selectedSession();
         return !!id && sessionBusy(engine.state, id);
+    };
+    const work = () => {
+        const id = selectedSession();
+        return id ? backgroundWork(engine.state, id) : { workers: 0, commands: 0 };
+    };
+    const stop = (only?: "turn") => {
+        interruptResponseAnimations();
+        stopReadAloud();
+        void engine.actions.abort(selectedSession()!, only);
     };
     const online = () => engine.state.connection === "online";
     const ready = () => online() && !!activeWorkspace();
@@ -631,20 +641,13 @@ export function Composer() {
                         >
                             <IconPaperclip class="size-4" />
                         </button>
-                        <Show when={busy()}>
-                            <button
-                                class="composer-stop flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-raised hover:text-danger"
-                                title={t("prompt.action.stop")}
-                                aria-label={t("prompt.action.stop")}
-                                onClick={() => {
-                                    interruptResponseAnimations();
-                                    stopReadAloud();
-                                    void engine.actions.abort(selectedSession()!);
-                                }}
-                            >
-                                <IconStop class="size-3.5" />
-                            </button>
-                        </Show>
+                        <ComposerStop
+                            busy={busy()}
+                            workers={work().workers}
+                            commands={work().commands}
+                            onStopTurn={() => stop("turn")}
+                            onStopAll={() => stop()}
+                        />
                         <ComposerSend
                             busy={busy()}
                             disabled={sendDisabled()}
