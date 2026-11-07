@@ -469,7 +469,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped
 - [x] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
 - [x] Plugin language servers start at the edited file's git root
-- [ ] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
+- [x] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

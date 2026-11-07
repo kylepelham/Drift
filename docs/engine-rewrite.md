@@ -3208,6 +3208,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   model. The Claude prompt matches the surrounding comment density, as opencode v2's Anthropic
   prompt does. The `explore` description asks the caller for a thoroughness (quick, medium, very
   thorough), which its own prompt already adapts to.
+- **Tool wording** (2.5.0). The shared rules and `bash` ask the model to prefer `read`, `glob` and
+  `grep` for the repository's files rather than forbid `bash` for them, since a build log outside
+  the tree or a pipeline is fine there. `bash` says to filter build and test output to the
+  failures and summary, with the saved file for when all of it is needed. `edit` says how to insert
+  (an anchor line in `old_string`, the anchor plus the new text in `new_string`) and that several
+  edits go in one reply: calls run in the model's order, edits to one file one after another.
+  `read` names `write` and delete as the calls refused on an unread file, and says reads issued
+  together run at once.
 - **Instruction baseline** (`session::turn::instructions`, after opencode v2's instruction deltas).
   The system prompt is built from keyed sources (`prompt::sources`), most shared first: the base
   prompt with the shared rules (`base:<family>`), a subagent's own prompt (`agent`), the skills
