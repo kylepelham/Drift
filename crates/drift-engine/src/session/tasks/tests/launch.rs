@@ -34,6 +34,60 @@ fn the_mode_is_what_was_asked_then_the_agents_default_then_the_foreground() {
 }
 
 #[tokio::test]
+async fn a_call_may_pick_its_workers_model_and_level_and_an_agents_own_level_beats_the_parents() {
+    let h = harness().await;
+    h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
+    let agents = h._dir.join("ws/.drift/agents");
+    std::fs::create_dir_all(&agents).unwrap();
+    std::fs::write(
+        agents.join("quick.md"),
+        "---\ndescription: Quick looks\nmode: subagent\nvariant: high\n---\nLook quickly.",
+    )
+    .unwrap();
+    let cheaper = h.engine.catalog.read().unwrap().providers["anthropic"]
+        .models
+        .keys()
+        .find(|id| id.as_str() != crate::session::turn::tests::model().model)
+        .unwrap()
+        .clone();
+    h.provider
+        .push_for(
+            "PARENT",
+            launches(&[
+                json!({ "description": "Own", "prompt": "OWN look", "subagent_type": "quick" }),
+                json!({ "description": "Picked", "prompt": "PICKED look", "model": format!("anthropic/{cheaper}"), "effort": "high" }),
+            ]),
+        )
+        .push_for("OWN", text("own"))
+        .push_for("PICKED", text("picked"))
+        .push_for("PARENT", text("done"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap();
+    let reasoning = |opening: &str| {
+        let request = requests
+            .iter()
+            .find(|request| format!("{:?}", request.messages).contains(opening))
+            .unwrap();
+        format!("{:?}", request.reasoning)
+    };
+    assert_ne!(
+        reasoning("OWN look"),
+        reasoning("PARENT go"),
+        "the agent's own high, not the parent's max"
+    );
+    assert!(
+        reasoning("PICKED look").contains("high"),
+        "{}",
+        reasoning("PICKED look")
+    );
+    let picked = tasks(&h).into_iter().find(|task| task.description == "Picked").unwrap();
+    let picked = h.engine.store.session(&picked.session_id).unwrap().unwrap();
+    assert_eq!(picked.model.unwrap().model, cheaper);
+}
+
+#[tokio::test]
 async fn a_worker_thinks_at_its_parents_reasoning_level() {
     let h = harness().await;
     h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
