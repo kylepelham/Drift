@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 52] = [
+pub(super) const MIGRATIONS: [&str; 53] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -236,6 +236,12 @@ pub(super) const MIGRATIONS: [&str; 52] = [
     "ALTER TABLE session ADD COLUMN account TEXT;",
     // The folder a subagent was launched to work in, relative to where its session works.
     "ALTER TABLE session ADD COLUMN workdir TEXT;",
+    // The instruction files a session was shown on read, so a restart does not show them again.
+    "CREATE TABLE shown_instruction(
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        PRIMARY KEY(session_id, key)
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 #[cfg(test)]

@@ -3206,7 +3206,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   name or one matching a system-prompt file says nothing), when the read was of it, when it is in a
   subagent's `workdir` or above (that prompt carries those), or when it sits under a `templates`,
   `fixtures` or `examples` folder (samples, not rules). Speculative reads share the session's shown
-  set, so two at once never both show a file, and a thrown-away one takes back what it showed. `GET /workspaces/{id}/config` serves the
+  set, so two at once never both show a file, and a thrown-away one takes back what it showed. What
+  a session was shown is kept in `drift.db` (`shown_instruction`, migration 53: `path:` and a
+  SHA-256 `text:` key, removed with its session, cleared by a compaction), so a restart does not
+  show it again; a speculative read's showings are kept once its result is accepted. `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
   or a `name: true|false` map (opencode's shape: `false` takes that tool away from all the rest,
   `true` changes nothing). `tools: []` means no tools; leaving it out, or `tools: {}`, means every

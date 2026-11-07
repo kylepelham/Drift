@@ -13,9 +13,9 @@ pub struct SessionFiles {
     /// Each file's size and modification time when this run last read or wrote it, to notice a change since.
     stamps: Mutex<HashMap<PathBuf, Stamp>>,
     /// Shared with this session's speculative reads, so two at once never show the same file twice.
-    shown: Arc<Mutex<Shown>>,
+    shown: Arc<Mutex<HashSet<String>>>,
     /// What a speculative read added to `shown`, taken back if its result is thrown away.
-    claims: Mutex<Vec<Claim>>,
+    claims: Mutex<Vec<String>>,
     /// When this run's foreground commands ran, so a file one of them wrote counts as the model's own.
     shell_runs: Mutex<Vec<(SystemTime, SystemTime)>>,
     /// Where the reads are kept, so they outlast a restart; none in a bare test context.
@@ -47,24 +47,12 @@ pub struct Context {
 
 type Stamp = (u64, Option<std::time::SystemTime>);
 
-/// The instruction files shown this session, by path and by text, so a copy under another name says nothing.
-#[derive(Default)]
-struct Shown {
-    paths: HashSet<PathBuf>,
-    texts: HashSet<u64>,
-}
+/// An instruction file's keys in the shown set, by path and by text, so a copy under another name says nothing.
+fn showing_keys(path: &Path, text: &str) -> [String; 2] {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(text.trim().as_bytes());
 
-/// One showing's new entries in [`Shown`].
-struct Claim {
-    path: Option<PathBuf>,
-    text: Option<u64>,
-}
-
-fn text_hash(text: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.trim().hash(&mut hasher);
-    hasher.finish()
+    [format!("path:{}", path.display()), format!("text:{digest:x}")]
 }
 
 fn stamp(path: &Path) -> Option<Stamp> {
@@ -87,9 +75,15 @@ impl SessionFiles {
             .into_iter()
             .map(PathBuf::from)
             .collect();
+        let shown = store
+            .shown_instructions(session_id)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
         Self {
             read: Mutex::new(read),
+            shown: Arc::new(Mutex::new(shown)),
             kept: Some((store, session_id.into())),
             ..Self::default()
         }
@@ -97,34 +91,44 @@ impl SessionFiles {
 
     /// True the first time an instruction file, or the same text under another name, is shown in this session.
     pub fn first_showing(&self, path: &Path, text: &str) -> bool {
-        let mut shown = self.shown.lock().unwrap();
-        let claim = Claim {
-            path: shown.paths.insert(path.to_path_buf()).then(|| path.to_path_buf()),
-            text: Some(text_hash(text)).filter(|hash| shown.texts.insert(*hash)),
+        let new: Vec<String> = {
+            let mut shown = self.shown.lock().unwrap();
+            showing_keys(path, text)
+                .into_iter()
+                .filter(|key| shown.insert(key.clone()))
+                .collect()
         };
-        let first = claim.path.is_some() && claim.text.is_some();
-        if claim.path.is_some() || claim.text.is_some() {
-            self.claims.lock().unwrap().push(claim);
-        }
+        let first = new.len() == 2;
+        self.claim(new);
 
         first
     }
 
+    /// Keeps a showing: in `drift.db` for the session, or as a speculative read's claim until it is accepted.
+    fn claim(&self, keys: Vec<String>) {
+        match &self.kept {
+            Some((store, session_id)) => {
+                for key in &keys {
+                    let _ = store.mark_shown(session_id, key);
+                }
+            }
+            None => self.claims.lock().unwrap().extend(keys),
+        }
+    }
+
     /// After a compaction the reads that carried instruction files are summarised away; show them again.
     pub fn forget_shown(&self) {
-        *self.shown.lock().unwrap() = Shown::default();
+        self.shown.lock().unwrap().clear();
+        if let Some((store, session_id)) = &self.kept {
+            let _ = store.forget_shown(session_id);
+        }
     }
 
     /// A speculative read's result was thrown away: what it showed was never seen.
     pub fn discard(&self) {
         let mut shown = self.shown.lock().unwrap();
-        for claim in self.claims.lock().unwrap().drain(..) {
-            if let Some(path) = claim.path {
-                shown.paths.remove(&path);
-            }
-            if let Some(text) = claim.text {
-                shown.texts.remove(&text);
-            }
+        for key in self.claims.lock().unwrap().drain(..) {
+            shown.remove(&key);
         }
     }
 
@@ -199,7 +203,8 @@ impl SessionFiles {
                 .iter()
                 .map(|(path, stamp)| (path.clone(), *stamp)),
         );
-        scratch.claims.lock().unwrap().clear();
+        let claims = std::mem::take(&mut *scratch.claims.lock().unwrap());
+        self.claim(claims);
     }
 }
 

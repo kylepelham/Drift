@@ -484,6 +484,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn what_a_session_was_shown_outlasts_a_restart_until_a_compaction() {
+        use crate::session::types::Visibility;
+        use crate::store::NewSession;
+        use crate::tool::SessionFiles;
+        use std::path::Path;
+        use std::sync::Arc;
+        let store = Arc::new(crate::store::tests::store());
+        let session = store
+            .create_session(NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let files = SessionFiles::kept(store.clone(), &session.id);
+        assert!(files.first_showing(Path::new("pkg/AGENTS.md"), "rules"));
+        let early = files.scratch();
+        assert!(early.first_showing(Path::new("web/AGENTS.md"), "web"));
+        files.absorb(&early);
+        let thrown = files.scratch();
+        assert!(thrown.first_showing(Path::new("lib/AGENTS.md"), "lib"));
+
+        let restarted = SessionFiles::kept(store.clone(), &session.id);
+        assert!(!restarted.first_showing(Path::new("pkg/AGENTS.md"), "rules"));
+        assert!(
+            !restarted.first_showing(Path::new("web/AGENTS.md"), "web"),
+            "an accepted speculative read is kept too"
+        );
+        assert!(
+            restarted.first_showing(Path::new("lib/AGENTS.md"), "lib"),
+            "an unaccepted one is not"
+        );
+        restarted.forget_shown();
+        assert!(
+            SessionFiles::kept(store, &session.id).first_showing(Path::new("pkg/AGENTS.md"), "rules"),
+            "a compaction forgets them for good"
+        );
+    }
+
     #[tokio::test]
     async fn a_full_page_and_its_reminder_fit_in_one_result() {
         let sandbox = Sandbox::new("read-nested-full");
