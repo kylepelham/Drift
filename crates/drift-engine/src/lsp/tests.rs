@@ -320,6 +320,18 @@ fn servers_root_at_the_nearest_project_not_the_workspace() {
         root_for(&Root::Nearest(&[]), &[], &ws.join("svc/Program.cs"), &ws),
         Some(ws.clone())
     );
+    put("vendor/engine/.git", "gitdir: ../../.git/modules/engine");
+    put("vendor/engine/shaders/lit.slang", "");
+    assert_eq!(
+        root_for(&GIT_ROOT, &[], &ws.join("vendor/engine/shaders/lit.slang"), &ws),
+        Some(ws.join("vendor/engine")),
+        "a custom server opens the file's own repository, a submodule's too"
+    );
+    assert_eq!(
+        root_for(&GIT_ROOT, &[], &ws.join("svc/Program.cs"), &ws),
+        Some(ws.clone()),
+        "and the workspace outside one"
+    );
     std::fs::remove_dir_all(ws).ok();
 }
 
