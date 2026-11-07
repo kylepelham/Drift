@@ -3181,7 +3181,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `CLAUDE.md`. A subdirectory's file below the workspace is not in the system prompt: the first
   `read` of a file under it appends it as a `<system-reminder>` (outermost first), once per
   session and again after a compaction summarises the read away. Reminders take at most half the
-  result, the page fits in the rest, and one that does not fit is named for the model to read. `GET /workspaces/{id}/config` serves the
+  result, the page fits in the rest, and one that does not fit is named for the model to read. A
+  file is not shown when the same text was (by path or a hash of its text, so a copy under another
+  name or one matching a system-prompt file says nothing), when the read was of it, when it is in a
+  subagent's `workdir` or above (that prompt carries those), or when it sits under a `templates`,
+  `fixtures` or `examples` folder (samples, not rules). Speculative reads share the session's shown
+  set, so two at once never both show a file, and a thrown-away one takes back what it showed. `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
   or a `name: true|false` map (opencode's shape: `false` takes that tool away from all the rest,
   `true` changes nothing). `tools: []` means no tools; leaving it out, or `tools: {}`, means every

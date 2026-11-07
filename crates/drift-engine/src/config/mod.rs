@@ -26,7 +26,7 @@ mod tests;
 pub use agent::{Agent, AgentError, AgentKind, CacheTtl};
 pub use command::{Command, highest_placeholder, split_arguments};
 pub(crate) use discovery::{HOME_SKILL_DIRS, skill_files, skill_folders};
-pub use discovery::{body, home, in_repository, nested_instructions};
+pub use discovery::{body, clip, home, in_repository, is_instruction_file, nested_instructions};
 pub use engine::RegistryError;
 pub use file::{
     CheckConfig, File, FormatterConfig, Limits, LimitsFile, LspConfig, ProviderConfig, ProviderModel, RouteTimeouts,
@@ -37,7 +37,7 @@ pub use user::{set_local_server, user_plugins, user_providers};
 
 use crate::permission::{Decision, Policy, Rule};
 use crate::session::types::ModelRef;
-use discovery::{ancestors_to_repo_root, clip, instruction_file, instruction_files, markdown_files};
+use discovery::{ancestors_to_repo_root, instruction_file, instruction_files, markdown_files};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

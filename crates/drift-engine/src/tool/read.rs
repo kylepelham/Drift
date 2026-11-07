@@ -212,6 +212,9 @@ fn read_text(ctx: &Context, path: &std::path::Path, bytes: &[u8], span: Span) ->
     }
     output.push_str(&reminders);
     ctx.files.mark_read(path);
+    if crate::config::is_instruction_file(path) {
+        ctx.files.first_showing(path, &crate::config::clip(text));
+    }
     Ok(Output {
         title: name,
         output,
@@ -412,6 +415,72 @@ mod tests {
                 .output
                 .contains("web rules"),
             "shown again once forgotten"
+        );
+    }
+
+    #[tokio::test]
+    async fn instructions_shown_once_by_text_and_never_from_samples_or_the_prompt() {
+        let mut sandbox = Sandbox::new("read-nested-skip");
+        sandbox.file("AGENTS.md", "root rules");
+        sandbox.file("a/AGENTS.md", "shared rules");
+        sandbox.file("b/AGENTS.md", "shared rules");
+        sandbox.file("b/c/AGENTS.md", "root rules");
+        sandbox.file("examples/demo/AGENTS.md", "demo rules");
+        sandbox.file("own/AGENTS.md", "own rules");
+        sandbox.file("read/AGENTS.md", "read rules");
+        for file in ["a/x", "b/c/x", "examples/demo/x", "own/x", "read/x"] {
+            sandbox.file(file, "x");
+        }
+        sandbox.reload_config();
+        let read = |path: &'static str| Read.run(&sandbox.ctx, json!({ "path": path }));
+        assert!(read("a/x").await.unwrap().output.contains("shared rules"));
+        assert_eq!(
+            read("b/c/x").await.unwrap().output,
+            "1: x",
+            "the same text under another name, and the prompt's text, say nothing"
+        );
+        assert_eq!(
+            read("examples/demo/x").await.unwrap().output,
+            "1: x",
+            "a sample folder's rules are not ours"
+        );
+        read("read/AGENTS.md").await.unwrap();
+        assert_eq!(
+            read("read/x").await.unwrap().output,
+            "1: x",
+            "a file read itself was shown"
+        );
+        sandbox.ctx.workdir = Some(sandbox.ctx.workspace.join("own"));
+        assert_eq!(
+            Read.run(&sandbox.ctx, json!({ "path": "x" })).await.unwrap().output,
+            "1: x",
+            "a subagent's own folder's rules are in its prompt"
+        );
+    }
+
+    #[test]
+    fn a_thrown_away_speculative_read_takes_back_what_it_showed() {
+        use crate::tool::SessionFiles;
+        use std::path::Path;
+        let files = SessionFiles::default();
+        let (first, second) = (files.scratch(), files.scratch());
+        assert!(first.first_showing(Path::new("pkg/AGENTS.md"), "rules"));
+        assert!(
+            !second.first_showing(Path::new("pkg/AGENTS.md"), "rules"),
+            "the two share what was shown"
+        );
+        first.discard();
+        assert!(
+            files.first_showing(Path::new("pkg/AGENTS.md"), "rules"),
+            "never seen, so shown again"
+        );
+        let kept = files.scratch();
+        assert!(kept.first_showing(Path::new("web/AGENTS.md"), "web"));
+        files.absorb(&kept);
+        kept.discard();
+        assert!(
+            !files.first_showing(Path::new("web/AGENTS.md"), "web"),
+            "an accepted read keeps its showing"
         );
     }
 

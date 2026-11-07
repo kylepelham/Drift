@@ -36,9 +36,8 @@ pub(super) struct ReadScope<'a> {
 
 impl Started {
     /// The call's result; what it read now counts as read in the session.
-    pub(super) async fn finish(self, files: &SessionFiles) -> Result<Output, ToolError> {
-        let result = self
-            .run
+    pub(super) async fn finish(mut self, files: &SessionFiles) -> Result<Output, ToolError> {
+        let result = (&mut self.run)
             .await
             .unwrap_or_else(|failure| Err(ToolError(failure.to_string())));
         if result.is_ok() {
@@ -46,6 +45,13 @@ impl Started {
         }
 
         result
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        self.run.abort();
+        self.files.discard();
     }
 }
 
