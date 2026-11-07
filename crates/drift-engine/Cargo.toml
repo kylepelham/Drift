@@ -21,6 +21,8 @@ http = "1"
 # `retry-after` may be an HTTP date; already in the tree through hyper.
 httpdate = "1"
 ignore = "0.4"
+# read's `pages` copies a PDF's page range into a smaller PDF; pure Rust, no external tool.
+lopdf = { version = "0.47", default-features = false }
 # Oversized returned images are scaled under provider limits; only the four sendable codecs.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # image decodes JPEG leniently; strict decoding catches corrupt data providers refuse. Already in the tree through image.

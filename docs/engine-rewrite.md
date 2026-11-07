@@ -2713,6 +2713,13 @@ Settled after the first external review of M1; each has a regression test.
 - `glob`'s pattern and `grep`'s `include` are one matcher (`tool::FileGlob`, the `ignore` crate's
   overrides, which is ripgrep's `--glob`, as opencode runs both): `*.ts` matches at any depth,
   `src/*.ts` only directly in `src`, `**` crosses folders. A Stop ends either walk.
+- `read`'s negative `offset` reads the last that many lines (a file past 10 MB is counted first,
+  a buffer at a time). Its `pages` ("3" or "1-5", at most 20) copies that range of a PDF into a
+  smaller one (`tool::read::pdf`, the `lopdf` crate, pure Rust; Claude Code renders pages with
+  poppler's `pdftoppm` instead, a tool Drift would have to ship), so PDFs up to 100 MB can be read in
+  parts; a PDF over 10 pages must be. `pages` on anything else is an error. `webfetch`'s `offset`
+  (a character position) returns a result's worth of the page from there and says where the next
+  part starts.
 - `read` loads a file whole up to 10 MB. Past that (a log, generated output) it reads the page
   in 64 KB buffers from the start, on a blocking thread that checks Stop between buffers. Each
   line keeps at most 8004 bytes, even while skipping to an offset, so a newline-free file never

@@ -8,9 +8,10 @@ use crate::llm::ToolSpec;
 
 mod output;
 mod page;
+mod pdf;
 
 use output::{attached, list_dir, missing, reminders};
-use page::{Large, large_page, page};
+use page::{Large, count_lines, large_page, page};
 
 const MAX_LINES: usize = 2000;
 /// Past this a file is not loaded whole: its page is read line by line and the rest left on disk.
@@ -21,6 +22,8 @@ const PAGE_BYTES: usize = super::spool::MAX_RESULT_BYTES - 1024;
 const REMINDER_BYTES: usize = PAGE_BYTES / 2;
 /// Entries a directory listing shows before saying how many more there are.
 const MAX_ENTRIES: usize = 1000;
+/// The largest PDF `pages` reads a part of.
+const MAX_SPLIT_BYTES: u64 = 100 * 1024 * 1024;
 
 pub struct Read;
 
@@ -37,8 +40,9 @@ impl Tool for Read {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File to read. Relative paths resolve against the workspace." },
-                    "offset": { "type": "integer", "description": "1-based line to start from. Default 1." },
-                    "limit": { "type": "integer", "description": "Maximum lines to return. Default 2000." }
+                    "offset": { "type": "integer", "description": "1-based line to start from; a negative number reads the last that many lines. Default 1." },
+                    "limit": { "type": "integer", "description": "Maximum lines to return. Default 2000." },
+                    "pages": { "type": "string", "description": "For a PDF: the pages to read, such as \"3\" or \"1-5\", at most 20. Needed for a PDF over 10 pages." }
                 },
                 "required": ["path"]
             }),
@@ -56,69 +60,167 @@ impl Tool for Read {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let path = ctx.resolve(required_str(&input, "path")?);
-            let offset = input["offset"].as_u64().unwrap_or(1).max(1) as usize;
-            let limit = input["limit"]
-                .as_u64()
-                .map_or(MAX_LINES, |limit| limit as usize)
-                .clamp(1, MAX_LINES);
+            let span = Span {
+                from: From::of(&input),
+                limit: input["limit"]
+                    .as_u64()
+                    .map_or(MAX_LINES, |limit| limit as usize)
+                    .clamp(1, MAX_LINES),
+            };
             let meta = tokio::fs::metadata(&path).await.map_err(|_| missing(ctx, &path))?;
             if meta.is_dir() {
                 return list_dir(ctx, &path).await;
             }
-            if meta.len() > WHOLE_BYTES {
-                return read_large(ctx, &path, offset, limit).await;
+            let pages = input["pages"].as_str().filter(|pages| !pages.trim().is_empty());
+            if pages.is_some() || meta.len() <= WHOLE_BYTES {
+                let bytes = whole(ctx, &path, meta.len(), pages.is_some()).await?;
+                return read_bytes(ctx, &path, &bytes, pages, span);
             }
-            let bytes = tokio::fs::read(&path).await?;
-            if let Some(mime) =
-                super::image::sniff(&bytes).or(super::image::is_pdf(&bytes).then_some(super::image::PDF))
-            {
-                ctx.files.mark_read(&path);
-                return attached(ctx, &path, mime, &bytes);
-            }
-            if bytes.iter().take(8000).any(|byte| *byte == 0) {
-                return Err(ToolError(format!("{} is binary", display(&path, ctx.workdir()))));
-            }
-            let text = String::from_utf8_lossy(&bytes);
-            let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-            let total = text.lines().count();
-            let name = display(&path, ctx.workdir());
-            if total > 0 && offset > total {
+            if starts_pdf(&path) {
+                let name = display(&path, ctx.workdir());
                 return Err(ToolError(format!(
-                    "{name} has {total} lines, so offset {offset} is past its end"
+                    "{name} is a PDF over 10 MB; read a part of it with `pages`"
                 )));
             }
-            warm_servers(ctx, &path);
-            // The reminders come first in the budget, so the page fits beside them within one result.
-            let reminders = reminders(ctx, &path);
-            let body = page(text, offset, limit, PAGE_BYTES.saturating_sub(reminders.len()));
-            let shown = body.len();
-            let mut output = if total == 0 {
-                "(the file is empty)".to_string()
-            } else {
-                body.join("\n")
-            };
-            if offset - 1 + shown < total {
-                write!(
-                    output,
-                    "\n\n({} more lines; read with offset {})",
-                    total - (offset - 1 + shown),
-                    offset + shown
-                )
-                .expect("writing to a String cannot fail");
-            }
-            output.push_str(&reminders);
-            ctx.files.mark_read(&path);
-            Ok(Output {
-                title: name,
-                output,
-                metadata: ToolMetadata {
-                    lines: Some(Some(total)),
-                    shown: Some(shown),
-                    ..Default::default()
-                },
-            })
+
+            read_large(ctx, &path, span).await
         })
     }
+}
+
+/// The lines a read asks for: where it starts and how many.
+#[derive(Clone, Copy)]
+struct Span {
+    from: From,
+    limit: usize,
+}
+
+/// Where a read starts: a line, or so many lines from the end.
+#[derive(Clone, Copy)]
+enum From {
+    Line(usize),
+    Last(usize),
+}
+
+impl From {
+    fn of(input: &Value) -> Self {
+        match input["offset"].as_i64() {
+            Some(back) if back < 0 => Self::Last(back.unsigned_abs() as usize),
+            Some(line) => Self::Line((line as usize).max(1)),
+            None => Self::Line(1),
+        }
+    }
+
+    fn line(self, total: usize) -> usize {
+        match self {
+            Self::Line(line) => line,
+            Self::Last(count) => total.saturating_sub(count) + 1,
+        }
+    }
+}
+
+/// The file's bytes, up to 10 MB, or for a part of a PDF up to [`MAX_SPLIT_BYTES`].
+async fn whole(ctx: &Context, path: &std::path::Path, size: u64, paged: bool) -> Result<Vec<u8>, ToolError> {
+    if paged && size > MAX_SPLIT_BYTES {
+        let name = display(path, ctx.workdir());
+        return Err(ToolError(format!(
+            "{name} is over {} MB",
+            MAX_SPLIT_BYTES / 1024 / 1024
+        )));
+    }
+
+    Ok(tokio::fs::read(path).await?)
+}
+
+fn starts_pdf(path: &std::path::Path) -> bool {
+    let mut head = [0u8; 5];
+    std::fs::File::open(path)
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut head))
+        .is_ok_and(|()| super::image::is_pdf(&head))
+}
+
+/// An image or PDF to look at, or text by page; `pages` is for PDFs only.
+fn read_bytes(
+    ctx: &Context,
+    path: &std::path::Path,
+    bytes: &[u8],
+    pages: Option<&str>,
+    span: Span,
+) -> Result<Output, ToolError> {
+    let name = display(path, ctx.workdir());
+    if super::image::is_pdf(bytes) {
+        let selected = pdf::select(bytes, pages, &name)?;
+        ctx.files.mark_read(path);
+        return part_attached(ctx, path, &selected);
+    }
+    if pages.is_some() {
+        return Err(ToolError(format!("`pages` is for PDFs, and {name} is not one")));
+    }
+    if let Some(mime) = super::image::sniff(bytes) {
+        ctx.files.mark_read(path);
+        return attached(ctx, path, mime, bytes);
+    }
+    if bytes.iter().take(8000).any(|byte| *byte == 0) {
+        return Err(ToolError(format!("{name} is binary")));
+    }
+
+    read_text(ctx, path, bytes, span)
+}
+
+fn part_attached(ctx: &Context, path: &std::path::Path, selected: &pdf::Selected) -> Result<Output, ToolError> {
+    let mut output = attached(ctx, path, super::image::PDF, &selected.bytes)?;
+    if let Some((first, last, count)) = selected.part {
+        let name = display(path, ctx.workdir());
+        output.output = format!(
+            "Pages {first} to {last} of {name}'s {count} ({} KB) follow this result.",
+            selected.bytes.len().div_ceil(1024)
+        );
+    }
+
+    Ok(output)
+}
+
+fn read_text(ctx: &Context, path: &std::path::Path, bytes: &[u8], span: Span) -> Result<Output, ToolError> {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let total = text.lines().count();
+    let name = display(path, ctx.workdir());
+    let offset = span.from.line(total);
+    if total > 0 && offset > total {
+        return Err(ToolError(format!(
+            "{name} has {total} lines, so offset {offset} is past its end"
+        )));
+    }
+    warm_servers(ctx, path);
+    // The reminders come first in the budget, so the page fits beside them within one result.
+    let reminders = reminders(ctx, path);
+    let body = page(text, offset, span.limit, PAGE_BYTES.saturating_sub(reminders.len()));
+    let shown = body.len();
+    let mut output = if total == 0 {
+        "(the file is empty)".to_string()
+    } else {
+        body.join("\n")
+    };
+    if offset - 1 + shown < total {
+        write!(
+            output,
+            "\n\n({} more lines; read with offset {})",
+            total - (offset - 1 + shown),
+            offset + shown
+        )
+        .expect("writing to a String cannot fail");
+    }
+    output.push_str(&reminders);
+    ctx.files.mark_read(path);
+    Ok(Output {
+        title: name,
+        output,
+        metadata: ToolMetadata {
+            lines: Some(Some(total)),
+            shown: Some(shown),
+            ..Default::default()
+        },
+    })
 }
 
 /// Starts the language servers for a workspace file being read, so they are ready by its first edit, as opencode does.
@@ -138,15 +240,21 @@ fn warm_servers(ctx: &Context, path: &std::path::Path) {
     });
 }
 
-/// Reads a bounded page from a large text file, without scanning the rest for a line count.
-async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit: usize) -> Result<Output, ToolError> {
+/// Reads a bounded page from a large text file, without scanning the rest for a line count unless it reads from the end.
+async fn read_large(ctx: &Context, path: &std::path::Path, span: Span) -> Result<Output, ToolError> {
     let name = display(path, ctx.workdir());
     let reminders = reminders(ctx, path);
     let budget = PAGE_BYTES.saturating_sub(reminders.len());
     let (file, stop) = (path.to_path_buf(), ctx.abort.clone());
-    let read = tokio::task::spawn_blocking(move || large_page(&file, offset, limit, budget, &stop))
-        .await
-        .map_err(|error| ToolError(error.to_string()))??;
+    let (read, offset) = tokio::task::spawn_blocking(move || {
+        let offset = match span.from {
+            From::Line(line) => line,
+            From::Last(_) => span.from.line(count_lines(&file, &stop)?),
+        };
+        large_page(&file, offset, span.limit, budget, &stop).map(|read| (read, offset))
+    })
+    .await
+    .map_err(|error| ToolError(error.to_string()))??;
     if ctx.abort.is_cancelled() {
         return Err(ToolError("stopped".into()));
     }
@@ -376,6 +484,16 @@ mod tests {
             format!("{}: last", lines + 1),
             "a last line without a newline still counts"
         );
+        let end = Read
+            .run(&sandbox.ctx, json!({ "path": "tail.log", "offset": -2 }))
+            .await
+            .unwrap();
+        assert!(
+            end.output.starts_with(&format!("{lines}: log entry"))
+                && end.output.ends_with(&format!("{}: last", lines + 1)),
+            "a negative offset reads the end: {}",
+            end.output
+        );
         sandbox.ctx.abort.cancel();
         assert_eq!(
             Read.run(&sandbox.ctx, json!({ "path": "big.log", "offset": lines }))
@@ -384,6 +502,46 @@ mod tests {
                 .0,
             "stopped"
         );
+    }
+
+    #[tokio::test]
+    async fn a_negative_offset_reads_the_last_lines() {
+        let sandbox = Sandbox::new("read-tail");
+        sandbox.file("a.txt", "one\ntwo\nthree\nfour\n");
+        let out = Read
+            .run(&sandbox.ctx, json!({ "path": "a.txt", "offset": -2 }))
+            .await
+            .unwrap();
+        assert_eq!(out.output, "3: three\n4: four");
+        let all = Read
+            .run(&sandbox.ctx, json!({ "path": "a.txt", "offset": -9 }))
+            .await
+            .unwrap();
+        assert!(all.output.starts_with("1: one"), "more than the file has reads it all");
+    }
+
+    #[tokio::test]
+    async fn a_long_pdf_is_read_by_pages() {
+        let sandbox = Sandbox::new("read-pages");
+        std::fs::write(sandbox.ctx.workspace.join("long.pdf"), pdf::sample(12)).unwrap();
+        let whole = Read.run(&sandbox.ctx, json!({ "path": "long.pdf" })).await.unwrap_err();
+        assert!(whole.0.contains("has 12 pages; read it in parts"), "{}", whole.0);
+        let part = Read
+            .run(&sandbox.ctx, json!({ "path": "long.pdf", "pages": "11-12" }))
+            .await
+            .unwrap();
+        assert!(
+            part.output.starts_with("Pages 11 to 12 of long.pdf's 12"),
+            "{}",
+            part.output
+        );
+        assert_eq!(super::super::image::returned(&part.metadata)[0].mime, "application/pdf");
+        sandbox.file("a.txt", "text");
+        let text = Read
+            .run(&sandbox.ctx, json!({ "path": "a.txt", "pages": "1" }))
+            .await
+            .unwrap_err();
+        assert!(text.0.contains("for PDFs"), "{}", text.0);
     }
 
     #[tokio::test]

@@ -465,7 +465,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] `task` takes `workdir` (the worker's root for bash, paths, grep and glob, the environment block and AGENTS.md), `model` and `effort`
 - [x] Grep and glob are bounded: 20 s budget with partial results, early stop, a skip list for heavy and system folders unless named or asked for, files over 10 MB skipped, a cheaper per-file check
 - [x] Grep takes Claude Code's options (`output_mode`, `-A`/`-B`/`-C`, `-i`, `type`, `multiline`, `head_limit`, `offset`) and can search ignored folders
-- [ ] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`
+- [x] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`
 - [ ] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped
 - [ ] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
 - [ ] Plugin language servers start at the edited file's git root
