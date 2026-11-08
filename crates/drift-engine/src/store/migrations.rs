@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 54] = [
+pub(super) const MIGRATIONS: [&str; 55] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -251,6 +251,9 @@ pub(super) const MIGRATIONS: [&str; 54] = [
         log TEXT NOT NULL,
         generation INTEGER NOT NULL
     ) STRICT;",
+    // Replies Claude held back were timed from their burst of text; no stream is this fast, so they show no rate.
+    "UPDATE message SET generation_ms = NULL
+     WHERE generation_ms < 50 AND json_extract(usage_json, '$.output') >= 200;",
 ];
 
 #[cfg(test)]

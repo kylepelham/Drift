@@ -2230,7 +2230,10 @@ code until he picks.
     the context meter's usage popover shows the account the chat's next turn would use.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
-  generated text, reasoning or tool-call block to its last content event. Initial request waits,
+  frame (Anthropic's `message_start`) to its last content event. Claude may hold a reply's text
+  back until all of it is written (seen on Opus 5.5 after tool results: thinking with no text, then
+  every text delta in one burst), so timing from the first content block gave rates like 528000
+  tok/s; migration 55 clears those (under 50 ms for 200 or more tokens). Initial request waits,
   trailing usage and stop frames, retry backoff, tool runs and subagent waits do not extend it.
   The footer divides that reply's reported output tokens by the measured duration, not its wall
   time or a reasoning part's absolute timestamp. Old replies and zero-duration samples show no

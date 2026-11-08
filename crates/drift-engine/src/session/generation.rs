@@ -1,6 +1,8 @@
-//! How long a model spent generating one response, on a monotonic clock: from its first content block to
-//! its last content event. Waiting for the request to start, usage and stop frames, and anything that
-//! happens after the response (tools, retries) are not counted.
+//! How long a model spent generating one response, on a monotonic clock: from the response's first frame to
+//! its last content event. Claude may withhold a reply's text until all of it is written, so the first
+//! content block can arrive at the very end; the first frame (`message_start`) is sent as generation begins.
+//! Waiting for the request to start, trailing usage and stop frames, and anything that happens after the
+//! response (tools, retries) are not counted.
 
 use tokio::time::Instant;
 
@@ -14,13 +16,11 @@ pub(super) struct Generation {
 
 impl Generation {
     pub(super) fn observe(&mut self, chunk: &Chunk) {
-        if !generated(chunk, self.first.is_some()) {
-            return;
-        }
-
         let now = Instant::now();
         self.first.get_or_insert(now);
-        self.last = Some(now);
+        if generated(chunk, self.last.is_some()) {
+            self.last = Some(now);
+        }
     }
 
     pub(super) fn milliseconds(&self) -> Option<u64> {
@@ -109,6 +109,20 @@ mod tests {
         generation.observe(&Chunk::ToolInputDelta("{}".into()));
 
         assert_eq!(generation.milliseconds(), Some(4_000));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_reply_held_back_until_it_is_written_is_timed_from_the_response_s_first_frame() {
+        let mut generation = Generation::default();
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        generation.observe(&Chunk::Usage(Usage::default()));
+        tokio::time::advance(Duration::from_secs(9)).await;
+        generation.observe(&Chunk::TextStart);
+        generation.observe(&Chunk::TextDelta("the whole answer at once".into()));
+        generation.observe(&Chunk::BlockStop);
+
+        assert_eq!(generation.milliseconds(), Some(9_000));
     }
 
     #[tokio::test(start_paused = true)]
