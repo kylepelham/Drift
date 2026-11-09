@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{BROWSER, client, elsewhere, public};
 
@@ -17,16 +17,23 @@ const MAX_HEAD: usize = 256 * 1024;
 const MAX_CACHED: usize = 512;
 const MAX_HOPS: usize = 4;
 const WAIT: Duration = Duration::from_secs(10);
+/// A site that had no icon, or refused us, is asked again after this.
+const MISS_TTL: Duration = Duration::from_secs(600);
 
-static CACHE: LazyLock<Mutex<HashMap<String, Option<Favicon>>>> = LazyLock::new(Default::default);
+/// What a host gave, and when it was asked.
+type Cached = (Option<Favicon>, Instant);
 
-/// The icon of a public `host`, fetched once and remembered, found or not, until the cache fills.
+static CACHE: LazyLock<Mutex<HashMap<String, Cached>>> = LazyLock::new(Default::default);
+
+/// The icon of a public `host`, fetched once and remembered; a miss is remembered for [`MISS_TTL`].
 pub async fn get(host: &str) -> Option<Favicon> {
     let host = host.to_ascii_lowercase();
     if !valid(&host) {
         return None;
     }
-    if let Some(known) = CACHE.lock().ok()?.get(&host) {
+    if let Some((known, at)) = CACHE.lock().ok()?.get(&host)
+        && (known.is_some() || at.elapsed() < MISS_TTL)
+    {
         return known.clone();
     }
 
@@ -35,7 +42,7 @@ pub async fn get(host: &str) -> Option<Favicon> {
     if cache.len() >= MAX_CACHED {
         cache.clear();
     }
-    cache.insert(host, found.clone());
+    cache.insert(host, (found.clone(), Instant::now()));
     found
 }
 
