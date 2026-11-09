@@ -613,6 +613,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Sous-agents en arrière-plan simultanés",
     "drift.settings.backgroundLimit.description":
         "Nombre de sous-agents en arrière-plan qui s'exécutent en même temps. Les autres attendent dans une file et démarrent dès qu'une place se libère ; baisser cette valeur n'arrête jamais un sous-agent en cours.",
+    "drift.settings.delegationDepth.title": "Profondeur des sous-agents",
+    "drift.settings.delegationDepth.description":
+        "Combien de niveaux de sous-agents une conversation peut avoir. À 1, seule la conversation délègue ; à 2 ou 3, ses sous-agents peuvent aussi confier des tâches, en attendant chacune. Les agents d'exploration ne délèguent jamais.",
+    "drift.ultra.on":
+        "Ultra est activé : cette conversation orchestre des sous-agents sur chaque tâche importante et vérifie leur travail, quel qu'en soit le coût. Cliquez pour le désactiver.",
+    "drift.ultra.off":
+        "Ultra : orchestrer des sous-agents sur chaque tâche importante et vérifier leur travail. Bien plus approfondi, plusieurs fois plus de jetons.",
     "drift.task.queued": "En file d'attente",
     "drift.task.queued.description":
         "En attente d'une place libre en arrière-plan. Paramètres > Exécution fixe le nombre de sous-agents simultanés.",

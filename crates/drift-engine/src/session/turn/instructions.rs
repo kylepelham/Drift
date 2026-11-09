@@ -29,6 +29,7 @@ fn title(key: &str) -> String {
         Some(("base", _)) => "the base prompt".into(),
         _ if key == "agent" => "the agent's prompt".into(),
         _ if matches!(key, "skills" | "subagents") => format!("the {key} list"),
+        _ if key == "ultra" => "Ultra".into(),
         _ => format!("the {key}"),
     }
 }

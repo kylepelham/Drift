@@ -245,6 +245,7 @@ mod tests {
             worktree: None,
             account: None,
             workdir: None,
+            ultra: false,
             running: false,
         }
     }

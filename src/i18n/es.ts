@@ -606,6 +606,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Subagentes en segundo plano a la vez",
     "drift.settings.backgroundLimit.description":
         "Cuántos subagentes en segundo plano se ejecutan al mismo tiempo. Los demás esperan en una cola y empiezan cuando queda un hueco libre; reducir este valor nunca detiene uno que ya está en marcha.",
+    "drift.settings.delegationDepth.title": "Profundidad de subagentes",
+    "drift.settings.delegationDepth.description":
+        "Cuántos niveles de subagentes puede tener una conversación. Con 1 solo delega la conversación; con 2 o 3 sus subagentes también pueden pasar tareas, esperando cada una. Los agentes de exploración nunca delegan.",
+    "drift.ultra.on":
+        "Ultra está activado: esta conversación orquesta subagentes en cada tarea importante y verifica su trabajo, sin reparar en el coste. Haz clic para desactivarlo.",
+    "drift.ultra.off":
+        "Ultra: orquestar subagentes en cada tarea importante y verificar su trabajo. Mucho más minucioso, varias veces los tokens.",
     "drift.task.queued": "En cola",
     "drift.task.queued.description":
         "Esperando un hueco libre en segundo plano. Ajustes > Ejecución define cuántos subagentes se ejecutan a la vez.",

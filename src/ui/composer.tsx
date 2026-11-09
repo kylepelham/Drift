@@ -1,8 +1,8 @@
 import { backgroundWork, modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { IconBranch, IconLayers, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
 import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
-import { IconBranch, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
@@ -71,6 +71,17 @@ export function Composer() {
     const [manageModels, setManageModels] = createSignal(false);
     // A new thread may start in its own worktree; the engine makes it before the first reply.
     const [inWorktree, setInWorktree] = createSignal(false);
+    // Ultra for a thread not started yet; it is set on the thread before its first prompt goes.
+    const [ultraNext, setUltraNext] = createSignal(false);
+    const ultraOn = () => {
+        const id = selectedSession();
+        return id ? !!engine.state.sessions[id]?.ultra : ultraNext();
+    };
+    const toggleUltra = () => {
+        const id = selectedSession();
+        if (id) void engine.actions.setUltra(id, !ultraOn());
+        else setUltraNext(!ultraNext());
+    };
     const [fileError, setFileError] = createSignal("");
     const [submissionVersion, setSubmissionVersion] = createSignal(0);
     const [historyNavigation, setHistoryNavigation] = createSignal<{
@@ -250,6 +261,7 @@ export function Composer() {
                     selectedModel,
                     selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants),
                     worktree: !existing && inWorktree(),
+                    ultra: !existing && ultraNext(),
                 };
             },
             transform: transformComposerSubmit,
@@ -276,6 +288,10 @@ export function Composer() {
                     return { ok: false as const, error: message };
                 }
 
+                if (prepared.ultra) {
+                    await engine.actions.setUltra(id, true);
+                    setUltraNext(false);
+                }
                 const attachments = await prepareAttachmentsForSend(snapshot.staged);
                 const files = [
                     ...mentionFiles(text, snapshot.mentions, workspace.path),
@@ -595,6 +611,17 @@ export function Composer() {
                                 <IconBranch class="size-3.5" />
                             </button>
                         </Show>
+                        <button
+                            class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+                            classList={{ "text-accent": ultraOn(), "text-ink-faint": !ultraOn() }}
+                            title={t(ultraOn() ? "drift.ultra.on" : "drift.ultra.off")}
+                            aria-label={t("drift.ultra.label")}
+                            aria-pressed={ultraOn()}
+                            disabled={!ready()}
+                            onClick={toggleUltra}
+                        >
+                            <IconLayers class="size-3.5" />
+                        </button>
                         <Show when={autoAcceptOn()}>
                             <button
                                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"

@@ -12,7 +12,7 @@ use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
 use crate::browser::BrowserSettings;
 use crate::session::compaction::{AUTO_COMPACT_KEY, COMPACT_AT_KEY, CompactAt, MODEL_COMPACT_KEY};
-use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
+use crate::session::tasks::{BACKGROUND_TASKS_KEY, DELEGATION_DEPTH_KEY, LimitError, MAX_DELEGATION_DEPTH};
 use crate::session::turn::provider_options::ProviderOptions;
 use crate::session::turn::resume::RESUME_KEY;
 use crate::session::turn::warming::PromptCache;
@@ -42,6 +42,10 @@ pub(super) struct EngineSettings {
     /// How many background subagents run at once, 1 to 64; more wait for a slot. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_task_limit: Option<usize>,
+    /// How many levels of subagents a conversation may have, 1 to 3: at 1 only the conversation delegates, above it
+    /// its subagents may too, in the foreground. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation_depth: Option<u8>,
     /// Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_processes: Option<bool>,
@@ -88,6 +92,8 @@ pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub background_task_limit: Option<usize>,
     #[serde(default)]
+    pub delegation_depth: Option<u8>,
+    #[serde(default)]
     pub background_processes: Option<bool>,
     #[serde(default)]
     pub shell_handoff: Option<bool>,
@@ -113,6 +119,7 @@ fn current(engine: &Engine) -> EngineSettings {
         tool_search: Some(engine.tool_search()),
         background_tasks: Some(engine.background_enabled()),
         background_task_limit: Some(engine.background_limit()),
+        delegation_depth: Some(engine.delegation_depth()),
         background_processes: Some(engine.background_processes()),
         // The stored choice, so turning background processes back on restores it.
         shell_handoff: Some(engine.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)),
@@ -157,6 +164,9 @@ pub(super) async fn put(
             LimitError::Store(error) => error.into(),
         })?;
     }
+    if let Some(depth) = body.delegation_depth {
+        engine.store.set_setting(DELEGATION_DEPTH_KEY, &depth)?;
+    }
     if let Some(browser) = &body.browser {
         engine.set_browser_settings(browser)?;
     }
@@ -189,6 +199,13 @@ fn refusal(body: &EngineSettingsInput) -> Result<(), ApiError> {
     {
         let why = LimitError::OutOfRange.to_string();
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "background_task_limit", why));
+    }
+    if body
+        .delegation_depth
+        .is_some_and(|depth| !(1..=MAX_DELEGATION_DEPTH).contains(&depth))
+    {
+        let why = format!("the subagent depth is 1 to {MAX_DELEGATION_DEPTH}");
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "delegation_depth", why));
     }
     if let Some(problem) = body.prompt_cache.as_ref().and_then(PromptCache::problem) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));

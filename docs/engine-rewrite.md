@@ -230,8 +230,23 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   call's description as its title, so the sidebar names the job it is doing now. A call to continue
   one still running is refused before anything starts; the UI shows it as an ordinary failed call,
   not as that worker, which carries on under its own row.
-- Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
-  refuse to run from one, and a subagent cannot be branched from.
+- Delegation is one level deep by default. Settings > Execution > Subagents > Subagent depth
+  (`delegationDepth`, 1 to 3, as Claude Code's spawn depth, whose default is 3) lets subagents
+  delegate too: a subagent is offered `task` while it is fewer levels down than the setting, and
+  `task` refuses from one any deeper. Its own subagents always run in the foreground (a
+  `run_in_background` is ignored), so their results never arrive after it has reported; several
+  calls in one message still run at once, Stop reaches them through the call's own token, and they
+  take no background slot. `task_output`, `task_stop` and `read_thread` stay with conversations,
+  and a subagent cannot be branched from. Explore lists its tools without `task`, so it never
+  delegates (Claude's Explore is denied its Agent tool the same way).
+- Ultra (Claude Code's Ultracode, without its Workflow script engine): a composer toggle stores
+  `Session::ultra` (migration 56, `PATCH /sessions/{id}`; a new thread gets it before its first
+  prompt goes). While on and the conversation can delegate, the system prompt carries an `ultra`
+  source (`session/prompts/ultra.txt`): orchestrate subagents on every substantive task, fan out
+  per phase, refute findings with independent subagents through different lenses, judge
+  independent designs, search until a round finds nothing new, finish with a completeness check,
+  cost no object. Switched mid-conversation it reaches the model as an `instruction_update` like
+  any other source, so the cached prefix holds. Its subagents do not inherit it.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
   `read_thread` lets a conversation check on a branch taken from it when the user asks.
 - Spawning is one call, no drafting request and no review. `POST /sessions/{id}/spawn {instruction}`
@@ -1983,7 +1998,7 @@ code until he picks.
 - `edit` is exact first, then only typography folding and trailing whitespace (Kyle chose both
   tiers on 2026-10-19 once each was explained); opencode v1 tried nine fuzzy fallbacks, v2 these
   two. Anything looser misses, and the closest-region message is the remedy.
-- Delegation is one level deep; opencode makes the depth configurable (`subagent_depth`).
+- Delegation depth is a setting, 1 by default; opencode's `subagent_depth` is the same idea.
 
 ## Working on it
 

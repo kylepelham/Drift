@@ -599,6 +599,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Baggrundsunderagenter ad gangen",
     "drift.settings.backgroundLimit.description":
         "Hvor mange baggrundsunderagenter der kører på samme tid. Andre venter i kø og starter, når der bliver plads; en lavere værdi stopper aldrig en, der kører.",
+    "drift.settings.delegationDepth.title": "Underagent-dybde",
+    "drift.settings.delegationDepth.description":
+        "Hvor mange niveauer af underagenter en samtale må have. Ved 1 uddelegerer kun samtalen; ved 2 eller 3 må dens underagenter også give opgaver videre og vente på hver. Udforskningsagenter uddelegerer aldrig.",
+    "drift.ultra.on":
+        "Ultra er slået til: denne samtale orkestrerer underagenter ved hver væsentlig opgave og tjekker deres arbejde, uanset pris. Klik for at slå det fra.",
+    "drift.ultra.off":
+        "Ultra: orkestrér underagenter ved hver væsentlig opgave og tjek deres arbejde. Langt grundigere, flere gange så mange tokens.",
     "drift.task.queued": "I kø",
     "drift.task.queued.description":
         "Venter på en ledig baggrundsplads. Indstillinger > Kørsel bestemmer, hvor mange underagenter der kører ad gangen.",

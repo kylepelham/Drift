@@ -610,6 +610,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Gleichzeitige Hintergrund-Subagenten",
     "drift.settings.backgroundLimit.description":
         "Wie viele Hintergrund-Subagenten gleichzeitig laufen. Weitere warten in einer Warteschlange und starten, sobald ein Platz frei wird; ein niedrigerer Wert beendet keinen laufenden.",
+    "drift.settings.delegationDepth.title": "Subagenten-Tiefe",
+    "drift.settings.delegationDepth.description":
+        "Wie viele Ebenen von Subagenten eine Unterhaltung haben darf. Bei 1 delegiert nur die Unterhaltung; bei 2 oder 3 dürfen auch ihre Subagenten Aufgaben weitergeben und warten jeweils darauf. Explore-Agenten delegieren nie.",
+    "drift.ultra.on":
+        "Ultra ist an: Diese Unterhaltung orchestriert bei jeder ernsthaften Aufgabe Subagenten und prüft deren Arbeit, ohne auf die Kosten zu achten. Klicken zum Ausschalten.",
+    "drift.ultra.off":
+        "Ultra: bei jeder ernsthaften Aufgabe Subagenten orchestrieren und ihre Arbeit prüfen. Viel gründlicher, ein Vielfaches an Tokens.",
     "drift.task.queued": "In der Warteschlange",
     "drift.task.queued.description":
         "Wartet auf einen freien Hintergrundplatz. Einstellungen > Ausführung legt fest, wie viele Subagenten gleichzeitig laufen.",

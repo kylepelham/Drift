@@ -515,6 +515,17 @@ test("composer attention cards share one stack without suppressing concurrent re
         expect(await Bun.file(file).text(), file).not.toMatch(/@media\s+not\s*\(/);
 });
 
+test("Ultra is one composer toggle: a thread's own flag, or set on a new thread before its first prompt goes", async () => {
+    const composer = await Bun.file("src/ui/composer.tsx").text();
+
+    expect(composer).toContainCode("aria-pressed={ultraOn()}");
+    expect(composer).toContainCode("if (id) void engine.actions.setUltra(id, !ultraOn());");
+    expect(composer).toContainCode("ultra: !existing && ultraNext()");
+    expect(composer.indexOf("await engine.actions.setUltra(id, true);")).toBeLessThan(
+        composer.indexOf("const result = await engine.actions.send(id, prompt"),
+    );
+});
+
 test("the cards above the composer tuck in or stand apart, and todos, background tasks and undone messages can be hidden", async () => {
     const prefs = await import("../src/state/prefs");
     const attention = await Bun.file("src/ui/attention.tsx").text();

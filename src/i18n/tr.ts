@@ -601,6 +601,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",
     "drift.settings.backgroundLimit.description":
         "Aynı anda kaç arka plan alt ajanının çalışacağı. Diğerleri kuyrukta bekler ve yer açıldıkça başlar; bu değeri düşürmek çalışan bir alt ajanı asla durdurmaz.",
+    "drift.settings.delegationDepth.title": "Alt ajan derinliği",
+    "drift.settings.delegationDepth.description":
+        "Bir konuşmanın kaç alt ajan katmanı olabileceği. 1'de yalnızca konuşma görev devreder; 2 veya 3'te alt ajanları da her birini bekleyerek iş devredebilir. Keşif ajanları asla görev devretmez.",
+    "drift.ultra.on":
+        "Ultra açık: bu konuşma her önemli görevde alt ajanları yönetir ve işlerini doğrular, maliyete bakmadan. Kapatmak için tıklayın.",
+    "drift.ultra.off":
+        "Ultra: her önemli görevde alt ajanları yönet ve işlerini doğrula. Çok daha kapsamlı, birkaç kat token.",
     "drift.task.queued": "Sırada",
     "drift.task.queued.description":
         "Boş bir arka plan yeri bekliyor. Ayarlar > Çalıştırma aynı anda kaç alt ajanın çalışacağını belirler.",

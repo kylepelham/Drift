@@ -598,6 +598,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",
     "drift.settings.backgroundLimit.description":
         "Koliko pozadinskih podagenata radi u isto vrijeme. Ostali čekaju u redu i pokreću se kad se mjesto oslobodi; smanjivanje nikad ne zaustavlja podagenta koji već radi.",
+    "drift.settings.delegationDepth.title": "Dubina podagenata",
+    "drift.settings.delegationDepth.description":
+        "Koliko nivoa podagenata razgovor može imati. Na 1 delegira samo razgovor; na 2 ili 3 i njegovi podagenti mogu prosljeđivati poslove, čekajući svaki. Agenti za istraživanje nikad ne delegiraju.",
+    "drift.ultra.on":
+        "Ultra je uključen: ovaj razgovor orkestrira podagente na svakom ozbiljnom zadatku i provjerava njihov rad, bez obzira na cijenu. Kliknite da ga isključite.",
+    "drift.ultra.off":
+        "Ultra: orkestrira podagente na svakom ozbiljnom zadatku i provjerava njihov rad. Mnogo temeljitije, višestruko više tokena.",
     "drift.task.queued": "U redu",
     "drift.task.queued.description":
         "Čeka slobodno pozadinsko mjesto. Postavke > Izvršavanje određuju koliko podagenata radi istovremeno.",

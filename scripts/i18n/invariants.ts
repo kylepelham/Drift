@@ -22,4 +22,5 @@ export const invariantKeys: ReadonlySet<string> = new Set([
     "drift.theme.claude",
     "drift.theme.charcoal",
     "drift.providers.route.api",
+    "drift.ultra.label",
 ]);

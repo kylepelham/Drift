@@ -576,6 +576,11 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "同时运行的后台子代理",
     "drift.settings.backgroundLimit.description":
         "同时运行的后台子代理数量。其余的在队列中等待，有空位时启动；调低此值不会停止正在运行的子代理。",
+    "drift.settings.delegationDepth.title": "子代理层级",
+    "drift.settings.delegationDepth.description":
+        "一个对话最多可以有几层子代理。为 1 时只有对话本身委派；为 2 或 3 时，它的子代理也可以把工作再委派出去，并逐个等待结果。探索代理从不委派。",
+    "drift.ultra.on": "Ultra 已开启：此对话会在每项实质任务中编排子代理并核查其工作，不计成本。点击关闭。",
+    "drift.ultra.off": "Ultra：在每项实质任务中编排子代理并核查其工作。更加彻底，令牌用量会成倍增加。",
     "drift.task.queued": "排队中",
     "drift.task.queued.description": "正在等待空闲的后台位置。设置 > 执行 决定同时运行的子代理数量。",
     "drift.settings.shellTimeout.title": "Shell 超时",

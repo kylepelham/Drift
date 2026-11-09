@@ -70,6 +70,8 @@ pub struct Setting<'a> {
     pub delegates: bool,
     /// Whether the `skill` tool is offered; only then are the skills listed.
     pub loads_skills: bool,
+    /// The conversation is in Ultra; it is told so only while it can delegate.
+    pub ultra: bool,
     /// Whether a rule denies a permission (`skill`, `task`) for a name; a denied skill or subagent is not listed.
     pub denied: &'a dyn Fn(&str, &str) -> bool,
     /// The model's name as the catalog gives it.
@@ -264,6 +266,7 @@ fn listings(setting: &Setting) -> Vec<Source> {
         delegates,
         loads_skills,
         denied,
+        ultra,
         ..
     } = *setting;
     let mut found = Vec::new();
@@ -295,6 +298,13 @@ fn listings(setting: &Setting) -> Vec<Source> {
             subagents.join("\n")
         );
         found.push(Source::new("subagents", "the subagents list", text));
+    }
+    if delegates && ultra {
+        found.push(Source::new(
+            "ultra",
+            "Ultra",
+            include_str!("prompts/ultra.txt").trim().into(),
+        ));
     }
 
     found
@@ -435,6 +445,7 @@ mod tests {
             agent: config.agent(agent),
             delegates,
             loads_skills: true,
+            ultra: false,
             denied: &NONE_DENIED,
             model: "Claude Opus",
             servers: &servers,
@@ -522,6 +533,7 @@ mod tests {
                 agent: None,
                 delegates: true,
                 loads_skills,
+                ultra: false,
                 denied,
                 model: "m",
                 servers: &[],
@@ -567,6 +579,7 @@ mod tests {
                 agent: None,
                 delegates: false,
                 loads_skills: true,
+                ultra: false,
                 denied: &NONE_DENIED,
                 model: "m",
                 servers: &[],
@@ -608,6 +621,7 @@ mod tests {
             agent: None,
             delegates: false,
             loads_skills: true,
+            ultra: false,
             denied: &NONE_DENIED,
             model: "m",
             servers: &[],

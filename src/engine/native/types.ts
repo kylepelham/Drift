@@ -1987,6 +1987,12 @@ export interface components {
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
             /**
+             * Format: int32
+             * @description How many levels of subagents a conversation may have, 1 to 3: at 1 only the conversation delegates, above it
+             *     its subagents may too, in the foreground. Left out of a PUT, it stays as it is.
+             */
+            delegationDepth?: number | null;
+            /**
              * @description Compaction points in tokens for single models, by `provider/model`, in place of `compact_at`'s. A PUT replaces
              *     the whole map.
              */
@@ -2022,6 +2028,8 @@ export interface components {
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
+            /** Format: int32 */
+            delegationDepth?: number | null;
             modelCompact?: {
                 [key: string]: number;
             } | null;
@@ -2845,6 +2853,8 @@ export interface components {
             autoAccept?: boolean | null;
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
+            /** @description Ultra: on every substantive task the conversation orchestrates subagents, cost no object. */
+            ultra?: boolean | null;
         };
         /**
          * @description Which pays first for OpenAI images when both can.
@@ -3352,6 +3362,8 @@ export interface components {
             /** @description Whether a turn is in flight right now; set by the API, never stored. */
             running?: boolean;
             title: string;
+            /** @description Ultra: on every substantive task it orchestrates subagents, cost no object. Its subagents do not inherit it. */
+            ultra?: boolean;
             /** Format: int64 */
             updatedAt: number;
             /** @description The reasoning variant the user last chose; turns the engine starts itself run with it too. */

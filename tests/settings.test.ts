@@ -135,6 +135,7 @@ test("settings search covers every category and finds feature descriptions", asy
     expect(settingsSearchResults("subagent cache")[0]?.section).toBe("Tools");
     expect(settingsSearchResults("keep idle conversations warm")[0]?.section).toBe("Tools");
     expect(settingsSearchResults("todo list")[0]?.section).toBe("Appearance");
+    expect(settingsSearchResults("subagent depth")[0]?.title).toBe("Subagent depth");
 });
 
 test("Settings offers no Jev tool routing: the native engine has none, so a toggle would configure nothing", async () => {

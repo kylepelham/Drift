@@ -603,6 +603,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",
     "drift.settings.backgroundLimit.description":
         "Ilu podagentów w tle działa jednocześnie. Pozostali czekają w kolejce i startują, gdy zwolni się miejsce; zmniejszenie tej wartości nigdy nie zatrzymuje działającego podagenta.",
+    "drift.settings.delegationDepth.title": "Głębokość podagentów",
+    "drift.settings.delegationDepth.description":
+        "Ile poziomów podagentów może mieć rozmowa. Przy 1 deleguje tylko rozmowa; przy 2 lub 3 jej podagenci też mogą przekazywać zadania, czekając na każde. Agenci eksploracji nigdy nie delegują.",
+    "drift.ultra.on":
+        "Ultra jest włączone: ta rozmowa koordynuje podagentów przy każdym istotnym zadaniu i sprawdza ich pracę, bez względu na koszt. Kliknij, aby wyłączyć.",
+    "drift.ultra.off":
+        "Ultra: koordynuj podagentów przy każdym istotnym zadaniu i sprawdzaj ich pracę. Znacznie dokładniej, kilka razy więcej tokenów.",
     "drift.task.queued": "W kolejce",
     "drift.task.queued.description":
         "Czeka na wolne miejsce w tle. Ustawienia > Wykonywanie określają, ilu podagentów działa jednocześnie.",

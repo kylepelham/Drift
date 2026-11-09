@@ -598,6 +598,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "同時に実行するバックグラウンドサブエージェント",
     "drift.settings.backgroundLimit.description":
         "同時に実行するバックグラウンドサブエージェントの数です。それ以外はキューで待機し、空きができると開始します。値を下げても実行中のものは停止しません。",
+    "drift.settings.delegationDepth.title": "サブエージェントの深さ",
+    "drift.settings.delegationDepth.description":
+        "会話が持てるサブエージェントの階層数。1 では会話だけが委任し、2 または 3 ではサブエージェントもそれぞれの完了を待ちながら仕事を委任できます。探索エージェントは委任しません。",
+    "drift.ultra.on":
+        "Ultra がオン: この会話は重要なタスクごとにサブエージェントを組織し、その結果を検証します。コストは問いません。クリックでオフ。",
+    "drift.ultra.off":
+        "Ultra: 重要なタスクごとにサブエージェントを組織し、その結果を検証します。はるかに徹底的ですが、トークンは数倍かかります。",
     "drift.task.queued": "待機中",
     "drift.task.queued.description":
         "バックグラウンドの空きを待っています。同時に実行するサブエージェントの数は 設定 > 実行 で変更できます。",

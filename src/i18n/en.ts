@@ -602,6 +602,14 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Background subagents at once",
     "drift.settings.backgroundLimit.description":
         "How many background subagents run at the same time. Others wait in a queue and start as slots free up; lowering this never stops one that is running.",
+    "drift.settings.delegationDepth.title": "Subagent depth",
+    "drift.settings.delegationDepth.description":
+        "How many levels of subagents a conversation may have. At 1 only the conversation delegates; at 2 or 3 its subagents may hand jobs on too, waiting for each. Explore agents never delegate.",
+    "drift.ultra.label": "Ultra",
+    "drift.ultra.on":
+        "Ultra is on: this chat orchestrates subagents on every substantive task and checks their work, cost no object. Click to turn it off.",
+    "drift.ultra.off":
+        "Ultra: orchestrate subagents on every substantive task and check their work. Much more thorough, several times the tokens.",
     "drift.task.queued": "Queued",
     "drift.task.queued.description":
         "Waiting for a free background slot. Settings > Execution sets how many subagents run at once.",

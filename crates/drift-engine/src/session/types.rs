@@ -64,6 +64,9 @@ pub struct Session {
     /// A subagent's own folder, relative to where it works: its commands, relative paths and searches start there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workdir: Option<String>,
+    /// Ultra: on every substantive task it orchestrates subagents, cost no object. Its subagents do not inherit it.
+    #[serde(default)]
+    pub ultra: bool,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

@@ -474,6 +474,8 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Background commands in the dock show how long they have run and open to their output
 - [x] Cards above the composer tuck in or stand apart; the todo list, background tasks and rolled back messages can be hidden
 - [x] Background commands a restart ended are told to their conversation at the next start, with the command, the end of its log and the log path
+- [x] Subagents may delegate in the foreground up to a depth set in Settings (1 to 3); explore never delegates
+- [x] Ultra: a per-conversation toggle that orchestrates subagents on every substantive task and checks their work
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

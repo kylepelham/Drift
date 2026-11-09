@@ -42,6 +42,17 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ backgroundTaskLimit });
     }
 
+    /** How many levels of subagents a conversation may have; above 1 its subagents delegate too, in the foreground. */
+    async function setDelegationDepth(delegationDepth: number) {
+        return requireClient().putSettings({ delegationDepth });
+    }
+
+    /** Ultra: on every substantive task the chat orchestrates subagents, cost no object. */
+    async function setUltra(id: string, ultra: boolean) {
+        const updated = await requireClient().updateSession(id, { ultra });
+        putSession(set, sessionInWorkspace(updated, workspaces()));
+    }
+
     /** Whether agents may run commands in the background and see them with `process`. */
     async function setBackgroundProcesses(backgroundProcesses: boolean) {
         return requireClient().putSettings({ backgroundProcesses });
@@ -271,6 +282,8 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     return {
         engineSettings,
         setBackgroundTaskLimit,
+        setDelegationDepth,
+        setUltra,
         setBackgroundProcesses,
         setShellHandoff,
         setBrowserSettings,

@@ -591,6 +591,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "동시에 실행할 백그라운드 하위 에이전트",
     "drift.settings.backgroundLimit.description":
         "동시에 실행되는 백그라운드 하위 에이전트 수입니다. 나머지는 대기열에서 기다리다가 자리가 나면 시작합니다. 값을 낮춰도 실행 중인 에이전트는 멈추지 않습니다.",
+    "drift.settings.delegationDepth.title": "하위 에이전트 깊이",
+    "drift.settings.delegationDepth.description":
+        "대화가 가질 수 있는 하위 에이전트 단계 수입니다. 1이면 대화만 위임하고, 2나 3이면 하위 에이전트도 각 작업을 기다리며 일을 넘길 수 있습니다. 탐색 에이전트는 위임하지 않습니다.",
+    "drift.ultra.on":
+        "Ultra 켜짐: 이 대화는 중요한 작업마다 하위 에이전트를 조율하고 결과를 검증합니다. 비용은 따지지 않습니다. 클릭하면 끕니다.",
+    "drift.ultra.off":
+        "Ultra: 중요한 작업마다 하위 에이전트를 조율하고 결과를 검증합니다. 훨씬 철저하지만 토큰이 몇 배 듭니다.",
     "drift.task.queued": "대기 중",
     "drift.task.queued.description":
         "빈 백그라운드 자리를 기다리는 중입니다. 설정 > 실행에서 동시에 실행할 하위 에이전트 수를 정합니다.",
