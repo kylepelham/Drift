@@ -15,6 +15,7 @@ import { EditedFilesCard } from "./edited-files-card";
 import { emitMessageRendered } from "../plugins";
 import { ProcessExitRow } from "./process-row";
 import { agentLabel, t } from "../state/i18n";
+import { findOpens } from "./transcript-find";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
 import { retryCompaction } from "./revert";
@@ -103,7 +104,8 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; think
     const failed = () => !!messageProblem(props.entry.info);
     const [toggled, setOpen] = createSignal<boolean>();
     // A failed summary stays open so its error and retry are seen.
-    const open = () => toggled() ?? (!compactionCollapsed() || failed());
+    const searched = () => props.entry.parts.some((part) => findOpens(part.id));
+    const open = () => searched() || (toggled() ?? (!compactionCollapsed() || failed()));
     const label = () => {
         if (props.thinking) return t("drift.context.compacting");
         return failed() ? t("drift.message.compactionFailed") : t("drift.message.compactedSummary");
@@ -305,7 +307,10 @@ function UserActions(props: { entry: MessageEntry; onRevert: (keepFiles: boolean
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
     return (
-        <div class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+        <div
+            data-find-ignore
+            class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100"
+        >
             <span>
                 {agentLabel(info().agent ?? "build")} · {model()} · {time()}
             </span>

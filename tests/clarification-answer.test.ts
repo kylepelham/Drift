@@ -63,29 +63,29 @@ test("native clarification search uses rendered questions and answers, not heade
     const message = structured();
     expect(entrySearchText(message)).toBe(clarificationAnswer(message)!.text);
     for (const query of ["which colors?", "include details.", "Green, teal", "text <unchanged>", "anything else?"])
-        expect(transcriptMatches([message], query)).toEqual([{ messageId: "u1", count: 1 }]);
+        expect(transcriptMatches([message], query)).toMatchObject([{ messageId: "u1", count: 1 }]);
     for (const query of [requestID, "Answer to clarification", "Missing", "Unanswered"])
         expect(transcriptMatches([message], query)).toEqual([]);
 
     const repeated = structured([{ ...single, question: "Blue or not Blue?", answers: ["Blue", "Blue"] }]);
-    expect(transcriptMatches([repeated], "blue")).toEqual([{ messageId: "u1", count: 4 }]);
+    expect(transcriptMatches([repeated], "blue")).toMatchObject([{ messageId: "u1", count: 4 }]);
 });
 
 test("legacy search preserves the full displayed body but excludes the protocol prefix", () => {
     const message = entry();
     expect(entrySearchText(message)).toBe(legacyBody);
     for (const query of ["Which colors?", "Blue", "Unanswered"])
-        expect(transcriptMatches([message], query)).toEqual([{ messageId: "u1", count: 1 }]);
+        expect(transcriptMatches([message], query)).toMatchObject([{ messageId: "u1", count: 1 }]);
     for (const query of [requestID, "Answer to clarification"]) expect(transcriptMatches([message], query)).toEqual([]);
 });
 
 test("clarification search cache follows answer changes even when answer lengths stay the same", () => {
     const row = { ...single, answers: ["Blue"] };
     const message = structured([row]);
-    expect(transcriptMatches([message], "blue")).toEqual([{ messageId: "u1", count: 1 }]);
+    expect(transcriptMatches([message], "blue")).toMatchObject([{ messageId: "u1", count: 1 }]);
     row.answers[0] = "Teal";
     expect(transcriptMatches([message], "blue")).toEqual([]);
-    expect(transcriptMatches([message], "teal")).toEqual([{ messageId: "u1", count: 1 }]);
+    expect(transcriptMatches([message], "teal")).toMatchObject([{ messageId: "u1", count: 1 }]);
 });
 
 test("ordinary and malformed clarification messages still search their raw displayed text", () => {
@@ -94,7 +94,7 @@ test("ordinary and malformed clarification messages still search their raw displ
         { ...entry(), parts: [...entry().parts, ...entry("attachment text").parts] },
         { ...entry(), info: { ...entry().info, role: "assistant" } } as MessageEntry,
     ])
-        expect(transcriptMatches([message], "Answer to clarification")).toEqual([{ messageId: "u1", count: 1 }]);
+        expect(transcriptMatches([message], "Answer to clarification")).toMatchObject([{ messageId: "u1", count: 1 }]);
 });
 
 test("a native clarification renders one question without protocol text", () => {

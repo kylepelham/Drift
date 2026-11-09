@@ -392,6 +392,18 @@ scrolled the transcript on every keystroke to bring it out.
 `chat-wheel.ts` only keeps a wheel over an inline menu marked `data-wheel-lock` (the composer's
 pickers) from scrolling the conversation behind it.
 
+Find in session (`transcript-find.tsx`, counting in `state/transcript-search.ts`) searches what the
+timeline draws, unit by unit: a user message whole, or each part of an assistant row, including a
+later step's calls drawn in an earlier row's group. Counting runs on the data, so rows that are not
+mounted are found; once a unit is drawn in full (`data-find-unit`, with `data-find-open="false"` on
+anything folded), the count it shows replaces the data's until its text changes, since markdown,
+clipped output and headers differ from the stored text. The unit the cursor is on opens, with its
+group, compaction summary or answered question, and folds again when the cursor moves on.
+Highlights are CSS highlight ranges, one per occurrence even across markdown spans, repainted on any
+change under the scroller. A jump centres the occurrence in each box that scrolls it, then the
+transcript, and re-takes the scroll anchor so resize compensation does not undo it. A new query
+starts at the first occurrence in view; a sidebar content result opens the bar on its message.
+
 `src/ui/composer.tsx` owns the draft, keys, history browsing, pickers and send. Around it:
 `composer-attention.tsx` stacks permission, question and ask cards from every thread;
 `composer-attachments.ts` stages uploads and rejects ones the selected model cannot read;

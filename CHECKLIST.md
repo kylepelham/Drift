@@ -478,6 +478,7 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Ultra: a per-conversation toggle that orchestrates subagents on every substantive task and checks their work
 - [x] Expanded reads and edits show the file's full path, selectable
 - [x] Fetch rows show the site's icon, fetched by the engine from public hosts only
+- [x] Find in session highlights the words, opens the folded row an occurrence is in until the cursor moves on, lands on every occurrence (later steps drawn in an earlier group, scrolled output boxes), and starts from the view
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

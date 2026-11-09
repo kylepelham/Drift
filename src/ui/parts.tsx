@@ -9,6 +9,7 @@ import { citationFileGroups } from "./citation-files";
 import { promptPartText } from "../engine/parts";
 import { showReasoning } from "../state/prefs";
 import { FindingsCard } from "./findings-card";
+import { findOpens } from "./transcript-find";
 import { TextShimmer } from "./text-shimmer";
 import { FilePartView } from "./file-part";
 import { Dynamic } from "solid-js/web";
@@ -36,95 +37,107 @@ export function PartView(props: {
     orchestrated?: boolean;
 }) {
     const engine = useEngine();
+    // A part drawn by `ToolView` is its own unit; any other is one here, without a box of its own.
+    const unit = () => (drawnByToolView(props.part) ? undefined : props.part.id);
     return (
-        <Switch>
-            <Match when={props.part.type !== "tool_call" && hasPartRenderer(props.part.type) && props.part}>
-                {(part) => <PluginPartView part={part()} />}
-            </Match>
-            <Match when={visibleText(props.part)}>
-                {(part) => {
-                    const split = createMemo(() => splitOrchestratorStatus(part().text));
-                    return (
-                        <>
-                            <Show when={split().prose}>
-                                <Markdown
-                                    text={split().prose}
-                                    directory={engine.state.sessions[part().part.sessionId]?.directory}
-                                    fileGroups={() =>
-                                        citationFileGroups(
-                                            engine.state,
-                                            part().part.sessionId,
-                                            part().part.messageId,
-                                            part().part.id,
-                                        )
-                                    }
-                                    done={false}
-                                    responseID={props.responseID}
-                                    live={props.live}
-                                    revision={props.revision}
-                                />
-                            </Show>
-                            <Show when={props.orchestrated && split().status}>
-                                {(status) => <OrchestratorStatusRow status={status()} />}
-                            </Show>
-                        </>
-                    );
-                }}
-            </Match>
-            <Match when={props.part.type === "context" && props.part}>{(part) => <PluginRow part={part()} />}</Match>
-            <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
-                {(part) => <ReasoningView part={part()} revision={props.revision} />}
-            </Match>
-            <Match
-                when={
-                    props.part.type === "tool_call" &&
-                    hasToolRenderer((props.part as ToolPart).name) &&
-                    (props.part as ToolPart)
-                }
-            >
-                {(part) => (
-                    <ToolContextTarget part={part()}>
-                        <PluginToolView part={part()} />
-                    </ToolContextTarget>
-                )}
-            </Match>
-            <Match when={findingsCall(props.part)}>
-                {(part) => (
-                    <ToolContextTarget part={part()}>
-                        <FindingsCard part={part()} />
-                    </ToolContextTarget>
-                )}
-            </Match>
-            <Match
-                when={
-                    props.part.type === "tool_call" &&
-                    !hiddenTools.has((props.part as ToolPart).name) &&
-                    (props.part as ToolPart)
-                }
-            >
-                {(part) => (
-                    <ToolContextTarget part={part()}>
-                        <ToolView part={part()} />
-                    </ToolContextTarget>
-                )}
-            </Match>
-            <Match when={props.part.type === "compaction"}>
-                <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
-                    <div class="h-px flex-1 bg-edge" />
-                    <TextShimmer
-                        text={props.thinking ? t("drift.context.compacting") : t("drift.context.compacted")}
-                        active={!!props.thinking}
-                    />
-                    <div class="h-px flex-1 bg-edge" />
-                </div>
-            </Match>
-            <Match when={props.part.type === "instruction_update" && props.part}>
-                {(part) => <InstructionUpdateRow part={part() as InstructionUpdatePart} />}
-            </Match>
-            <Match when={props.part.type === "file" && props.part}>
-                {(part) => <FilePartView part={part() as FilePart} />}
-            </Match>
-        </Switch>
+        <div class="contents" data-find-unit={unit()}>
+            <Switch>
+                <Match when={props.part.type !== "tool_call" && hasPartRenderer(props.part.type) && props.part}>
+                    {(part) => <PluginPartView part={part()} />}
+                </Match>
+                <Match when={visibleText(props.part)}>
+                    {(part) => {
+                        const split = createMemo(() => splitOrchestratorStatus(part().text));
+                        return (
+                            <>
+                                <Show when={split().prose}>
+                                    <Markdown
+                                        text={split().prose}
+                                        directory={engine.state.sessions[part().part.sessionId]?.directory}
+                                        fileGroups={() =>
+                                            citationFileGroups(
+                                                engine.state,
+                                                part().part.sessionId,
+                                                part().part.messageId,
+                                                part().part.id,
+                                            )
+                                        }
+                                        done={false}
+                                        responseID={props.responseID}
+                                        live={props.live}
+                                        revision={props.revision}
+                                    />
+                                </Show>
+                                <Show when={props.orchestrated && split().status}>
+                                    {(status) => <OrchestratorStatusRow status={status()} />}
+                                </Show>
+                            </>
+                        );
+                    }}
+                </Match>
+                <Match when={props.part.type === "context" && props.part}>
+                    {(part) => <PluginRow part={part()} />}
+                </Match>
+                <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
+                    {(part) => <ReasoningView part={part()} revision={props.revision} />}
+                </Match>
+                <Match
+                    when={
+                        props.part.type === "tool_call" &&
+                        hasToolRenderer((props.part as ToolPart).name) &&
+                        (props.part as ToolPart)
+                    }
+                >
+                    {(part) => (
+                        <ToolContextTarget part={part()}>
+                            <PluginToolView part={part()} />
+                        </ToolContextTarget>
+                    )}
+                </Match>
+                <Match when={findingsCall(props.part)}>
+                    {(part) => (
+                        <ToolContextTarget part={part()}>
+                            <FindingsCard part={part()} />
+                        </ToolContextTarget>
+                    )}
+                </Match>
+                <Match
+                    when={
+                        props.part.type === "tool_call" &&
+                        !hiddenTools.has((props.part as ToolPart).name) &&
+                        (props.part as ToolPart)
+                    }
+                >
+                    {(part) => (
+                        <ToolContextTarget part={part()}>
+                            <ToolView part={part()} />
+                        </ToolContextTarget>
+                    )}
+                </Match>
+                <Match when={props.part.type === "compaction"}>
+                    <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
+                        <div class="h-px flex-1 bg-edge" />
+                        <TextShimmer
+                            text={props.thinking ? t("drift.context.compacting") : t("drift.context.compacted")}
+                            active={!!props.thinking}
+                        />
+                        <div class="h-px flex-1 bg-edge" />
+                    </div>
+                </Match>
+                <Match when={props.part.type === "instruction_update" && props.part}>
+                    {(part) => <InstructionUpdateRow part={part() as InstructionUpdatePart} />}
+                </Match>
+                <Match when={props.part.type === "file" && props.part}>
+                    {(part) => <FilePartView part={part() as FilePart} />}
+                </Match>
+            </Switch>
+        </div>
+    );
+}
+
+function drawnByToolView(part: Part) {
+    return (
+        part.type === "tool_call" && !hasToolRenderer(part.name) && !findingsCall(part) && !hiddenTools.has(part.name)
     );
 }
 
@@ -217,9 +230,10 @@ export function partVisible(part: Part) {
 
 function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
     const engine = useEngine();
-    const [open, setOpen] = createSignal(false);
+    const [toggled, setOpen] = createSignal(false);
+    const open = () => toggled() || findOpens(props.part.id);
     return (
-        <div class="text-sm">
+        <div class="text-sm" data-find-open={open() ? undefined : "false"}>
             <button
                 class="flex items-center gap-1.5 text-ink-faint transition-colors hover:text-ink-muted"
                 onClick={() => setOpen(!open())}

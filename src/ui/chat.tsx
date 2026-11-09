@@ -31,11 +31,12 @@ import {
     virtualRange,
 } from "./timeline-virtual";
 import {
-    activeFindMessage,
     activeFindOccurrence,
     clearFindHighlights,
+    findRangeVisible,
     paintFindHighlights,
-    scrollFindOccurrence,
+    reconcileFindCounts,
+    revealFindRange,
     syncTranscriptMatches,
     transcriptFindNeedle,
 } from "./transcript-find";
@@ -58,6 +59,10 @@ const loadOlderAt = 1200;
 const gestureWindowMs = 250;
 // The transcript column is padded by pt-14; row offsets are measured from below that padding.
 const headerOffset = 56;
+// How long the counts must hold still before they replace the data's, and how long a jump keeps following its target.
+const findRecountMs = 250;
+const findSettleMs = 1000;
+const findFollowMs = [120, 360, 800];
 // Breathing room above a message jumped to from search, so it does not sit under the header.
 const findMargin = 24;
 
@@ -348,39 +353,86 @@ export function Chat(props: { dock: JSX.Element }) {
         });
     }
 
-    // Search reads the whole transcript, so results follow streaming output and older pages.
-    createEffect(() => syncTranscriptMatches(entries()));
+    // Search reads the rows the timeline draws, part by part, so results follow streaming output and older pages.
+    const partsOfRow = (entry: MessageEntry) => timelineParts(entry, assistantGroups().get(entry.info.id));
+    const rowAtViewTop = () => {
+        const top = viewTop() - headerOffset;
+        const index = offsets().findIndex((_, at) => (offsets()[at + 1] ?? Infinity) > top);
+        return Math.max(0, index);
+    };
+    createEffect(() => syncTranscriptMatches(timeline(), partsOfRow, rowAtViewTop));
 
-    const findHighlight = createMemo(() => activeFindMessage() ?? revealTarget(selectedSession() ?? ""));
+    const findTarget = createMemo(
+        () => {
+            const value = transcriptFindNeedle();
+            const occurrence = activeFindOccurrence();
+            if (!value || !occurrence) return undefined;
 
-    // Highlights repaint a frame after the query, cursor or mounted rows change.
+            return { key: JSON.stringify([value, occurrence.unit, occurrence.index]), rowId: occurrence.rowId };
+        },
+        undefined,
+        { equals: (left, right) => left?.key === right?.key },
+    );
+    // A sidebar result whose words the find bar cannot show still lands on its message, ringed.
+    const revealRow = createMemo(() => (findTarget() ? undefined : revealTarget(selectedSession() ?? "")));
+    const [landed, setLanded] = createSignal("");
+    let landedAt = 0;
+
+    // Highlights repaint a frame after the query, cursor, mounted rows or their contents change.
     let findRaf = 0;
-    let scrolledFindOccurrence = "";
-    createEffect(() => {
-        const value = transcriptFindNeedle();
-        const occurrence = activeFindOccurrence();
-        const target = occurrence ? JSON.stringify([value, occurrence.messageId, occurrence.index]) : "";
+    let recount: ReturnType<typeof setTimeout> | undefined;
+    function paintFind() {
+        cancelAnimationFrame(findRaf);
+        findRaf = requestAnimationFrame(() => {
+            const value = untrack(transcriptFindNeedle);
+            const target = untrack(findTarget);
+            const painted = paintFindHighlights(scroller, value, untrack(activeFindOccurrence));
+            // Counted once the drawn rows hold still, so a row still opening is not taken for an empty one.
+            clearTimeout(recount);
+            if (value) recount = setTimeout(() => reconcileFindCounts(painted.counts), findRecountMs);
+            // A jump that a late page load or resize carried away from its row goes back to the row.
+            const settled = Date.now() - landedAt >= findSettleMs;
+            if (target && !painted.unit && !settled && untrack(landed) === target.key) setLanded("");
+            if (!target || !painted.active) return;
 
+            const inset = dock.offsetHeight;
+            const fresh = target.key !== untrack(landed);
+            // A row that keeps growing after the jump (an opened row, a late redraw) is followed for a moment.
+            const settling = Date.now() - landedAt < findSettleMs && !findRangeVisible(painted.active, scroller, inset);
+            if (!fresh && !settling) return;
+
+            setStick(false);
+            setAwayFromBottom(true);
+            revealFindRange(painted.active, scroller, inset);
+            // Resizes compensate against the anchor; one taken before this jump would undo it.
+            takeAnchor();
+            publishViewport();
+            if (fresh) {
+                landedAt = Date.now();
+                for (const delay of findFollowMs) setTimeout(paintFind, delay);
+            }
+            setLanded(target.key);
+        });
+    }
+    createEffect(() => {
+        if (!transcriptFindNeedle()) setLanded("");
+    });
+    createEffect(() => {
+        transcriptFindNeedle();
+        findTarget();
         viewTop();
         measured();
         entries();
-        cancelAnimationFrame(findRaf);
-        if (!value) {
-            scrolledFindOccurrence = "";
-            clearFindHighlights();
-            return;
-        }
-        findRaf = requestAnimationFrame(() => {
-            const active = paintFindHighlights(scroller, value, occurrence);
-            // Scroll to each occurrence once; repaints from the user's own scrolling must not pull back.
-            if (active && target !== scrolledFindOccurrence) {
-                scrolledFindOccurrence = target;
-                scrollFindOccurrence(active);
-            }
-        });
+        paintFind();
     });
+    const contentObserver = new MutationObserver(() => {
+        if (untrack(transcriptFindNeedle)) paintFind();
+    });
+    onMount(() => contentObserver.observe(scroller, { childList: true, subtree: true, characterData: true }));
     onCleanup(() => {
+        contentObserver.disconnect();
         cancelAnimationFrame(findRaf);
+        clearTimeout(recount);
         clearFindHighlights();
     });
 
@@ -399,6 +451,7 @@ export function Chat(props: { dock: JSX.Element }) {
         const place = () => {
             const target = Math.max(0, headerOffset + offsets()[index] - findMargin);
             scroller.scrollTop = target;
+            takeAnchor();
             publishViewport();
         };
 
@@ -412,13 +465,15 @@ export function Chat(props: { dock: JSX.Element }) {
         return true;
     }
 
+    // Brings the target's row into view until its occurrence is drawn; after that the occurrence itself is centred.
     createEffect(() => {
-        const target = findHighlight();
-        if (!target) return;
+        const target = findTarget();
+        const row = target?.rowId ?? revealRow();
+        if (!row || (target && landed() === target.key)) return;
 
         // Retried as heights are measured, since an unmeasured region moves the target's offset.
         measured();
-        untrack(() => scrollToMessage(target));
+        untrack(() => scrollToMessage(row));
     });
 
     createEffect(
@@ -590,7 +645,7 @@ export function Chat(props: { dock: JSX.Element }) {
                                             thinkingHeading={thinking()?.heading}
                                             retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                                             terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
-                                            found={findHighlight() === entry.info.id}
+                                            found={revealRow() === entry.info.id}
                                             measure={measureRow}
                                             copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
                                             copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}
