@@ -2218,7 +2218,9 @@ code until he picks.
     is too low" count as the plan lacking the model, so the next key or sign-in takes the request.
     When no account can run Fast but one can run the base model, the turn runs at normal speed
     (`slow_when_unserved`: the base model's entry under the chosen id, without Fast's fields) and
-    publishes `provider.slowed` once per conversation while the engine runs. Its `ultra` is true
+    publishes `provider.slowed` once per conversation while the engine runs. A compaction on the
+    conversation's own model is asked the same way (`action_model` follows the account first), so it
+    is not refused, and the instructions never flip between the two models. Its `ultra` is true
     when a sign-in's `/api/oauth/profile` reports `rate_limit_tier` `default_claude_max_20x`, and the
     notice then says how to spend the plan's API credits. A sign-in whose Fast mode is on but whose
     usage credits are spent may answer 429 instead (Claude Code reads

@@ -120,7 +120,7 @@ impl Engine {
         action: &str,
         fallback: Fallback,
     ) -> Result<Action, TurnError> {
-        let plan = self
+        let mut plan = self
             .plan(
                 session_id,
                 &Prompt {
@@ -148,6 +148,11 @@ impl Engine {
                 .unwrap_or_else(|| plan.model_ref.clone()),
         };
         let own = chosen == plan.model_ref;
+        // The conversation's own model is asked as its next step would be: a Fast model no account serves runs at
+        // normal speed, so the request is not refused and its model never flips in the instructions.
+        if own {
+            self.follow_account(&mut plan).await;
+        }
         let resolved = if own {
             Resolved {
                 model_ref: plan.model_ref.clone(),

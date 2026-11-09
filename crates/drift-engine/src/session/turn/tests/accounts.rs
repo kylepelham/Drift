@@ -959,3 +959,44 @@ async fn with_no_account_able_to_run_fast_the_turn_runs_at_normal_speed_and_says
     }
     assert_eq!(slowed, 1);
 }
+
+#[tokio::test]
+async fn compaction_on_a_fast_model_no_account_serves_runs_at_normal_speed_as_the_turn_does() {
+    use crate::session::turn::accounts::runs_fast;
+    let h = harness().await;
+    two_accounts(&h);
+    let fast = fast_prompt(&h);
+    let not_enabled = || {
+        llm::Error::api(
+            400,
+            "invalid_request_error",
+            "Fast mode is not enabled for your organization. An organization admin must enable this feature.",
+        )
+    };
+    h.provider
+        .push_error(not_enabled())
+        .push_error(not_enabled())
+        .push(text("normal speed"));
+    h.engine.submit(&h.session.id, fast).await.await_ok();
+    until_idle(&h).await;
+
+    let action = h
+        .engine
+        .action_model(
+            &h.session.id,
+            "compaction",
+            crate::session::oneshot::Fallback::Conversation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        action.resolved.model_ref.model, "claude-sonnet-4-5-fast",
+        "the conversation keeps its choice"
+    );
+    assert!(
+        !runs_fast(&action.resolved.model),
+        "the summary is asked at normal speed"
+    );
+    let plan = action.own.as_ref().expect("asked as the conversation's next step");
+    assert!(!runs_fast(&plan.model), "its instructions name the model the turn used");
+}

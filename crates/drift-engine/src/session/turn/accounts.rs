@@ -118,7 +118,7 @@ impl Engine {
     /// Moves the turn onto the preferred account before a request is built, so its history is signed for it, and
     /// fits the request to that account. A turn on a credential from the environment stays where it is, and so
     /// does one no account can serve.
-    pub(super) async fn follow_account(&self, plan: &mut Plan) {
+    pub(in crate::session) async fn follow_account(&self, plan: &mut Plan) {
         self.slow_when_unserved(plan).await;
         self.switch_to_preferred(plan).await;
         self.codex_offers.fit(&mut plan.model, &plan.credential);
