@@ -56,7 +56,10 @@ function settle(value: string) {
         setNeedle("");
         return;
     }
-    debounce = setTimeout(() => setNeedle(value), findDebounceMs);
+    debounce = setTimeout(() => {
+        debounce = undefined;
+        setNeedle(value);
+    }, findDebounceMs);
 }
 
 /** Runs a query still waiting out its pause; true when there was one, so Enter lands on its first match. */

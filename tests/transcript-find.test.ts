@@ -203,5 +203,10 @@ test("the timeline follows the occurrence itself, repainting as rows redraw, and
     expect(source).toContain("new MutationObserver(");
     expect(source).toContain("if (!row || (target && landed() === target.key)) return;");
     expect(source).toContain("revealFindRange(painted.active, scroller, inset)");
-    expect(source).toContain("reconcileFindCounts(painted.counts)");
+    expect(source).toContain("reconcileFindCounts(drawnCounts)");
+});
+
+test("a query that has settled is not run again by the next Enter, which would reset the counts instead of stepping", async () => {
+    const source = await Bun.file("src/ui/transcript-find.tsx").text();
+    expect(source).toMatch(/debounce = setTimeout\(\(\) => \{\s*debounce = undefined;\s*setNeedle\(value\);/);
 });

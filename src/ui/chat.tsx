@@ -59,7 +59,7 @@ const loadOlderAt = 1200;
 const gestureWindowMs = 250;
 // The transcript column is padded by pt-14; row offsets are measured from below that padding.
 const headerOffset = 56;
-// How long the counts must hold still before they replace the data's, and how long a jump keeps following its target.
+// How soon drawn counts replace the data's, and how long a jump keeps following its target.
 const findRecountMs = 250;
 const findSettleMs = 1000;
 const findFollowMs = [120, 360, 800];
@@ -381,15 +381,20 @@ export function Chat(props: { dock: JSX.Element }) {
     // Highlights repaint a frame after the query, cursor, mounted rows or their contents change.
     let findRaf = 0;
     let recount: ReturnType<typeof setTimeout> | undefined;
+    let drawnCounts: ReadonlyMap<string, number> = new Map();
     function paintFind() {
         cancelAnimationFrame(findRaf);
         findRaf = requestAnimationFrame(() => {
             const value = untrack(transcriptFindNeedle);
             const target = untrack(findTarget);
             const painted = paintFindHighlights(scroller, value, untrack(activeFindOccurrence));
-            // Counted once the drawn rows hold still, so a row still opening is not taken for an empty one.
-            clearTimeout(recount);
-            if (value) recount = setTimeout(() => reconcileFindCounts(painted.counts), findRecountMs);
+            // Recounted a moment after drawing, with the latest counts; a live reply never holds still long enough to wait for.
+            drawnCounts = painted.counts;
+            if (value && recount === undefined)
+                recount = setTimeout(() => {
+                    recount = undefined;
+                    reconcileFindCounts(drawnCounts);
+                }, findRecountMs);
             // A jump that a late page load or resize carried away from its row goes back to the row.
             const settled = Date.now() - landedAt >= findSettleMs;
             if (target && !painted.unit && !settled && untrack(landed) === target.key) setLanded("");
