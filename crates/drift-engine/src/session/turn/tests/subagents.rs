@@ -137,6 +137,10 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
         .find(|id| id.as_str() != "claude-sonnet-4-5")
         .unwrap()
         .clone();
+    h.engine
+        .store
+        .set_setting(crate::session::tasks::DELEGATION_DEPTH_KEY, &1u8)
+        .unwrap();
     let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}") }));
     h.engine
         .set_agent_overrides(std::collections::HashMap::from([("general".to_string(), pin)]));
@@ -215,8 +219,17 @@ async fn aborting_the_parent_aborts_a_running_child() {
 }
 
 #[tokio::test]
-async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
+async fn at_depth_one_subagents_are_not_offered_delegation_and_cannot_call_it() {
     let h = harness().await;
+    assert_eq!(
+        h.engine.delegation_depth(),
+        3,
+        "subagents delegate three levels deep unless set"
+    );
+    h.engine
+        .store
+        .set_setting(crate::session::tasks::DELEGATION_DEPTH_KEY, &1u8)
+        .unwrap();
     h.provider
         .push(tool_call(
             "task",

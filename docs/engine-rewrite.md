@@ -230,8 +230,8 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   call's description as its title, so the sidebar names the job it is doing now. A call to continue
   one still running is refused before anything starts; the UI shows it as an ordinary failed call,
   not as that worker, which carries on under its own row.
-- Delegation is one level deep by default. Settings > Execution > Subagents > Subagent depth
-  (`delegationDepth`, 1 to 3, as Claude Code's spawn depth, whose default is 3) lets subagents
+- Delegation is three levels deep by default, as Claude Code's spawn depth is. Settings >
+  Execution > Subagents > Subagent depth (`delegationDepth`, 1 to 3) sets it; above 1, subagents
   delegate too: a subagent is offered `task` while it is fewer levels down than the setting, and
   `task` refuses from one any deeper. Its own subagents always run in the foreground (a
   `run_in_background` is ignored), so their results never arrive after it has reported; several
@@ -239,7 +239,8 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   take no background slot. `task_output`, `task_stop` and `read_thread` stay with conversations,
   and a subagent cannot be branched from. Explore lists its tools without `task`, so it never
   delegates (Claude's Explore is denied its Agent tool the same way).
-- Ultra (Claude Code's Ultracode, without its Workflow script engine): a composer toggle stores
+- Ultra (Claude Code's Ultracode, without its Workflow script engine): a toggle under the composer's
+  thinking levels (the trigger shows its icon while on) stores
   `Session::ultra` (migration 56, `PATCH /sessions/{id}`; a new thread gets it before its first
   prompt goes). While on and the conversation can delegate, the system prompt carries an `ultra`
   source (`session/prompts/ultra.txt`): orchestrate subagents on every substantive task, fan out
@@ -1727,9 +1728,11 @@ listed there.
     - A fetch row shows its site's icon. `GET /favicons/{host}` (`tool/webfetch/favicon.rs`) fetches
       `/favicon.ico`, else the icon the home page links (a plain icon before an Apple touch icon),
       through the public-only resolver, following redirects only to public hosts; icons are capped at
-      100 KB and known by their bytes (PNG, JPEG, GIF, WebP, ICO, SVG). Hits and misses are kept in
-      memory, so each host is asked once; a private or dotless host is never asked. The UI never
-      fetches it itself.
+      100 KB and known by their bytes (PNG, JPEG, GIF, WebP, ICO, SVG). Hits are kept in memory, so
+      each host is asked once; a miss is asked again after ten minutes, as a site may have refused
+      one request. A private or dotless host is never asked. The UI never fetches it itself; an
+      icon too close in tone to the theme's background (contrast under 2) gets a backing in the
+      opposite tone, unless it fills its square.
     - Tavily's plan and pay-as-you-go limits answer 432 and 433, which set the key aside as a 402
       does. Snippets lose markdown link syntax and heading marks, which Firecrawl's descriptions
       now carry, and the search engine's "More results from" tail.

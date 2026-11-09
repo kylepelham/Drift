@@ -36,6 +36,8 @@ export function Picker(props: {
     width?: string;
     /** Several items can be on at once: picking one toggles it, and the list stays open. */
     checked?: string[];
+    /** Below the list: a setting that belongs with the choice, such as Ultra beside the thinking level. */
+    footer?: JSX.Element;
     onPick: (id: string) => void;
 }) {
     const [open, setOpen] = createSignal(false);
@@ -207,6 +209,9 @@ export function Picker(props: {
                     <div class="px-3 py-2 text-sm text-ink-faint">{t("prompt.popover.emptyResults")}</div>
                 </Show>
             </div>
+            <Show when={props.footer}>
+                <div class="border-t border-edge py-1">{props.footer}</div>
+            </Show>
         </div>
     );
 

@@ -1,7 +1,7 @@
 import { backgroundWork, modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
+import { IconBranch, IconCheck, IconLayers, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
-import { IconBranch, IconLayers, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
 import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
@@ -586,16 +586,33 @@ export function Composer() {
                                 }}
                             />
                         </Show>
-                        <Show when={variants().length > 0}>
-                            <Picker
-                                label={t("drift.composer.thinkingLevel")}
-                                items={variantItems()}
-                                selected={variant() ?? "default"}
-                                onPick={(id) =>
-                                    updatePrefs(selectedSession(), { variant: id === "default" ? null : id })
-                                }
-                            />
-                        </Show>
+                        <Picker
+                            label={t("drift.composer.thinkingLevel")}
+                            items={variantItems()}
+                            selected={variant() ?? "default"}
+                            icon={
+                                <Show when={ultraOn()}>
+                                    <IconLayers class="size-3.5 shrink-0 text-accent" />
+                                </Show>
+                            }
+                            footer={
+                                <button
+                                    class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-raised disabled:opacity-60"
+                                    classList={{ "text-accent": ultraOn(), "text-ink-muted": !ultraOn() }}
+                                    title={t(ultraOn() ? "drift.ultra.on" : "drift.ultra.off")}
+                                    aria-pressed={ultraOn()}
+                                    disabled={!ready()}
+                                    onClick={toggleUltra}
+                                >
+                                    <IconLayers class="size-3.5 shrink-0" />
+                                    <span class="min-w-0 flex-1 truncate">{t("drift.ultra.label")}</span>
+                                    <Show when={ultraOn()}>
+                                        <IconCheck class="size-3.5 shrink-0" />
+                                    </Show>
+                                </button>
+                            }
+                            onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
+                        />
                     </div>
                     <div class="composer-action-buttons ml-auto flex shrink-0 items-center gap-1">
                         <Show when={!selectedSession()}>
@@ -611,17 +628,6 @@ export function Composer() {
                                 <IconBranch class="size-3.5" />
                             </button>
                         </Show>
-                        <button
-                            class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-                            classList={{ "text-accent": ultraOn(), "text-ink-faint": !ultraOn() }}
-                            title={t(ultraOn() ? "drift.ultra.on" : "drift.ultra.off")}
-                            aria-label={t("drift.ultra.label")}
-                            aria-pressed={ultraOn()}
-                            disabled={!ready()}
-                            onClick={toggleUltra}
-                        >
-                            <IconLayers class="size-3.5" />
-                        </button>
                         <Show when={autoAcceptOn()}>
                             <button
                                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"

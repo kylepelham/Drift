@@ -515,8 +515,12 @@ test("composer attention cards share one stack without suppressing concurrent re
         expect(await Bun.file(file).text(), file).not.toMatch(/@media\s+not\s*\(/);
 });
 
-test("Ultra is one composer toggle: a thread's own flag, or set on a new thread before its first prompt goes", async () => {
+test("Ultra is one toggle under the thinking levels: a thread's own flag, or set on a new thread before its first prompt goes", async () => {
     const composer = await Bun.file("src/ui/composer.tsx").text();
+    const thinking = composer.slice(composer.indexOf('label={t("drift.composer.thinkingLevel")}'));
+
+    expect(thinking.indexOf("onClick={toggleUltra}")).toBeLessThan(thinking.indexOf("onPick="));
+    expect(thinking.indexOf("footer={")).toBeGreaterThan(0);
 
     expect(composer).toContainCode("aria-pressed={ultraOn()}");
     expect(composer).toContainCode("if (id) void engine.actions.setUltra(id, !ultraOn());");

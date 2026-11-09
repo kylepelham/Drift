@@ -371,12 +371,12 @@ impl Engine {
         stored_background_limit(&self.store)
     }
 
-    /// How many levels of subagents a conversation may have; 1 keeps delegation to the conversation itself.
+    /// How many levels of subagents a conversation may have, all three unless set; 1 keeps delegation to the conversation itself.
     pub fn delegation_depth(&self) -> u8 {
         let saved: Option<u8> = self.store.setting(DELEGATION_DEPTH_KEY).ok().flatten();
         saved
             .filter(|depth| (1..=MAX_DELEGATION_DEPTH).contains(depth))
-            .unwrap_or(1)
+            .unwrap_or(MAX_DELEGATION_DEPTH)
     }
 
     /// Whether `session` may hand work on: a conversation always, a subagent while the depth setting allows.
