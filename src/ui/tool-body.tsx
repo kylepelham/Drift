@@ -2,6 +2,7 @@ import { ReadImage, readImage, returnedImages, ToolImage } from "./tool-image";
 import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 import { ShellOutput, splitNotes, stripAnsi } from "./shell-output";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
+import { patchFiles, toolFullPath } from "./tool-labels";
 import { citationFileGroups } from "./citation-files";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
@@ -9,7 +10,6 @@ import { inputFields, outputView } from "./tool-io";
 import { ShellProcessStatus } from "./process-row";
 import { ReadPanel, readPage } from "./tool-read";
 import { toolDisplay } from "./tool-presentation";
-import { patchFiles } from "./tool-labels";
 import { Markdown } from "./markdown";
 import { useEngine } from "../engine";
 import { IconInfo } from "./icons";
@@ -55,6 +55,11 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
     };
 
     const tasked = () => taskBody(props.part);
+    const fullPath = () => {
+        const session = engine.state.sessions[props.part.sessionId];
+        const directory = session?.workdir ? `${session.directory}/${session.workdir}` : session?.directory;
+        return toolFullPath(props.part, directory);
+    };
 
     const citationFiles = () => {
         const child = delegatedChildId(engine.state, props.part);
@@ -120,13 +125,23 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                 </Match>
                 <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
                 <Match when={readImage(props.part)}>
-                    {(image) => <ReadImage hash={image().hash} path={image().path} />}
+                    {(image) => <ReadImage hash={image().hash} path={fullPath() ?? image().path} />}
                 </Match>
                 <Match when={readPage(props.part)}>
-                    {(page) => <ReadPanel path={page().path} lines={page().lines} rest={page().rest} />}
+                    {(page) => (
+                        <>
+                            <ToolPath path={fullPath()} />
+                            <ReadPanel path={page().path} lines={page().lines} rest={page().rest} />
+                        </>
+                    )}
                 </Match>
                 <Match when={props.diff ?? written()}>
-                    {(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}
+                    {(patch) => (
+                        <>
+                            <ToolPath path={fullPath()} />
+                            <DiffPanel diff={patch()} filename={diffFilename()} />
+                        </>
+                    )}
                 </Match>
             </Switch>
             <Show when={props.error}>
@@ -137,6 +152,17 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                 )}
             </Show>
         </>
+    );
+}
+
+/** The full path of the file a call read or changed, above what it shows; selectable, so it can be copied. */
+function ToolPath(props: { path?: string }) {
+    return (
+        <Show when={props.path}>
+            {(path) => (
+                <div class="tool-path mb-1 px-1 font-mono text-xs break-all text-ink-faint select-text">{path()}</div>
+            )}
+        </Show>
     );
 }
 

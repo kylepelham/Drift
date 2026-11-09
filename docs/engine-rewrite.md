@@ -1724,6 +1724,12 @@ listed there.
       final. The URL never goes to a provider when its host is local or private (loopback, private
       and shared ranges, link-local, `.local`, `.internal`, a name without a dot) or it carries
       credentials; Off in Settings stops the fallback too. The result says which provider read it.
+    - A fetch row shows its site's icon. `GET /favicons/{host}` (`tool/webfetch/favicon.rs`) fetches
+      `/favicon.ico`, else the icon the home page links (a plain icon before an Apple touch icon),
+      through the public-only resolver, following redirects only to public hosts; icons are capped at
+      100 KB and known by their bytes (PNG, JPEG, GIF, WebP, ICO, SVG). Hits and misses are kept in
+      memory, so each host is asked once; a private or dotless host is never asked. The UI never
+      fetches it itself.
     - Tavily's plan and pay-as-you-go limits answer 432 and 433, which set the key aside as a 402
       does. Snippets lose markdown link syntax and heading marks, which Firecrawl's descriptions
       now carry, and the search engine's "More results from" tail.

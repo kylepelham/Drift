@@ -16,6 +16,7 @@ import { parseDiff } from "./diff-panel";
 import { ToolBody } from "./tool-body";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
+import { Favicon } from "./favicon";
 import { t } from "../state/i18n";
 
 import type { ToolPart } from "../engine/parts";
@@ -304,6 +305,7 @@ export function ToolView(props: { part: ToolPart }) {
                         timing={timing()}
                     />
                 </Show>
+                <Show when={info().host}>{(host) => <Favicon host={host()} />}</Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
                         class="tool-row-subtitle min-w-0 truncate"

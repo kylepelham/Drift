@@ -221,9 +221,15 @@ fn read_text(ctx: &Context, path: &std::path::Path, bytes: &[u8], span: Span) ->
         metadata: ToolMetadata {
             lines: Some(Some(total)),
             shown: Some(shown),
+            files: Some(vec![read_file(path)]),
             ..Default::default()
         },
     })
+}
+
+/// The file a read showed, by its full path, for the transcript to name.
+pub(super) fn read_file(path: &std::path::Path) -> crate::session::types::MetadataFile {
+    crate::session::types::MetadataFile::Path(path.to_string_lossy().into_owned())
 }
 
 /// Starts the language servers for a workspace file being read, so they are ready by its first edit, as opencode does.
@@ -283,6 +289,7 @@ async fn read_large(ctx: &Context, path: &std::path::Path, span: Span) -> Result
             lines: Some(None),
             shown: Some(shown),
             large: Some(true),
+            files: Some(vec![read_file(path)]),
             ..Default::default()
         },
     })
@@ -304,6 +311,11 @@ mod tests {
             .unwrap();
         assert_eq!(out.output, "2: two\n3: three\n\n(1 more lines; read with offset 4)");
         assert_eq!(out.title, "a.txt");
+        let full = sandbox.ctx.workspace.join("a.txt").to_string_lossy().into_owned();
+        assert!(
+            matches!(out.metadata.files.as_deref(), Some([crate::session::types::MetadataFile::Path(path)]) if *path == full),
+            "the expanded row names the file by its full path"
+        );
         assert!(sandbox.ctx.files.was_read(&sandbox.ctx.workspace.join("a.txt")));
     }
 

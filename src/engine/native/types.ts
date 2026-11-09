@@ -136,6 +136,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/favicons/{host}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public site's icon, for the transcript to show beside a URL; the engine fetches it so the UI never does. */
+        get: operations["getFavicon"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/grammars": {
         parameters: {
             query?: never;
@@ -4073,6 +4090,33 @@ export interface operations {
         responses: {
             /** @description WebSocket; every message is a Frame */
             101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFavicon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlobImage"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

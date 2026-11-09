@@ -150,6 +150,7 @@ export function createClient(target: Target) {
         setImageKey: (provider: string, key: string) =>
             request<Json<"setImageKey", 200>>("PUT", "/image-generation/keys", { provider, key }),
         blob: (hash: string) => request<Json<"getBlob", 200>>("GET", `/blobs/${encodeURIComponent(hash)}`),
+        favicon: (host: string) => request<Json<"getFavicon", 200>>("GET", `/favicons/${encodeURIComponent(host)}`),
         voice: () => request<Json<"getVoice", 200>>("GET", "/voice"),
         setVoiceKey: (provider: string, key: string) =>
             request<Json<"setVoiceKey", 200>>("PUT", "/voice/keys", { provider, key }),

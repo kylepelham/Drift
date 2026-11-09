@@ -476,6 +476,8 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Background commands a restart ended are told to their conversation at the next start, with the command, the end of its log and the log path
 - [x] Subagents may delegate in the foreground up to a depth set in Settings (1 to 3); explore never delegates
 - [x] Ultra: a per-conversation toggle that orchestrates subagents on every substantive task and checks their work
+- [x] Expanded reads and edits show the file's full path, selectable
+- [x] Fetch rows show the site's icon, fetched by the engine from public hosts only
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

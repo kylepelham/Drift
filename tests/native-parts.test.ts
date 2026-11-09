@@ -1,6 +1,6 @@
+import { faviconHost, patchFiles, toolFullPath, toolInfo } from "../src/ui/tool-labels";
 import { promptPartText, toolInput, toolMetadata } from "../src/engine/parts";
 import { clarificationAnswer } from "../src/ui/clarification-answer";
-import { patchFiles, toolInfo } from "../src/ui/tool-labels";
 import { toolDisplay } from "../src/ui/tool-presentation";
 import { draftFromMessage } from "../src/state/composer";
 import { builtinFileTargets } from "../src/tool-actions";
@@ -193,4 +193,20 @@ test("a read image shows in its expanded row by the hash the engine keeps, with 
         readImage(tool("read", { path: "C:/docs/spec.pdf" }, { images: [{ mime: "application/pdf", hash: "def" }] })),
     ).toBeNull();
     expect(readImage(tool("read", { path: "C:/repo/notes.txt" }))).toBeNull();
+});
+
+test("an expanded read or edit names its file by the full path the engine recorded, else under the session's folder", () => {
+    const recorded = tool("read", { filePath: "src/a.ts" }, { files: ["D:\\repo\\src\\a.ts"] });
+    expect(toolFullPath(recorded, "C:\\repo")).toBe("D:\\repo\\src\\a.ts");
+    expect(toolFullPath(tool("read", { filePath: "./src/a.ts" }), "C:\\repo\\")).toBe("C:\\repo\\src\\a.ts");
+    expect(toolFullPath(tool("edit", { filePath: "src/a.ts" }), "/home/k/repo")).toBe("/home/k/repo/src/a.ts");
+    expect(toolFullPath(tool("edit", { filePath: "/etc/hosts" }), "/home/k/repo")).toBe("/etc/hosts");
+    expect(toolFullPath(tool("glob", { pattern: "*.ts" }), "/home/k/repo")).toBeUndefined();
+});
+
+test("a fetch row shows its site's icon by host, never for a local or non-web address", () => {
+    expect(toolInfo(tool("webfetch", { url: "https://Docs.rs/tokio" })).host).toBe("docs.rs");
+    expect(faviconHost("http://localhost:3000")).toBeUndefined();
+    expect(faviconHost("file:///C:/a.html")).toBeUndefined();
+    expect(faviconHost("not a url")).toBeUndefined();
 });

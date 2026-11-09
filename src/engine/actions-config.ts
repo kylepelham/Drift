@@ -307,6 +307,8 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         setImageKey: (provider: string, key: string) => requireClient().setImageKey(provider, key),
         /** An image a tool call returned, by the hash its metadata names. */
         toolImage: (hash: string) => requireClient().blob(hash),
+        /** A public site's icon, which the engine fetches and remembers; it fails when the site has none. */
+        favicon: (host: string) => requireClient().favicon(host),
         voice: () => requireClient().voice(),
         setVoiceKey: (provider: string, key: string) => requireClient().setVoiceKey(provider, key),
         removeVoiceKey: (provider: string) => requireClient().removeVoiceKey(provider),
