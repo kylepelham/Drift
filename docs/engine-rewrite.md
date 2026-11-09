@@ -770,6 +770,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   applied files is kept until the undo point is saved: if that save fails, the files go back the
   same way, so files and history never disagree. A retry then finds every file as the session left
   it, so none is wrongly reported as kept.
+- An undo reads only the span it moves, from the undo point on in the conversation and each of its
+  workers, never whole transcripts, and reads every file's recorded bytes from one
+  `git cat-file --batch` per history store. Before, an undo in Ona's coordinator (369 workers, 567
+  MB of parts) read every transcript twice, about 4 s even when nothing changed, and started one
+  git process per file, 30 to 150 ms each on Windows.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
 - Calls are replayed in the order their writes finished: each record carries `at`, a time-ordered
   stamp taken once the call's writes (and formatters) are done, so two workers that start in one
