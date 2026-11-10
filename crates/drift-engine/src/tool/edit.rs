@@ -60,7 +60,11 @@ impl Tool for Edit {
             let replace_all = input["replace_all"].as_bool().unwrap_or(false);
             let name = display(&path, ctx.workdir());
             if old == new {
-                return Err(ToolError("old_string and new_string are identical".into()));
+                return Err(ToolError(
+                    "old_string and new_string are identical, so nothing would change; to insert, new_string is the anchor \
+                     followed by the new text"
+                        .into(),
+                ));
             }
 
             let raw = read_for_edit(&path, &name).await?;

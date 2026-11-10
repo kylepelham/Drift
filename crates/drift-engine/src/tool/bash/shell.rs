@@ -77,7 +77,8 @@ pub(super) fn shell_note(shell: &Shell, windows: bool) -> &'static str {
     match shell {
         Shell::Bash(_) if windows => concat!(
             "Git Bash on Windows. It is Unix bash, not cmd: discard output with `/dev/null`, never `NUL`; ",
-            "change directory with `cd`, never `cd /d`; write paths as `C:/dir/file` or `/c/dir/file`"
+            "change directory with `cd`, never `cd /d`; write paths as `C:/dir/file` or `/c/dir/file`; ",
+            "Python's `open(path, 'w')` writes CRLF here, so pass `newline=''` to keep a file's line endings"
         ),
         Shell::Bash(_) => "bash",
         Shell::PowerShell(path) if windows_powershell(path) => {

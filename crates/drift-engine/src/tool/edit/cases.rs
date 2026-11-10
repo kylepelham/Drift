@@ -23,7 +23,12 @@ async fn no_op_empty_missing_and_ambiguous_replacements_are_refused_and_write_no
     let sandbox = Sandbox::new("edit-refused");
     sandbox.file("matches.txt", "same same");
 
-    assert!(edit(&sandbox, call("matches.txt", "same", "same")).await.is_err());
+    let unchanged = edit(&sandbox, call("matches.txt", "same", "same")).await.unwrap_err();
+    assert!(
+        unchanged.0.contains("to insert, new_string is the anchor"),
+        "{}",
+        unchanged.0
+    );
     assert!(edit(&sandbox, call("matches.txt", "", "after")).await.is_err());
     assert!(edit(&sandbox, call("matches.txt", "missing", "after")).await.is_err());
     let ambiguous = edit(&sandbox, call("matches.txt", "same", "after")).await.unwrap_err();
