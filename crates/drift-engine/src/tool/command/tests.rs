@@ -229,11 +229,18 @@ fn only_lines_of_known_readers_count_as_reading() {
         "cd crates && cat Cargo.toml",
         "find . -name '*.rs'",
         "echo done",
+        "od -An -tx1 -j 236103 -N 48 dump.bin",
+        "C:/Strawberry/c/bin/objdump.exe -D -b binary -m i386:x86-64 w.bin | head -100",
+        "strings -a -n 5 w.bin",
+        "sha256sum a.efi && cmp a.bin b.bin",
+        "command -v objdump || true",
     ] {
         assert!(reads_only(Dialect::Bash, line), "{line}");
     }
     for line in [
         "git commit -m x",
+        "command rm x",
+        "od -An dump.bin > out.txt",
         "git status > out.txt",
         "cargo test",
         "find . -name x -delete",

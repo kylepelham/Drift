@@ -124,7 +124,7 @@ const INLINE_CODE: [(&str, &[&str]); 9] = [
 const BASH_SINKS: [&str; 5] = ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"];
 const POWERSHELL_SINKS: [&str; 1] = ["$null"];
 /// Programs that only read, whatever their arguments; `cd` and friends only move.
-const READERS: [&str; 34] = [
+const READERS: [&str; 53] = [
     "ls",
     "dir",
     "cat",
@@ -159,6 +159,25 @@ const READERS: [&str; 34] = [
     "get-item",
     "write-output",
     "set-location",
+    "od",
+    "hexdump",
+    "strings",
+    "objdump",
+    "readelf",
+    "nm",
+    "md5sum",
+    "sha1sum",
+    "sha256sum",
+    "sha512sum",
+    "b2sum",
+    "cksum",
+    "cut",
+    "diff",
+    "cmp",
+    "basename",
+    "dirname",
+    "realpath",
+    "true",
 ];
 /// Git subcommands that only read.
 const GIT_READERS: [&str; 9] = [
@@ -385,6 +404,8 @@ fn reader(command: &str) -> bool {
         }
         "find" => true,
         "sed" => printed_range(&words[1..]),
+        // `command -v` names where a program is; `command name` would run it.
+        "command" => words.get(1).is_some_and(|flag| flag == "-v"),
         _ => READERS.contains(&program),
     }
 }
