@@ -122,6 +122,8 @@ struct Options {
     line_numbers: bool,
     ignore_case: bool,
     multiline: bool,
+    /// Matches may span lines: `multiline`, or a pattern that names a newline, which would otherwise be refused.
+    spans_lines: bool,
     file_type: Option<String>,
     /// Entries to show; none shows all.
     limit: Option<usize>,
@@ -149,6 +151,7 @@ impl Options {
             line_numbers: flag("-n", true),
             ignore_case: flag("-i", false),
             multiline: flag("multiline", false),
+            spans_lines: flag("multiline", false) || names_newline(input["pattern"].as_str().unwrap_or_default()),
             file_type: input["type"]
                 .as_str()
                 .filter(|kind| !kind.is_empty())
@@ -249,11 +252,25 @@ fn searched(
     Ok(Found::from(tally, skipped.names()))
 }
 
+/// Whether a pattern matches a newline: one typed in it, or a `\n` escape that is not itself an escaped backslash.
+fn names_newline(pattern: &str) -> bool {
+    let mut escaped = false;
+    for character in pattern.chars() {
+        if character == '\n' || (escaped && character == 'n') {
+            return true;
+        }
+        escaped = !escaped && character == '\\';
+    }
+    false
+}
+
 fn matcher(pattern: &str, options: &Options) -> Result<grep::regex::RegexMatcher, ToolError> {
     let mut builder = RegexMatcherBuilder::new();
     builder.case_insensitive(options.ignore_case);
     if options.multiline {
         builder.multi_line(true).dot_matches_new_line(true);
+    } else if options.spans_lines {
+        builder.multi_line(true);
     } else {
         builder.line_terminator(Some(b'\n'));
     }

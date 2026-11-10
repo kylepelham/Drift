@@ -295,3 +295,27 @@ async fn bad_regex_is_reported() {
     let err = Grep.run(&sandbox.ctx, json!({ "pattern": "(" })).await.unwrap_err();
     assert!(err.0.starts_with("invalid regex"));
 }
+
+#[tokio::test]
+async fn a_pattern_naming_a_newline_matches_across_lines_without_multiline() {
+    let sandbox = Sandbox::new("grep-newline");
+    sandbox.file("a.h", "typedef struct\n{\n  int x;\n} INFO;\nint a; // x.y\n");
+    let found = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": r"typedef struct[^\n]*\n\{", "output_mode": "count" }),
+        )
+        .await
+        .unwrap();
+    assert!(found.output.contains("a.h:1"), "{}", found.output);
+    // An escaped backslash before `n` is a backslash and a letter, and `.` still stops at a line's end.
+    assert!(!names_newline(r"C:\\new") && names_newline(r"a\nb") && names_newline("a\nb"));
+    let one_line = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": r"int.*\n?x", "output_mode": "content" }),
+        )
+        .await
+        .unwrap();
+    assert!(!one_line.output.contains("INFO"), "{}", one_line.output);
+}

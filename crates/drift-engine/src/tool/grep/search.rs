@@ -68,7 +68,7 @@ impl Search<'_> {
         SearcherBuilder::new()
             .line_number(true)
             .binary_detection(BinaryDetection::quit(0))
-            .multi_line(self.options.multiline)
+            .multi_line(self.options.spans_lines)
             .before_context(if content { self.options.before } else { 0 })
             .after_context(if content { self.options.after } else { 0 })
             .build()
