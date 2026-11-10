@@ -701,6 +701,7 @@ fn gone(url_before: &str) -> Settled {
         title: String::new(),
         navigated: !url_before.is_empty(),
         dialog: None,
+        loading: false,
     }
 }
 

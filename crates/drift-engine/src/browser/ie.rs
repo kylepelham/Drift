@@ -687,6 +687,7 @@ impl Tab for IeTab {
             title: state.title.clone(),
             navigated: state.url != url_before,
             dialog: state.dialog.clone(),
+            loading: false,
         }
     }
 

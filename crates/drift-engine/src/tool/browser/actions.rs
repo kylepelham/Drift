@@ -117,7 +117,7 @@ async fn act(
                 project.resolve(url)
             };
             tab.go(&url).await?;
-            "Loaded.".to_string()
+            String::new()
         }
         "click" => {
             tab.click(target(input)?, input["double"].as_bool().unwrap_or(false))
@@ -151,7 +151,11 @@ async fn act(
     let mut settled = tab.settle(&url_before).await;
     driver.refresh().await;
     settled.title = tab.record(false).title;
-    let mut text = done;
+    let mut text = if action == "navigate" {
+        navigated(&settled).into()
+    } else {
+        done
+    };
     report(&mut text, &settled, matches!(action, "navigate" | "login"));
     report_tabs(&mut text, driver.as_ref(), tabs_before);
 
@@ -168,6 +172,15 @@ fn target(input: &Value) -> Result<Target, String> {
     match (x, y) {
         (Some(x), Some(y)) => Ok(Target::Point(x, y)),
         _ => Err("`ref`, or `x` and `y`, is required".into()),
+    }
+}
+
+/// What a navigation came to: a page whose server is slow to answer goes on loading, which is not a failure.
+fn navigated(settled: &Settled) -> &'static str {
+    if settled.loading {
+        "It is still loading; `wait` for text on it, or look again shortly."
+    } else {
+        "Loaded."
     }
 }
 
@@ -541,5 +554,19 @@ mod tests {
         assert!(narrow.mobile, "under 768 wide is a phone");
         assert!(size(&json!({ "preset": "watch" })).is_err());
         assert!(size(&json!({})).is_err());
+    }
+
+    #[test]
+    fn a_page_still_loading_after_navigate_says_so_rather_than_failing() {
+        let mut settled = Settled {
+            url: "http://localhost:5173/".into(),
+            title: String::new(),
+            navigated: true,
+            dialog: None,
+            loading: true,
+        };
+        assert!(navigated(&settled).starts_with("It is still loading"));
+        settled.loading = false;
+        assert_eq!(navigated(&settled), "Loaded.");
     }
 }

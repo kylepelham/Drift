@@ -885,6 +885,7 @@ impl Tab for FoxTab {
             title: state.title.clone(),
             navigated: state.url != url_before,
             dialog: state.dialog.clone(),
+            loading: false,
         }
     }
 
