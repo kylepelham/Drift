@@ -62,6 +62,15 @@ async fn wait_until_a_line_then_read_only_what_is_new_then_stop() {
         "{}",
         listed.output
     );
+    let last = if id.ends_with('0') { '1' } else { '0' };
+    let mistyped = format!("{}{last}", &id[..id.len() - 1]);
+    let Err(ToolError(unknown)) = call(&sandbox, json!({ "action": "output", "id": mistyped })).await else {
+        panic!("a mistyped id is not a process");
+    };
+    assert!(
+        unknown.contains(&mistyped) && unknown.contains(&listed.output),
+        "names the real ones: {unknown}"
+    );
 
     let stopped = call(&sandbox, json!({ "action": "stop", "id": id })).await.unwrap();
     assert!(stopped.output.contains("was stopped"), "{}", stopped.output);
