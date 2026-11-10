@@ -1438,6 +1438,8 @@ goal retires them.
     pipe; a command moved there at its limit keeps its closed one. Typing input asks like `bash`
     does. Interrupt is SIGINT to the process group on unix; Windows has no console to send Ctrl+C
     through, so there it stops the process and says so. A conversation sees only its own processes.
+    An id that is not one of them is answered with the list of those that are, as models mistype
+    the long ids (116 such calls in 30 days, most of them a `wait` right after the start).
   - A process outlives the turn and Stop. The dock's Stop, archiving or deleting its conversation
     and quitting Drift end it (unix process groups are ended at exit; on Windows the job ends with
     Drift). A subagent's processes end with its run.
@@ -2885,6 +2887,16 @@ Settled after the first external review of M1; each has a regression test.
   after Drift started is found. The tool text names the one it runs, and how to chain steps in it:
   `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which has no
   `&&`.
+- Bash gets its command in `DRIFT_COMMAND` and runs `export -n DRIFT_COMMAND; eval "$DRIFT_COMMAND"`,
+  never as `-c <command>`. Git Bash (MSYS) reads its Windows command line by other rules than the
+  ones Rust quotes for: `\\` came out as `\`, and only the first 8186 characters of a quoted
+  argument arrived, so a long heredoc was cut short. Over 30 days of Kyle's conversations, 427 of
+  the 454 heredoc commands that failed to parse had been changed this way, and 221 commands were
+  silently cut. `eval` gives the same exit codes, `$LINENO` and errors as `-c`, and what the
+  command starts never sees the variable. Commands may be as long as an environment value (32,767
+  characters).
+- The Windows shell note also says Python's `open(path, 'w')` writes CRLF there, so `newline=''`
+  keeps a file's line endings.
 - `apply_patch` and the patch profile's instructions cover text written by hand, not every file
   operation: moving, copying or deleting files, binary files and generated output go through the
   shell. An earlier "the only way to create, change, move or delete files" left a GPT model

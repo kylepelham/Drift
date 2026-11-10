@@ -481,6 +481,17 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Find in session highlights the words, opens the folded row an occurrence is in until the cursor moves on, lands on every occurrence (later steps drawn in an earlier group, scrolled output boxes), and starts from the view
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
+## 2.5.2: what agents kept tripping on
+
+Found in 30 days of `drift.db` (322,000 tool calls).
+
+- [x] Bash on Windows gets its command through the environment: no more changed backslashes and quotes, or heredocs cut at 8186 characters
+- [x] An unknown process id is answered with the conversation's processes
+- [x] A page whose server is slow to answer is reported still loading, not as a failed navigation
+- [x] A grep pattern naming a newline matches across lines instead of being refused
+- [x] Hex dumps, disassembly listings, checksums, `cmp`, `diff` and `command -v` count as read-only
+- [x] An edit with identical strings says how to insert; the Windows shell note warns that Python writes CRLF
+
 ## Readability and tooling pass
 
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`
