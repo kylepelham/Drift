@@ -376,11 +376,19 @@ fn spawn(mut process: tokio::process::Command) -> Result<Running, ToolError> {
     })
 }
 
+/// The variable that carries a bash command; the shell stops exporting it before anything it starts can see it.
+const COMMAND_VARIABLE: &str = "DRIFT_COMMAND";
+
 fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {
     match shell {
+        // Not on the command line: Git Bash reads one with other quoting rules, so `\\` and `\"` came out changed,
+        // and it keeps only the first 8186 characters of a quoted argument, cutting long heredocs short.
         Shell::Bash(path) => {
             let mut command = tokio::process::Command::new(path);
-            command.arg("-c").arg(line);
+            command
+                .arg("-c")
+                .arg(format!("export -n {COMMAND_VARIABLE}; eval \"${COMMAND_VARIABLE}\""))
+                .env(COMMAND_VARIABLE, line);
             command
         }
         Shell::PowerShell(path) => {

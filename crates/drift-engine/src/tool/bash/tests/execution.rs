@@ -37,6 +37,29 @@ async fn runs_a_command_in_the_workspace_and_reports_exit_codes() {
 }
 
 #[tokio::test]
+async fn a_heredoc_reaches_bash_byte_for_byte_however_long() {
+    let bash = Bash::detect();
+    if !matches!(bash.shell, Shell::Bash(_)) {
+        return;
+    }
+    let sandbox = Sandbox::new("bash");
+    // Backslashes before and away from quotes, and a body past the 8186 characters Git Bash keeps of a quoted argument.
+    let body = format!(
+        "print(\"a\\\\b\") x = 'C:\\\\Users\\\\' \\\" \"\"\" end\n{}\nlast line",
+        "0123456789".repeat(1000)
+    );
+    let command = format!("cat > got.txt <<'EOF'\n{body}\nEOF\nbash -c 'echo \"${{DRIFT_COMMAND-hidden}}\"'");
+
+    let output = bash
+        .run(&sandbox.ctx, json!({ "command": command, "description": "heredoc" }))
+        .await
+        .unwrap();
+    let got = std::fs::read_to_string(sandbox.ctx.workspace.join("got.txt")).unwrap();
+    assert_eq!(got, format!("{body}\n"));
+    assert_eq!(output.output, "hidden", "what it starts never sees the command");
+}
+
+#[tokio::test]
 async fn a_workdir_is_where_it_runs_and_one_outside_the_workspace_asks() {
     let sandbox = Sandbox::new("bash-workdir");
     let file = sandbox.file("sub/here.txt", "here\n");
