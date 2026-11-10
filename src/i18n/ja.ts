@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "サブエージェント {{count}} 件",
     "drift.stop.commands.one": "コマンド {{count}} 件",
     "drift.stop.commands.other": "コマンド {{count}} 件",
+    "drift.waiting": "待機中",
+    "drift.waiting.on": "{{work}}を待機中",
+    "drift.settings.waiting.title": "バックグラウンド作業の待機を表示",
+    "drift.settings.waiting.description":
+        "バックグラウンドのコマンドやサブエージェントが会話を再開させ、ほかに何も実行していないとき、サイドバーと会話に「考え中」の代わりに砂時計を表示します。",
+    "drift.settings.composerCards": "入力欄の上",
+    "drift.settings.composerCards.style.title": "カードのスタイル",
+    "drift.settings.composerCards.style.description":
+        "重ねるカードは入力欄の後ろに一つの束としてしまわれ、分けるカードはそれぞれ単独で上に表示されます。権限の確認と質問はエージェントが待つため常に表示されます。",
+    "drift.settings.composerCards.style.tucked": "重ねる",
+    "drift.settings.composerCards.style.separate": "分ける",
+    "drift.settings.composerCards.todos.title": "ToDo リスト",
+    "drift.settings.composerCards.todos.description": "このターンのエージェントの計画と進み具合。",
+    "drift.settings.composerCards.tasks.title": "バックグラウンドタスク",
+    "drift.settings.composerCards.tasks.description":
+        "バックグラウンドのサブエージェントとコマンド、その出力と停止ボタン。停止ボタンと待機表示で実行中であることは引き続きわかります。",
+    "drift.settings.composerCards.revert.title": "取り消したメッセージ",
+    "drift.settings.composerCards.revert.description": "取り消したメッセージを復元するためのもの。",
     "prompt.attachment.remove": "添付ファイルを削除",
     "prompt.mode.shell": "シェル",
     "prompt.placeholder.simple": "何でも聞いてください...",
@@ -580,6 +598,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "同時に実行するバックグラウンドサブエージェント",
     "drift.settings.backgroundLimit.description":
         "同時に実行するバックグラウンドサブエージェントの数です。それ以外はキューで待機し、空きができると開始します。値を下げても実行中のものは停止しません。",
+    "drift.settings.delegationDepth.title": "サブエージェントの深さ",
+    "drift.settings.delegationDepth.description":
+        "会話が持てるサブエージェントの階層数。1 では会話だけが委任し、2 または 3 ではサブエージェントもそれぞれの完了を待ちながら仕事を委任できます。探索エージェントは委任しません。",
+    "drift.ultra.on":
+        "Ultra がオン: この会話は重要なタスクごとにサブエージェントを組織し、その結果を検証します。コストは問いません。クリックでオフ。",
+    "drift.ultra.off":
+        "Ultra: 重要なタスクごとにサブエージェントを組織し、その結果を検証します。はるかに徹底的ですが、トークンは数倍かかります。",
     "drift.task.queued": "待機中",
     "drift.task.queued.description":
         "バックグラウンドの空きを待っています。同時に実行するサブエージェントの数は 設定 > 実行 で変更できます。",
@@ -1102,6 +1127,7 @@ export const drift = {
     "drift.process.gone": "バックグラウンドで実行されました。その後 Drift は再起動されています。",
     "drift.process.ended": "バックグラウンドプロセスがコード {{code}} で終了",
     "drift.process.endedStopped": "バックグラウンドプロセスを停止",
+    "drift.process.endedRestart": "Drift の再起動でバックグラウンドプロセスが終了",
     "drift.message.revertHere": "ここまで戻す",
     "drift.message.revertKeepFiles": "Shift+クリックでファイルはそのまま残します",
     "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",

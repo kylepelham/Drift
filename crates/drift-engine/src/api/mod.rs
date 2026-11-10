@@ -116,6 +116,7 @@ fn media_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(images::get, images::put))
         .routes(routes!(images::set_key))
         .routes(routes!(images::blob))
+        .routes(routes!(images::favicon))
         .routes(routes!(voice::get))
         .routes(routes!(voice::set_key, voice::remove_key))
         .routes(routes!(voice::transcribe))
@@ -190,6 +191,7 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(processes::list))
         .routes(routes!(processes::stop))
+        .routes(routes!(processes::output))
 }
 
 /// A conversation's browser and its view socket, and what Settings > Browser manages.

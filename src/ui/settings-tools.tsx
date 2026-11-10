@@ -6,6 +6,7 @@ import { PromptCacheGroup } from "./settings-prompt-cache";
 import { ToolSearchGroup } from "./settings-tool-search";
 import { WebSearchGroup } from "./settings-web-search";
 import { TurnsGroup } from "./settings-turns";
+import { Segmented } from "./controls";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -192,6 +193,61 @@ function BackgroundLimitGroup() {
             <Show when={error()}>
                 <div class="text-xs text-danger">{error()}</div>
             </Show>
+            <DelegationDepthRow />
         </SettingsGroup>
+    );
+}
+
+const delegationDepths = [1, 2, 3];
+
+/** How many levels of subagents a conversation may have; the engine owns the value. */
+function DelegationDepthRow() {
+    const engine = useEngine();
+    const [depth, setDepth] = createSignal<number | null>(null);
+    const [error, setError] = createSignal("");
+
+    onMount(
+        () =>
+            void engine.actions
+                .engineSettings()
+                .then((settings) => setDepth(settings.delegationDepth ?? null))
+                .catch(() => undefined),
+    );
+
+    async function pick(next: number) {
+        const previous = depth();
+        setDepth(next);
+        setError("");
+
+        try {
+            const settings = await engine.actions.setDelegationDepth(next);
+            setDepth(settings.delegationDepth ?? next);
+        } catch (cause) {
+            setDepth(previous);
+            setError(cause instanceof Error ? cause.message : String(cause));
+        }
+    }
+
+    return (
+        <>
+            <SettingsRow
+                title={t("drift.settings.delegationDepth.title")}
+                description={t("drift.settings.delegationDepth.description")}
+            >
+                <Show when={depth()}>
+                    {(current) => (
+                        <Segmented
+                            label={t("drift.settings.delegationDepth.title")}
+                            options={delegationDepths.map((value) => ({ id: String(value), label: String(value) }))}
+                            value={String(current())}
+                            onChange={(id) => void pick(Number(id))}
+                        />
+                    )}
+                </Show>
+            </SettingsRow>
+            <Show when={error()}>
+                <div class="text-xs text-danger">{error()}</div>
+            </Show>
+        </>
     );
 }

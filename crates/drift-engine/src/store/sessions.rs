@@ -10,7 +10,7 @@ pub(super) use super::parts::save_part_in;
 #[path = "tests/sessions.rs"]
 mod tests;
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree, account, workdir";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree, account, workdir, ultra";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -152,6 +152,15 @@ impl Store {
         session_in(&connection, id)
     }
 
+    pub fn set_session_ultra(&self, id: &str, on: bool) -> rusqlite::Result<Option<Session>> {
+        let connection = self.lock();
+        connection
+            .prepare_cached("UPDATE session SET ultra = ?2 WHERE id = ?1")?
+            .execute(params![id, on])?;
+
+        session_in(&connection, id)
+    }
+
     /// Sets the provider account the chat uses, or with `None` leaves the choice to the account order.
     pub fn set_session_account(&self, id: &str, account: Option<&str>) -> rusqlite::Result<Option<Session>> {
         let connection = self.lock();
@@ -274,6 +283,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
         worktree: row.get(15)?,
         account: row.get(16)?,
         workdir: row.get(17)?,
+        ultra: row.get(18)?,
         running: false,
     })
 }
@@ -306,6 +316,7 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         worktree: None,
         account: None,
         workdir: None,
+        ultra: false,
         running: false,
     }
 }

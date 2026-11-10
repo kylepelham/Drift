@@ -11,14 +11,44 @@ use super::Error;
 /// `path`'s blob id, and with `objects` the blob stored there too.
 pub(super) fn of_file(path: &Path, objects: Option<&Path>) -> Result<String, Error> {
     match objects {
-        Some(objects) => store(objects, &std::fs::read(path).map_err(failed)?),
+        Some(objects) => {
+            let mut bytes = Vec::new();
+            open(path)?.read_to_end(&mut bytes).map_err(failed)?;
+            store(objects, &bytes)
+        }
         None => id_of_file(path),
     }
 }
 
+/// A file another program holds without letting it be read is usually released within moments, so it is tried a few times.
+fn open(path: &Path) -> Result<std::fs::File, Error> {
+    const ATTEMPTS: u32 = 5;
+    let mut attempt = 1;
+    loop {
+        match std::fs::File::open(path) {
+            Err(error) if held(&error) && attempt < ATTEMPTS => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(error) if held(&error) => return Err(Error::Held(path.display().to_string())),
+            opened => return opened.map_err(failed),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn held(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32)
+}
+
+#[cfg(not(windows))]
+fn held(_: &std::io::Error) -> bool {
+    false
+}
+
 /// Streamed, so a large file is never held whole.
 fn id_of_file(path: &Path) -> Result<String, Error> {
-    let mut file = std::fs::File::open(path).map_err(failed)?;
+    let mut file = open(path)?;
     let len = file.metadata().map_err(failed)?.len();
     let mut hasher = hasher(len);
     std::io::copy(&mut (&mut file).take(len), &mut hasher).map_err(failed)?;

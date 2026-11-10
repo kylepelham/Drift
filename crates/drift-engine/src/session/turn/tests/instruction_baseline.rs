@@ -143,3 +143,20 @@ async fn a_fork_keeps_its_sources_prefix_and_compaction_and_undo_start_a_new_bas
     );
     assert_eq!(updates(&sent(&h, last)), 0);
 }
+
+#[tokio::test]
+async fn ultra_switched_on_and_off_mid_conversation_is_told_without_touching_the_system_prompt() {
+    let h = harness().await;
+    h.provider.push(text("one")).push(text("two")).push(text("three"));
+    ask(&h, "first").await;
+    h.engine.store.set_session_ultra(&h.session.id, true).unwrap();
+    ask(&h, "second").await;
+    h.engine.store.set_session_ultra(&h.session.id, false).unwrap();
+    ask(&h, "third").await;
+
+    assert!(!system(&h, 0).contains("# Ultra"));
+    assert_eq!(system(&h, 1), system(&h, 0));
+    assert_eq!(system(&h, 2), system(&h, 0));
+    assert!(sent(&h, 1).contains(r"# Ultra\n\nUltra is on"), "{}", sent(&h, 1));
+    assert!(sent(&h, 2).contains("Ultra no longer applies."), "{}", sent(&h, 2));
+}

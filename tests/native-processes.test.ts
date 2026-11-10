@@ -75,6 +75,25 @@ test("opening a conversation loads its processes, and stopping one records what 
     expect(state.processes.session?.[0]?.state).toBe("stopped");
 });
 
+test("an open dock row reads its process's output, and one the engine no longer has reads as empty", async () => {
+    const [state, set] = createEngineState();
+    const client = {
+        processOutput: async (id: string) => {
+            if (id === "gone") throw new Error("404 process not found");
+            return { output: "compiling\nready on 5173\n" };
+        },
+    } as unknown as Client;
+    const actions = createActions(
+        () => client,
+        state,
+        set,
+        () => ({}),
+    );
+
+    expect(await actions.processOutput("a")).toBe("compiling\nready on 5173\n");
+    expect(await actions.processOutput("gone")).toBe("");
+});
+
 test("a process's running time reads as a person would say it", async () => {
     const { processSpan } = await import("../src/ui/process-row");
 

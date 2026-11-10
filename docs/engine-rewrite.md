@@ -30,7 +30,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `websearch` (2.4.0, see Web search), `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | The model-facing `lsp` tool (diagnostics after edits come from language servers instead; see Post-edit), `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
-| Edit | Exact first, on the LF view `read` shows, then two narrow tiers tried only when the one before found nothing (`tool::edit::matching`, after opencode v2's `edit` and its tests): typographic quotes, dashes and spaces read as ASCII, one character for one so offsets map back to the file's bytes, then trailing whitespace ignored per line, matches never overlapping. More than one match is a miss in every tier. A match maps back to the file's own bytes and the replacement takes the line endings of the region it replaces: a line that keeps or takes the place of a region line (longest common subsequence) reuses that line's ending, new lines take the region's dominant ending, so a mixed CRLF and LF file keeps each region's endings instead of being rewritten whole. `old_string` and `new_string` that differ only in `\r` change line endings themselves and apply to the exact bytes; an edit that would write the same bytes back fails and says so. A file keeps its UTF-8 byte order mark through `edit`, and its CRLF endings and mark through `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff), while an update needs no read, since its hunks must match the file, as `edit`'s exact, unique `old_string` must; a match proves only the text it changed, so an edit or hunk does not count the file as read for a later overwrite, delete or move, while a file a patch adds whole does; every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. A file last modified while one of the session's own foreground commands ran counts as the model's own: it needs no read, and its change on disk is not someone else's. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the swap is tried five times 200 ms apart, since such a hold is usually brief, then the write fails with that reason and the file is left as it was. A share that cannot swap in one step (`\wsl.localhost` answers `ERROR_NOT_SUPPORTED`) gets a plain move of the staged file over the original instead. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
+| Edit | Exact first, on the LF view `read` shows, then two narrow tiers tried only when the one before found nothing (`tool::edit::matching`, after opencode v2's `edit` and its tests): typographic quotes, dashes and spaces read as ASCII, one character for one so offsets map back to the file's bytes, then trailing whitespace ignored per line, matches never overlapping. More than one match is a miss in every tier. A match maps back to the file's own bytes and the replacement takes the line endings of the region it replaces: a line that keeps or takes the place of a region line (longest common subsequence) reuses that line's ending, new lines take the region's dominant ending, so a mixed CRLF and LF file keeps each region's endings instead of being rewritten whole. `old_string` and `new_string` that differ only in `\r` change line endings themselves and apply to the exact bytes; an edit that would write the same bytes back fails and says so. A file keeps its UTF-8 byte order mark through `edit`, and its CRLF endings and mark through `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff), while an update needs no read, since its hunks must match the file, as `edit`'s exact, unique `old_string` must; a match proves only the text it changed, so an edit or hunk does not count the file as read for a later overwrite, delete or move, while a file a patch adds whole does; every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. A file last modified while one of the session's own foreground commands ran counts as the model's own: it needs no read, and its change on disk is not someone else's. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the swap is tried five times 200 ms apart, since such a hold is usually brief, then the write fails with that reason and the file is left as it was. One held without read sharing fails earlier, when undo records it (`snapshot::blob`): that read is tried the same way, then the error names the file as open in another program. A share that cannot swap in one step (`\wsl.localhost` answers `ERROR_NOT_SUPPORTED`) gets a plain move of the staged file over the original instead. Resolved paths drop Windows' verbatim prefix, a share's `\\?\UNC\` included, so results name a WSL file as `//wsl.localhost/...`. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. A formatter that changed the file is named in the result ("the file no longer matches what you wrote; read it again"), so the next edit is not built on stale text. Then opt-in checks (`drift.json` `checks`, any linter or type checker) run once per step, their problems added to the step's last writing call. Language servers (`lsp`) report the errors each writing call left, after its formatters: about thirty from opencode's list (`lsp/table.rs`: Rust, TypeScript, Deno, Python, Go, C and C++, C#, F#, Java, Ruby, PHP, Swift, Dart and more), each used only when its command is installed, on PATH or in a `node_modules/.bin` from the project up to the workspace; Drift never downloads one. Each is rooted where opencode roots it: the nearest marker (a lockfile, `go.mod`, `*.csproj`), a Cargo workspace above a crate, the workspace when there is none, and for Deno and jdtls only under their own files; one server runs per root, so a monorepo's packages each get theirs. A server starts when a file it handles is first read (as opencode's `touchFile`), so it has initialized by the first edit, or failing that on the first write (its process tree adopted, stopped after ten idle minutes or with the engine). A server that offers pull diagnostics (`diagnosticProvider`, or `textDocument/diagnostic` registered later, as Roslyn does) is asked for each touched file; the others publish. The call waits up to 3 s for the touched files' errors, at most ten per file and thirty in all, appended to its result and kept in its metadata (`diagnostics`); a server still initializing, whether a read or the call itself started it, gets until 10 s after its launch and its 3 s from when it is ready, so a new file's first write hears even a server slower to start than the wait (slangd on a busy machine); a server that is missing, crashes (even before initializing) or answers late adds nothing and holds nothing up, and one that cannot start is not tried again at that root for five minutes (another root may have it in its own `node_modules`). One lock per root and server is held across a start, so reads in parallel start one server, not one each. The user's `drift.json` `lsp` adds, replaces (`command`, `extensions`, optional `language`) or turns off (`false`) a server; a project's file may only turn one off, since a server starts by itself. A plugin built for the `languages` world adds servers the same way, beneath drift.json's own (`Hooks::lsp_config`). A server drift.json or a plugin adds roots at the edited file's nearest `.git` (a submodule's own) inside the workspace, else the workspace, so a shader server in a vendored repository sees that repository; Drift passes no include paths. Plugins also add grammars the app highlights with (`GET /grammars`; see extensibility.md). |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, deprecated HTTP+SSE, OAuth), 2026-07-28 stateless servers found by probing with the handshake as fallback. Reconnect and reload designed in rather than patched on; no approval step. |
@@ -230,8 +230,24 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   call's description as its title, so the sidebar names the job it is doing now. A call to continue
   one still running is refused before anything starts; the UI shows it as an ordinary failed call,
   not as that worker, which carries on under its own row.
-- Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
-  refuse to run from one, and a subagent cannot be branched from.
+- Delegation is three levels deep by default, as Claude Code's spawn depth is. Settings >
+  Execution > Subagents > Subagent depth (`delegationDepth`, 1 to 3) sets it; above 1, subagents
+  delegate too: a subagent is offered `task` while it is fewer levels down than the setting, and
+  `task` refuses from one any deeper. Its own subagents always run in the foreground (a
+  `run_in_background` is ignored), so their results never arrive after it has reported; several
+  calls in one message still run at once, Stop reaches them through the call's own token, and they
+  take no background slot. `task_output`, `task_stop` and `read_thread` stay with conversations,
+  and a subagent cannot be branched from. Explore lists its tools without `task`, so it never
+  delegates (Claude's Explore is denied its Agent tool the same way).
+- Ultra (Claude Code's Ultracode, without its Workflow script engine): a toggle under the composer's
+  thinking levels (the trigger shows its icon while on) stores
+  `Session::ultra` (migration 56, `PATCH /sessions/{id}`; a new thread gets it before its first
+  prompt goes). While on and the conversation can delegate, the system prompt carries an `ultra`
+  source (`session/prompts/ultra.txt`): orchestrate subagents on every substantive task, fan out
+  per phase, refute findings with independent subagents through different lenses, judge
+  independent designs, search until a round finds nothing new, finish with a completeness check,
+  cost no object. Switched mid-conversation it reaches the model as an `instruction_update` like
+  any other source, so the cached prefix holds. Its subagents do not inherit it.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
   `read_thread` lets a conversation check on a branch taken from it when the user asks.
 - Spawning is one call, no drafting request and no review. `POST /sessions/{id}/spawn {instruction}`
@@ -770,6 +786,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   applied files is kept until the undo point is saved: if that save fails, the files go back the
   same way, so files and history never disagree. A retry then finds every file as the session left
   it, so none is wrongly reported as kept.
+- An undo reads only the span it moves, from the undo point on in the conversation and each of its
+  workers, never whole transcripts, and reads every file's recorded bytes from one
+  `git cat-file --batch` per history store. Before, an undo in Ona's coordinator (369 workers, 567
+  MB of parts) read every transcript twice, about 4 s even when nothing changed, and started one
+  git process per file, 30 to 150 ms each on Windows.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
 - Calls are replayed in the order their writes finished: each record carries `at`, a time-ordered
   stamp taken once the call's writes (and formatters) are done, so two workers that start in one
@@ -959,10 +980,17 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   (`Engine::stop_turn`) stops the turn and the foreground workers under it, and leaves the Stop
   count alone: background workers and commands run on and their ends still wake the conversation.
   The composer's Stop sends `only=turn` while the turn runs; once it is idle and background work
-  remains, the button names it ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
-  a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop` and `POST /tasks/{id}/abort` cancel one
-  worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
-  and question asks carry the worker's session id and inherit the owner's approvals.
+  remains, the icon-only button names it in its tooltip ("Stop 2 workers, 1 command"), takes a press only after 500 ms so
+  a double press stops just the turn, and sends the plain Stop (`ui/composer-stop.tsx`). `task_stop`
+  and `POST /tasks/{id}/abort` cancel one worker's token; a Stop that arrives before the worker
+  registers waits for it. Worker permission and question asks carry the worker's session id and
+  inherit the owner's approvals.
+- Waiting, not thinking (`sessionWaiting` in `engine/store.ts`, on by default, Settings > Appearance
+  > Thinking indicator): a conversation that is idle while background commands or background workers
+  run (each wakes it when it ends), or busy with only waiting calls running (a `process` wait, or
+  `task_output` with `wait_seconds`), shows a flipping accent hourglass in the sidebar in place of the
+  pulsing accent dot, and the Thinking row laid out as usual, the hourglass in place of its figure and "Waiting on 1 worker, 2 commands" as its label, shown even with the Thinking label off (shimmer follows its setting). A retrying request never counts. Live waiting calls are tracked by part id from
+  events (`waitCalls`, beside `liveTools`), and a transcript loaded mid-wait is read directly.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
   never delivered as a prompt), before anything in the new process can launch a worker. An
   interrupted foreground result remains owed until its parent call is closed, even
@@ -1419,7 +1447,16 @@ goal retires them.
     when it was stopped, or when the user pressed Stop since it started; it then shows only in the
     dock. A conversation busy with another job is offered it every 30 s, ten times.
   - Processes show in the Background tasks dock beside background subagents while any runs, with a
-    live last line, an Open link for a printed URL, and Stop. Ended ones join the finished history.
+    live last line, how long each has run (ticking each second, fixed once it ends), an Open link for
+    a printed URL, and Stop. A row opens to its command and output in the shell call's own view
+    (`ShellOutput`), read from `GET /processes/{id}/output` (the newest 64 KB kept in memory, which
+    marks nothing read for the model) when opened and every second while it runs. Ended ones join
+    the finished history.
+  - The cards above the composer (Settings > Appearance > Above the composer) tuck in behind it as one
+    stack by default, or stand apart, each rounded on its own with a gap. The todo list, Background
+    tasks and rolled back messages can each be hidden; permission requests and questions cannot,
+    since a turn waits on them. Hidden background work still shows in Stop and the waiting
+    indicator.
     The prompt a process's end adds folds like an answered question (`NoteBox`): how it ended and
     its description, opening to its command, the end of its output and the full log. The
     orchestrator's status and its nudges fold the same way.
@@ -1446,8 +1483,16 @@ goal retires them.
     process stops with its run, so it waits before reporting. `task_output` waits up to ten minutes
     (it was 120 s; 133 calls had timed out at it) and takes `task_ids` to return when the first of
     several finishes.
-  - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture
-    what a background process changes after its call returned.
+  - Processes live in memory: a restart of Drift ends them (the job holding them closes). Each
+    running one is noted in `drift.db` (`background_process`, migration 54) and removed when it
+    ends, is stopped or its conversation is archived, but not when Drift quits. One still noted at
+    the next start was ended by the restart: after resumed turns start, its conversation gets one
+    `process_exit` prompt (`restarted`, "Ended when Drift restarted") per conversation with each
+    command, the end of its log read from disk and the log path, and the model is told anything it
+    held (a lock, a half-written file) may need cleaning up before it runs again. A conversation
+    the user pressed Stop in since, a subagent's or an archived one is not told. (Ona's coordinator
+    lost an hour to a merge check killed this way: its lock stayed held and nothing said so.)
+    Undo cannot capture what a background process changes after its call returned.
 - Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
   the current commit in a folder under its data directory and says that uncommitted changes were
   not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never
@@ -1680,6 +1725,14 @@ listed there.
       final. The URL never goes to a provider when its host is local or private (loopback, private
       and shared ranges, link-local, `.local`, `.internal`, a name without a dot) or it carries
       credentials; Off in Settings stops the fallback too. The result says which provider read it.
+    - A fetch row shows its site's icon. `GET /favicons/{host}` (`tool/webfetch/favicon.rs`) fetches
+      `/favicon.ico`, else the icon the home page links (a plain icon before an Apple touch icon),
+      through the public-only resolver, following redirects only to public hosts; icons are capped at
+      100 KB and known by their bytes (PNG, JPEG, GIF, WebP, ICO, SVG). Hits are kept in memory, so
+      each host is asked once; a miss is asked again after ten minutes, as a site may have refused
+      one request. A private or dotless host is never asked. The UI never fetches it itself; an
+      icon too close in tone to the theme's background (contrast under 2) gets a backing in the
+      opposite tone, unless it fills its square.
     - Tavily's plan and pay-as-you-go limits answer 432 and 433, which set the key aside as a 402
       does. Snippets lose markdown link syntax and heading marks, which Firecrawl's descriptions
       now carry, and the search engine's "More results from" tail.
@@ -1954,7 +2007,7 @@ code until he picks.
 - `edit` is exact first, then only typography folding and trailing whitespace (Kyle chose both
   tiers on 2026-10-19 once each was explained); opencode v1 tried nine fuzzy fallbacks, v2 these
   two. Anything looser misses, and the closest-region message is the remedy.
-- Delegation is one level deep; opencode makes the depth configurable (`subagent_depth`).
+- Delegation depth is a setting, 1 by default; opencode's `subagent_depth` is the same idea.
 
 ## Working on it
 
@@ -2165,7 +2218,9 @@ code until he picks.
     is too low" count as the plan lacking the model, so the next key or sign-in takes the request.
     When no account can run Fast but one can run the base model, the turn runs at normal speed
     (`slow_when_unserved`: the base model's entry under the chosen id, without Fast's fields) and
-    publishes `provider.slowed` once per conversation while the engine runs. Its `ultra` is true
+    publishes `provider.slowed` once per conversation while the engine runs. A compaction on the
+    conversation's own model is asked the same way (`action_model` follows the account first), so it
+    is not refused, and the instructions never flip between the two models. Its `ultra` is true
     when a sign-in's `/api/oauth/profile` reports `rate_limit_tier` `default_claude_max_20x`, and the
     notice then says how to spend the plan's API credits. A sign-in whose Fast mode is on but whose
     usage credits are spent may answer 429 instead (Claude Code reads
@@ -2206,7 +2261,10 @@ code until he picks.
     the context meter's usage popover shows the account the chat's next turn would use.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
-  generated text, reasoning or tool-call block to its last content event. Initial request waits,
+  frame (Anthropic's `message_start`) to its last content event. Claude may hold a reply's text
+  back until all of it is written (seen on Opus 5.5 after tool results: thinking with no text, then
+  every text delta in one burst), so timing from the first content block gave rates like 528000
+  tok/s; migration 55 clears those (under 50 ms for 200 or more tokens). Initial request waits,
   trailing usage and stop frames, retry backoff, tool runs and subagent waits do not extend it.
   The footer divides that reply's reported output tokens by the measured duration, not its wall
   time or a reasoning part's absolute timestamp. Old replies and zero-duration samples show no
@@ -3190,7 +3248,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   name or one matching a system-prompt file says nothing), when the read was of it, when it is in a
   subagent's `workdir` or above (that prompt carries those), or when it sits under a `templates`,
   `fixtures` or `examples` folder (samples, not rules). Speculative reads share the session's shown
-  set, so two at once never both show a file, and a thrown-away one takes back what it showed. `GET /workspaces/{id}/config` serves the
+  set, so two at once never both show a file, and a thrown-away one takes back what it showed. What
+  a session was shown is kept in `drift.db` (`shown_instruction`, migration 53: `path:` and a
+  SHA-256 `text:` key, removed with its session, cleared by a compaction), so a restart does not
+  show it again; a speculative read's showings are kept once its result is accepted. `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
   or a `name: true|false` map (opencode's shape: `false` takes that tool away from all the rest,
   `true` changes nothing). `tools: []` means no tools; leaving it out, or `tools: {}`, means every

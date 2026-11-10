@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces";
+import { findInConversation } from "./transcript-find";
 import { selectSession } from "../state/selection";
 import { sessionsFor } from "../engine/store";
 import { createStore } from "solid-js/store";
@@ -165,7 +166,10 @@ export function SessionSearchBar() {
 /** The result list, rendered in place of the workspace tree while a search is active. */
 export function SessionSearchResults() {
     function open(hit: SessionSearchHit) {
-        if (hit.messageId) setPendingReveal({ sessionId: hit.sessionId, messageId: hit.messageId });
+        if (hit.messageId) {
+            setPendingReveal({ sessionId: hit.sessionId, messageId: hit.messageId });
+            findInConversation(hit.sessionId, results.query.trim(), hit.messageId);
+        }
         if (hit.workspaceId) selectWorkspace(hit.workspaceId);
         selectSession(hit.sessionId);
     }

@@ -103,3 +103,16 @@ pub(super) async fn blob(
         data: base64::engine::general_purpose::STANDARD.encode(&bytes),
     }))
 }
+
+/// A public site's icon, for the transcript to show beside a URL; the engine fetches it so the UI never does.
+#[utoipa::path(get, path = "/favicons/{host}", operation_id = "getFavicon", responses((status = 200, body = BlobImage), (status = 404)))]
+pub(super) async fn favicon(Path(host): Path<String>) -> Result<Json<BlobImage>, ApiError> {
+    let icon = crate::tool::webfetch::favicon::get(&host)
+        .await
+        .ok_or_else(|| ApiError::not_found("favicon"))?;
+
+    Ok(Json(BlobImage {
+        mime: icon.mime.into(),
+        data: base64::engine::general_purpose::STANDARD.encode(&icon.bytes),
+    }))
+}

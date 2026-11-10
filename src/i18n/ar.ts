@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} وكلاء",
     "drift.stop.commands.one": "{{count}} أمر",
     "drift.stop.commands.other": "{{count}} أوامر",
+    "drift.waiting": "في الانتظار",
+    "drift.waiting.on": "في انتظار {{work}}",
+    "drift.settings.waiting.title": "إظهار انتظار العمل في الخلفية",
+    "drift.settings.waiting.description":
+        "عندما ستوقظ أوامر أو وكلاء فرعيون في الخلفية محادثة ولا يعمل شيء آخر، تظهر ساعة رملية في الشريط الجانبي والمحادثة بدلا من التفكير.",
+    "drift.settings.composerCards": "فوق محرر الرسائل",
+    "drift.settings.composerCards.style.title": "نمط البطاقات",
+    "drift.settings.composerCards.style.description":
+        "البطاقات المطوية تختبئ خلف المحرر كمجموعة واحدة؛ والبطاقات المنفصلة تقف كل منها وحدها فوقه. تظهر طلبات الأذونات والأسئلة دائما لأن الوكيل ينتظرها.",
+    "drift.settings.composerCards.style.tucked": "مطوية",
+    "drift.settings.composerCards.style.separate": "منفصلة",
+    "drift.settings.composerCards.todos.title": "قائمة المهام",
+    "drift.settings.composerCards.todos.description": "خطة الوكيل للدور ومدى تقدمه فيها.",
+    "drift.settings.composerCards.tasks.title": "مهام الخلفية",
+    "drift.settings.composerCards.tasks.description":
+        "الوكلاء الفرعيون والأوامر في الخلفية، مع مخرجاتها وزر الإيقاف. يظل زر الإيقاف ومؤشر الانتظار يبينان أنها تعمل.",
+    "drift.settings.composerCards.revert.title": "الرسائل المتراجع عنها",
+    "drift.settings.composerCards.revert.description": "الرسائل التي تراجعت عنها، لاستعادتها.",
     "prompt.attachment.remove": "إزالة المرفق",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "اسأل أي شيء...",
@@ -572,6 +590,12 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "الوكلاء الفرعيون في الخلفية في وقت واحد",
     "drift.settings.backgroundLimit.description":
         "عدد الوكلاء الفرعيين في الخلفية الذين يعملون في الوقت نفسه. ينتظر الباقون في طابور ويبدؤون عند تفرغ مكان؛ تخفيض هذا الرقم لا يوقف أي وكيل قيد التشغيل.",
+    "drift.settings.delegationDepth.title": "عمق الوكلاء الفرعيين",
+    "drift.settings.delegationDepth.description":
+        "كم مستوى من الوكلاء الفرعيين يمكن أن تملكه المحادثة. عند 1 تفوّض المحادثة وحدها؛ وعند 2 أو 3 يمكن لوكلائها الفرعيين تمرير المهام أيضا وانتظار كل منها. وكلاء الاستكشاف لا يفوّضون أبدا.",
+    "drift.ultra.on":
+        "وضع Ultra مفعّل: تنسّق هذه المحادثة وكلاء فرعيين في كل مهمة جوهرية وتتحقق من عملهم مهما كلّف ذلك. انقر لإيقافه.",
+    "drift.ultra.off": "Ultra: تنسيق وكلاء فرعيين في كل مهمة جوهرية والتحقق من عملهم. أدق بكثير، وبأضعاف الرموز.",
     "drift.task.queued": "في الانتظار",
     "drift.task.queued.description":
         "ينتظر مكانًا فارغًا في الخلفية. يحدد الإعداد > التنفيذ عدد الوكلاء الفرعيين الذين يعملون في وقت واحد.",
@@ -1078,6 +1102,7 @@ export const drift = {
     "drift.process.gone": "عملت في الخلفية؛ أُعيد تشغيل Drift منذ ذلك الحين.",
     "drift.process.ended": "انتهت العملية في الخلفية بالرمز {{code}}",
     "drift.process.endedStopped": "توقفت العملية في الخلفية",
+    "drift.process.endedRestart": "انتهت العملية في الخلفية عند إعادة تشغيل Drift",
     "drift.message.revertHere": "التراجع إلى هنا",
     "drift.message.revertKeepFiles": "انقر مع Shift لإبقاء الملفات كما هي",
     "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

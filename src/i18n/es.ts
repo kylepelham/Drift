@@ -104,6 +104,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} subagentes",
     "drift.stop.commands.one": "{{count}} comando",
     "drift.stop.commands.other": "{{count}} comandos",
+    "drift.waiting": "Esperando",
+    "drift.waiting.on": "Esperando {{work}}",
+    "drift.settings.waiting.title": "Mostrar la espera de trabajo en segundo plano",
+    "drift.settings.waiting.description":
+        "Cuando comandos o subagentes en segundo plano van a reanudar una conversación y no se ejecuta nada más, muestra un reloj de arena en la barra lateral y la conversación en lugar de Pensando.",
+    "drift.settings.composerCards": "Encima del editor",
+    "drift.settings.composerCards.style.title": "Estilo de las tarjetas",
+    "drift.settings.composerCards.style.description":
+        "Las tarjetas plegadas quedan detrás del editor como una pila; las separadas se muestran cada una por su cuenta encima. Las solicitudes de permiso y las preguntas siempre aparecen, porque el agente las espera.",
+    "drift.settings.composerCards.style.tucked": "Plegadas",
+    "drift.settings.composerCards.style.separate": "Separadas",
+    "drift.settings.composerCards.todos.title": "Lista de tareas",
+    "drift.settings.composerCards.todos.description": "El plan del agente para el turno y cuánto ha avanzado.",
+    "drift.settings.composerCards.tasks.title": "Tareas en segundo plano",
+    "drift.settings.composerCards.tasks.description":
+        "Subagentes y comandos en segundo plano, con su salida y Detener. El botón Detener y el indicador de espera siguen mostrando que se ejecutan.",
+    "drift.settings.composerCards.revert.title": "Mensajes deshechos",
+    "drift.settings.composerCards.revert.description": "Mensajes que deshiciste, para restaurarlos.",
     "prompt.attachment.remove": "Eliminar adjunto",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pregunta cualquier cosa...",
@@ -588,6 +606,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Subagentes en segundo plano a la vez",
     "drift.settings.backgroundLimit.description":
         "Cuántos subagentes en segundo plano se ejecutan al mismo tiempo. Los demás esperan en una cola y empiezan cuando queda un hueco libre; reducir este valor nunca detiene uno que ya está en marcha.",
+    "drift.settings.delegationDepth.title": "Profundidad de subagentes",
+    "drift.settings.delegationDepth.description":
+        "Cuántos niveles de subagentes puede tener una conversación. Con 1 solo delega la conversación; con 2 o 3 sus subagentes también pueden pasar tareas, esperando cada una. Los agentes de exploración nunca delegan.",
+    "drift.ultra.on":
+        "Ultra está activado: esta conversación orquesta subagentes en cada tarea importante y verifica su trabajo, sin reparar en el coste. Haz clic para desactivarlo.",
+    "drift.ultra.off":
+        "Ultra: orquestar subagentes en cada tarea importante y verificar su trabajo. Mucho más minucioso, varias veces los tokens.",
     "drift.task.queued": "En cola",
     "drift.task.queued.description":
         "Esperando un hueco libre en segundo plano. Ajustes > Ejecución define cuántos subagentes se ejecutan a la vez.",
@@ -1110,6 +1135,7 @@ export const drift = {
     "drift.process.gone": "Se ejecutó en segundo plano; Drift se reinició desde entonces.",
     "drift.process.ended": "Proceso en segundo plano terminó con código {{code}}",
     "drift.process.endedStopped": "Proceso en segundo plano detenido",
+    "drift.process.endedRestart": "Proceso en segundo plano terminado al reiniciarse Drift",
     "drift.message.revertHere": "Revertir hasta aquí",
     "drift.message.revertKeepFiles": "Mayús+clic para dejar los archivos como están",
     "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",

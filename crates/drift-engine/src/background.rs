@@ -1,6 +1,7 @@
 //! Background processes: shell commands that outlive the call that started them. Each belongs to the
 //! conversation that started it, keeps its output, and ends when it exits, is stopped, or its
-//! conversation is archived; Drift's quitting ends it with the job that holds it.
+//! conversation is archived; Drift's quitting ends it with the job that holds it, and the next start
+//! tells its conversation so.
 
 mod buffer;
 mod monitor;
@@ -162,13 +163,15 @@ struct State {
 #[derive(Default)]
 pub struct Processes {
     all: Mutex<HashMap<String, Arc<Handle>>>,
+    /// Drift is quitting: what ends now ends with it, not by anyone's choice.
+    closing: AtomicBool,
 }
 
 impl Processes {
     /// Registers a started process and watches it until it ends; `ended` is told once it has.
     /// `generation` is the owner's Stop count now; a Stop since keeps the exit from waking it.
     /// The starting call watches it from the first instant, so an exit it sees is not told again.
-    pub(crate) fn start(&self, mut start: Start, generation: i64, log_dir: PathBuf, watcher: Watcher) -> Watching {
+    pub(crate) fn start(&self, mut start: Start, generation: i64, log_dir: PathBuf, mut watcher: Watcher) -> Watching {
         let id = crate::id::new("proc");
         let mut buffer = Buffer::new(log_dir.join(format!("{id}.log")));
         let seen = buffer.seen(&start.seen);
@@ -200,6 +203,9 @@ impl Processes {
 
         self.forget_old(&handle.session_id);
         self.all.lock().unwrap().insert(id, handle.clone());
+        if let Some(started) = watcher.started.take() {
+            started(&handle);
+        }
         let watching = handle.watch();
         tokio::spawn(monitor::watch(handle.clone(), start.child, start.pipes, watcher));
 
@@ -241,10 +247,15 @@ impl Processes {
 
     /// Ends every process now, without waiting for their watchers, as Drift shuts down.
     pub fn stop_all(&self) {
+        self.closing.store(true, Ordering::SeqCst);
         for handle in self.all.lock().unwrap().values() {
             handle.stop();
             handle.kill_tree();
         }
+    }
+
+    pub fn closing(&self) -> bool {
+        self.closing.load(Ordering::SeqCst)
     }
 
     /// Makes room for a new process by forgetting the conversation's oldest ended ones.

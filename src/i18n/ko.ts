@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "서브에이전트 {{count}}개",
     "drift.stop.commands.one": "명령 {{count}}개",
     "drift.stop.commands.other": "명령 {{count}}개",
+    "drift.waiting": "대기 중",
+    "drift.waiting.on": "{{work}} 대기 중",
+    "drift.settings.waiting.title": "백그라운드 작업 대기 표시",
+    "drift.settings.waiting.description":
+        "백그라운드 명령이나 하위 에이전트가 대화를 다시 시작할 예정이고 다른 작업이 없을 때, 사이드바와 대화에 생각 중 대신 모래시계를 표시합니다.",
+    "drift.settings.composerCards": "입력창 위",
+    "drift.settings.composerCards.style.title": "카드 스타일",
+    "drift.settings.composerCards.style.description":
+        "겹친 카드는 입력창 뒤에 하나의 묶음으로 접히고, 분리된 카드는 각각 따로 위에 표시됩니다. 권한 요청과 질문은 에이전트가 기다리므로 항상 표시됩니다.",
+    "drift.settings.composerCards.style.tucked": "겹치기",
+    "drift.settings.composerCards.style.separate": "분리",
+    "drift.settings.composerCards.todos.title": "할 일 목록",
+    "drift.settings.composerCards.todos.description": "이번 턴의 에이전트 계획과 진행 상황.",
+    "drift.settings.composerCards.tasks.title": "백그라운드 작업",
+    "drift.settings.composerCards.tasks.description":
+        "백그라운드 하위 에이전트와 명령, 그 출력과 중지 버튼. 중지 버튼과 대기 표시로 실행 중임은 계속 알 수 있습니다.",
+    "drift.settings.composerCards.revert.title": "되돌린 메시지",
+    "drift.settings.composerCards.revert.description": "되돌린 메시지를 복원하기 위한 항목.",
     "prompt.attachment.remove": "첨부 파일 제거",
     "prompt.mode.shell": "셸",
     "prompt.placeholder.simple": "무엇이든 물어보세요...",
@@ -573,6 +591,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "동시에 실행할 백그라운드 하위 에이전트",
     "drift.settings.backgroundLimit.description":
         "동시에 실행되는 백그라운드 하위 에이전트 수입니다. 나머지는 대기열에서 기다리다가 자리가 나면 시작합니다. 값을 낮춰도 실행 중인 에이전트는 멈추지 않습니다.",
+    "drift.settings.delegationDepth.title": "하위 에이전트 깊이",
+    "drift.settings.delegationDepth.description":
+        "대화가 가질 수 있는 하위 에이전트 단계 수입니다. 1이면 대화만 위임하고, 2나 3이면 하위 에이전트도 각 작업을 기다리며 일을 넘길 수 있습니다. 탐색 에이전트는 위임하지 않습니다.",
+    "drift.ultra.on":
+        "Ultra 켜짐: 이 대화는 중요한 작업마다 하위 에이전트를 조율하고 결과를 검증합니다. 비용은 따지지 않습니다. 클릭하면 끕니다.",
+    "drift.ultra.off":
+        "Ultra: 중요한 작업마다 하위 에이전트를 조율하고 결과를 검증합니다. 훨씬 철저하지만 토큰이 몇 배 듭니다.",
     "drift.task.queued": "대기 중",
     "drift.task.queued.description":
         "빈 백그라운드 자리를 기다리는 중입니다. 설정 > 실행에서 동시에 실행할 하위 에이전트 수를 정합니다.",
@@ -1087,6 +1112,7 @@ export const drift = {
     "drift.process.gone": "백그라운드에서 실행되었습니다. 이후 Drift가 다시 시작되었습니다.",
     "drift.process.ended": "백그라운드 프로세스가 코드 {{code}}(으)로 종료됨",
     "drift.process.endedStopped": "백그라운드 프로세스 중지됨",
+    "drift.process.endedRestart": "Drift가 다시 시작되어 백그라운드 프로세스 종료됨",
     "drift.message.revertHere": "여기로 되돌리기",
     "drift.message.revertKeepFiles": "Shift+클릭하면 파일은 그대로 둡니다",
     "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",

@@ -18,6 +18,7 @@ import {
     spawnLink,
     statusRevisionKey,
     storeSession,
+    waitsOnBackground,
     type EngineState,
     type ModelRef,
     type Notice,
@@ -211,6 +212,8 @@ export function applyStatusSnapshot(
 function clearLiveTools(draft: EngineState, sessionID: string) {
     for (const [partID, owner] of Object.entries(draft.liveTools))
         if (owner === sessionID) delete draft.liveTools[partID];
+    for (const [partID, owner] of Object.entries(draft.waitCalls))
+        if (owner === sessionID) delete draft.waitCalls[partID];
 }
 
 function clearError(set: SetEngineState, sessionID: string) {
@@ -267,8 +270,11 @@ function upsertPart(set: SetEngineState, part: Part) {
             }
             if (part.type === "tool_call") {
                 trackActivity(draft, part);
-                if (part.status === "pending" || part.status === "running") draft.liveTools[part.id] = part.sessionId;
+                const live = part.status === "pending" || part.status === "running";
+                if (live) draft.liveTools[part.id] = part.sessionId;
                 else delete draft.liveTools[part.id];
+                if (live && waitsOnBackground(part)) draft.waitCalls[part.id] = part.sessionId;
+                else delete draft.waitCalls[part.id];
             }
 
             const entry = draft.transcripts[part.sessionId]?.find((item) => item.info.id === part.messageId);

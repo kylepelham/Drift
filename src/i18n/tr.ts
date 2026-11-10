@@ -105,6 +105,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} alt ajan",
     "drift.stop.commands.one": "{{count}} komut",
     "drift.stop.commands.other": "{{count}} komut",
+    "drift.waiting": "Bekliyor",
+    "drift.waiting.on": "{{work}} bekleniyor",
+    "drift.settings.waiting.title": "Arka plan işini beklemeyi göster",
+    "drift.settings.waiting.description":
+        "Arka plan komutları veya alt ajanlar bir konuşmayı uyandıracakken başka hiçbir şey çalışmıyorsa, kenar çubuğunda ve konuşmada Düşünüyor yerine bir kum saati gösterir.",
+    "drift.settings.composerCards": "Yazma alanının üstünde",
+    "drift.settings.composerCards.style.title": "Kart stili",
+    "drift.settings.composerCards.style.description":
+        "İçe katlanan kartlar yazma alanının arkasında tek bir yığın olarak durur; ayrı kartlar her biri kendi başına üstte durur. İzin istekleri ve sorular her zaman görünür, çünkü ajan onları bekler.",
+    "drift.settings.composerCards.style.tucked": "İçe katlanmış",
+    "drift.settings.composerCards.style.separate": "Ayrı",
+    "drift.settings.composerCards.todos.title": "Yapılacaklar listesi",
+    "drift.settings.composerCards.todos.description": "Ajanın bu tur için planı ve ne kadar ilerlediği.",
+    "drift.settings.composerCards.tasks.title": "Arka plan görevleri",
+    "drift.settings.composerCards.tasks.description":
+        "Arka plandaki alt ajanlar ve komutlar, çıktıları ve Durdur ile. Durdur düğmesi ve bekleme göstergesi çalıştıklarını göstermeye devam eder.",
+    "drift.settings.composerCards.revert.title": "Geri alınan mesajlar",
+    "drift.settings.composerCards.revert.description": "Geri aldığınız mesajlar, geri yüklemek için.",
     "prompt.attachment.remove": "Eki kaldır",
     "prompt.mode.shell": "Kabuk",
     "prompt.placeholder.simple": "Bir şeyler sorun...",
@@ -583,6 +601,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",
     "drift.settings.backgroundLimit.description":
         "Aynı anda kaç arka plan alt ajanının çalışacağı. Diğerleri kuyrukta bekler ve yer açıldıkça başlar; bu değeri düşürmek çalışan bir alt ajanı asla durdurmaz.",
+    "drift.settings.delegationDepth.title": "Alt ajan derinliği",
+    "drift.settings.delegationDepth.description":
+        "Bir konuşmanın kaç alt ajan katmanı olabileceği. 1'de yalnızca konuşma görev devreder; 2 veya 3'te alt ajanları da her birini bekleyerek iş devredebilir. Keşif ajanları asla görev devretmez.",
+    "drift.ultra.on":
+        "Ultra açık: bu konuşma her önemli görevde alt ajanları yönetir ve işlerini doğrular, maliyete bakmadan. Kapatmak için tıklayın.",
+    "drift.ultra.off":
+        "Ultra: her önemli görevde alt ajanları yönet ve işlerini doğrula. Çok daha kapsamlı, birkaç kat token.",
     "drift.task.queued": "Sırada",
     "drift.task.queued.description":
         "Boş bir arka plan yeri bekliyor. Ayarlar > Çalıştırma aynı anda kaç alt ajanın çalışacağını belirler.",
@@ -1104,6 +1129,7 @@ export const drift = {
     "drift.process.gone": "Arka planda çalıştı; Drift o zamandan beri yeniden başlatıldı.",
     "drift.process.ended": "Arka plan işlemi {{code}} koduyla çıktı",
     "drift.process.endedStopped": "Arka plan işlemi durduruldu",
+    "drift.process.endedRestart": "Arka plan işlemi Drift yeniden başlatılınca sona erdi",
     "drift.message.revertHere": "Buraya geri dön",
     "drift.message.revertKeepFiles": "Dosyaları olduğu gibi bırakmak için Shift ile tıklayın",
     "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

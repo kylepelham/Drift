@@ -150,6 +150,7 @@ export function createClient(target: Target) {
         setImageKey: (provider: string, key: string) =>
             request<Json<"setImageKey", 200>>("PUT", "/image-generation/keys", { provider, key }),
         blob: (hash: string) => request<Json<"getBlob", 200>>("GET", `/blobs/${encodeURIComponent(hash)}`),
+        favicon: (host: string) => request<Json<"getFavicon", 200>>("GET", `/favicons/${encodeURIComponent(host)}`),
         voice: () => request<Json<"getVoice", 200>>("GET", "/voice"),
         setVoiceKey: (provider: string, key: string) =>
             request<Json<"setVoiceKey", 200>>("PUT", "/voice/keys", { provider, key }),
@@ -293,6 +294,7 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        processOutput: (id: string) => request<Json<"processOutput", 200>>("GET", `/processes/${id}/output`),
         browser: (id: string) => request<Json<"getBrowser", 200>>("GET", `/sessions/${id}/browser`),
         startBrowser: (id: string) => request<Json<"startBrowser", 200>>("POST", `/sessions/${id}/browser`),
         stopBrowser: (id: string) => request<Json<"stopBrowser", 200>>("POST", `/sessions/${id}/browser/stop`),

@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 52] = [
+pub(super) const MIGRATIONS: [&str; 56] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -236,6 +236,26 @@ pub(super) const MIGRATIONS: [&str; 52] = [
     "ALTER TABLE session ADD COLUMN account TEXT;",
     // The folder a subagent was launched to work in, relative to where its session works.
     "ALTER TABLE session ADD COLUMN workdir TEXT;",
+    // The instruction files a session was shown on read, so a restart does not show them again.
+    "CREATE TABLE shown_instruction(
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        PRIMARY KEY(session_id, key)
+    ) STRICT, WITHOUT ROWID;",
+    // Background processes running now, so one left at startup was ended by Drift stopping.
+    "CREATE TABLE background_process(
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        command TEXT NOT NULL,
+        description TEXT NOT NULL,
+        log TEXT NOT NULL,
+        generation INTEGER NOT NULL
+    ) STRICT;",
+    // Replies Claude held back were timed from their burst of text; no stream is this fast, so they show no rate.
+    "UPDATE message SET generation_ms = NULL
+     WHERE generation_ms < 50 AND json_extract(usage_json, '$.output') >= 200;",
+    // Ultra: the conversation orchestrates subagents on every substantive task.
+    "ALTER TABLE session ADD COLUMN ultra INTEGER NOT NULL DEFAULT 0 CHECK(ultra IN (0, 1));",
 ];
 
 #[cfg(test)]

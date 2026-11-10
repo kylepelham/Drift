@@ -105,6 +105,25 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} Subagenten",
     "drift.stop.commands.one": "{{count}} Befehl",
     "drift.stop.commands.other": "{{count}} Befehle",
+    "drift.waiting": "Wartet",
+    "drift.waiting.on": "Wartet auf {{work}}",
+    "drift.settings.waiting.title": "Warten auf Hintergrundarbeit anzeigen",
+    "drift.settings.waiting.description":
+        "Wenn Hintergrundbefehle oder Subagenten eine Unterhaltung wecken und sonst nichts läuft, zeigen Seitenleiste und Unterhaltung eine Sanduhr statt Denkt nach.",
+    "drift.settings.composerCards": "Über dem Eingabefeld",
+    "drift.settings.composerCards.style.title": "Kartenstil",
+    "drift.settings.composerCards.style.description":
+        "Eingeschobene Karten liegen als ein Stapel hinter dem Eingabefeld; einzelne Karten stehen jede für sich darüber. Berechtigungsanfragen und Fragen erscheinen immer, da der Agent auf sie wartet.",
+    "drift.settings.composerCards.style.tucked": "Eingeschoben",
+    "drift.settings.composerCards.style.separate": "Einzeln",
+    "drift.settings.composerCards.todos.title": "Aufgabenliste",
+    "drift.settings.composerCards.todos.description": "Der Plan des Agenten für den Durchgang und wie weit er ist.",
+    "drift.settings.composerCards.tasks.title": "Hintergrundaufgaben",
+    "drift.settings.composerCards.tasks.description":
+        "Subagenten und Befehle im Hintergrund mit ihrer Ausgabe und Stoppen. Die Stopp-Schaltfläche und die Warteanzeige zeigen weiterhin, dass sie laufen.",
+    "drift.settings.composerCards.revert.title": "Zurückgenommene Nachrichten",
+    "drift.settings.composerCards.revert.description":
+        "Nachrichten, die du rückgängig gemacht hast, zum Wiederherstellen.",
     "prompt.attachment.remove": "Anhang entfernen",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Fragen Sie alles...",
@@ -591,6 +610,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Gleichzeitige Hintergrund-Subagenten",
     "drift.settings.backgroundLimit.description":
         "Wie viele Hintergrund-Subagenten gleichzeitig laufen. Weitere warten in einer Warteschlange und starten, sobald ein Platz frei wird; ein niedrigerer Wert beendet keinen laufenden.",
+    "drift.settings.delegationDepth.title": "Subagenten-Tiefe",
+    "drift.settings.delegationDepth.description":
+        "Wie viele Ebenen von Subagenten eine Unterhaltung haben darf. Bei 1 delegiert nur die Unterhaltung; bei 2 oder 3 dürfen auch ihre Subagenten Aufgaben weitergeben und warten jeweils darauf. Explore-Agenten delegieren nie.",
+    "drift.ultra.on":
+        "Ultra ist an: Diese Unterhaltung orchestriert bei jeder ernsthaften Aufgabe Subagenten und prüft deren Arbeit, ohne auf die Kosten zu achten. Klicken zum Ausschalten.",
+    "drift.ultra.off":
+        "Ultra: bei jeder ernsthaften Aufgabe Subagenten orchestrieren und ihre Arbeit prüfen. Viel gründlicher, ein Vielfaches an Tokens.",
     "drift.task.queued": "In der Warteschlange",
     "drift.task.queued.description":
         "Wartet auf einen freien Hintergrundplatz. Einstellungen > Ausführung legt fest, wie viele Subagenten gleichzeitig laufen.",
@@ -1116,6 +1142,7 @@ export const drift = {
     "drift.process.gone": "Lief im Hintergrund; Drift wurde seitdem neu gestartet.",
     "drift.process.ended": "Hintergrundprozess beendet mit Code {{code}}",
     "drift.process.endedStopped": "Hintergrundprozess gestoppt",
+    "drift.process.endedRestart": "Hintergrundprozess beim Neustart von Drift beendet",
     "drift.message.revertHere": "Bis hierher zurücksetzen",
     "drift.message.revertKeepFiles": "Mit Umschalt-Klick bleiben die Dateien, wie sie sind",
     "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",

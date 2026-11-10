@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "субагентов: {{count}}",
     "drift.stop.commands.one": "команд: {{count}}",
     "drift.stop.commands.other": "команд: {{count}}",
+    "drift.waiting": "Ожидание",
+    "drift.waiting.on": "Ожидание: {{work}}",
+    "drift.settings.waiting.title": "Показывать ожидание фоновой работы",
+    "drift.settings.waiting.description":
+        "Когда фоновые команды или субагенты разбудят разговор, а больше ничего не выполняется, в боковой панели и разговоре вместо «Думает» показываются песочные часы.",
+    "drift.settings.composerCards": "Над полем ввода",
+    "drift.settings.composerCards.style.title": "Стиль карточек",
+    "drift.settings.composerCards.style.description":
+        "Вложенные карточки прячутся за полем ввода одной стопкой; отдельные карточки стоят каждая сама по себе над ним. Запросы разрешений и вопросы показываются всегда, так как агент их ждёт.",
+    "drift.settings.composerCards.style.tucked": "Вложенные",
+    "drift.settings.composerCards.style.separate": "Отдельные",
+    "drift.settings.composerCards.todos.title": "Список задач",
+    "drift.settings.composerCards.todos.description": "План агента на ход и насколько он продвинулся.",
+    "drift.settings.composerCards.tasks.title": "Фоновые задачи",
+    "drift.settings.composerCards.tasks.description":
+        "Фоновые субагенты и команды, с их выводом и кнопкой «Остановить». Кнопка остановки и индикатор ожидания по-прежнему показывают, что они работают.",
+    "drift.settings.composerCards.revert.title": "Отменённые сообщения",
+    "drift.settings.composerCards.revert.description": "Сообщения, которые вы отменили, чтобы их восстановить.",
     "prompt.attachment.remove": "Удалить вложение",
     "prompt.mode.shell": "Оболочка",
     "prompt.placeholder.simple": "Спросите что угодно...",
@@ -586,6 +604,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Фоновых субагентов одновременно",
     "drift.settings.backgroundLimit.description":
         "Сколько фоновых субагентов работает одновременно. Остальные ждут в очереди и запускаются, когда освобождается место; уменьшение значения не останавливает уже работающих.",
+    "drift.settings.delegationDepth.title": "Глубина субагентов",
+    "drift.settings.delegationDepth.description":
+        "Сколько уровней субагентов может быть у разговора. При 1 делегирует только разговор; при 2 или 3 его субагенты тоже могут передавать задачи, дожидаясь каждой. Агенты-исследователи никогда не делегируют.",
+    "drift.ultra.on":
+        "Ultra включён: этот разговор организует субагентов в каждой существенной задаче и проверяет их работу, не считаясь с затратами. Нажмите, чтобы выключить.",
+    "drift.ultra.off":
+        "Ultra: организовывать субагентов в каждой существенной задаче и проверять их работу. Намного тщательнее, в несколько раз больше токенов.",
     "drift.task.queued": "В очереди",
     "drift.task.queued.description":
         "Ждёт свободного места для фоновой работы. Настройки > Выполнение задают, сколько субагентов работает одновременно.",
@@ -1105,6 +1130,7 @@ export const drift = {
     "drift.process.gone": "Выполнялся в фоне; с тех пор Drift перезапускался.",
     "drift.process.ended": "Фоновый процесс завершён с кодом {{code}}",
     "drift.process.endedStopped": "Фоновый процесс остановлен",
+    "drift.process.endedRestart": "Фоновый процесс завершён при перезапуске Drift",
     "drift.message.revertHere": "Вернуться сюда",
     "drift.message.revertKeepFiles": "Shift+щелчок оставляет файлы как есть",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",

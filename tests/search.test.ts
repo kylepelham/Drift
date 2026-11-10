@@ -119,30 +119,68 @@ test("excerpt highlighting splits every occurrence without building markup", asy
     expect(highlightSegments("nothing", "")).toEqual([{ text: "nothing", match: false }]);
 });
 
-const entry = (id: string, parts: unknown[]): MessageEntry =>
-    ({ info: { id, sessionID: "s1", role: "assistant", time: { created: 1 } }, parts }) as MessageEntry;
+const entry = (id: string, parts: Record<string, unknown>[], role = "assistant"): MessageEntry =>
+    ({
+        info: { id, sessionId: "s1", role, createdAt: 1 },
+        parts: parts.map((part, index) => ({ id: `${id}-p${index}`, messageId: id, sessionId: "s1", ...part })),
+    }) as MessageEntry;
 
-test("in-session search reads every visible surface and counts repeats", async () => {
+test("in-session search counts each part a row draws, the user's message whole", async () => {
     const { entrySearchText, transcriptMatches, totalMatches } = await import("../src/state/transcript-search");
     const entries = [
-        entry("m1", [{ type: "text", text: "the cache is warm" }]),
+        entry("m1", [{ type: "text", text: "the cache is warm" }], "user"),
         entry("m2", [
             { type: "reasoning", text: "the cache might be cold" },
-            { type: "tool_call", status: "done", output: "cache miss, cache miss" },
+            {
+                type: "tool_call",
+                name: "bash",
+                input: { command: "ls" },
+                status: "done",
+                output: "cache miss, cache miss",
+            },
         ]),
         entry("m3", [{ type: "text", text: "unrelated" }]),
         // Drift's own scaffolding is not something the user ever saw.
         entry("m4", [{ type: "task_result", text: "cache" }]),
     ];
 
+    // Reasoning counts only while it is shown, as it is drawn only then.
+    expect(transcriptMatches(entries, "cache").map((match) => match.unit)).toEqual(["m1", "m2-p1"]);
+    const { setShowReasoning } = await import("../src/state/prefs");
+    setShowReasoning(true);
     const matches = transcriptMatches(entries, "cache");
+    setShowReasoning(false);
     expect(matches).toEqual([
-        { messageId: "m1", count: 1 },
-        { messageId: "m2", count: 3 },
+        { rowId: "m1", unit: "m1", messageId: "m1", count: 1 },
+        { rowId: "m2", unit: "m2-p0", messageId: "m2", count: 1 },
+        { rowId: "m2", unit: "m2-p1", messageId: "m2", count: 2 },
     ]);
     expect(totalMatches(matches)).toBe(4);
     expect(entrySearchText(entries[3])).toBe("");
     expect(transcriptMatches(entries, "  ")).toEqual([]);
+});
+
+test("a step drawn inside an earlier row is found in that row, and drawn counts replace the data's", async () => {
+    const { firstOccurrenceIn, transcriptMatches, unitFingerprints } = await import("../src/state/transcript-search");
+    const first = entry("a1", [{ type: "text", text: "needle" }]);
+    const later = entry("a2", [
+        { type: "tool_call", name: "bash", input: {}, status: "done", output: "needle needle" },
+    ]);
+    // The timeline drew a2's call in a1's group, so a2 has no row of its own.
+    const partsOf = (row: MessageEntry) => (row.info.id === "a1" ? [...first.parts, ...later.parts] : []);
+    const matches = transcriptMatches([first], "needle", partsOf);
+    expect(matches.map((match) => [match.rowId, match.messageId, match.count])).toEqual([
+        ["a1", "a1", 1],
+        ["a1", "a2", 2],
+    ]);
+    expect(firstOccurrenceIn(matches, "a2")).toBe(1);
+
+    // The row showed one occurrence where the data held two; the drawn count holds until the part changes.
+    const fingerprint = unitFingerprints([first], partsOf).get("a2-p0")!;
+    const overrides = new Map([["a2-p0", { fingerprint, count: 1 }]]);
+    expect(transcriptMatches([first], "needle", partsOf, overrides)[1].count).toBe(1);
+    (later.parts[0] as { output: string }).output = "needle needle needle";
+    expect(transcriptMatches([first], "needle", partsOf, overrides)[1].count).toBe(3);
 });
 
 test("match navigation wraps at both ends and survives a growing transcript", async () => {
@@ -152,34 +190,35 @@ test("match navigation wraps at both ends and survives a growing transcript", as
     expect(stepMatch(0, 3, -1)).toBe(2);
     expect(stepMatch(0, 0, 1)).toBe(-1);
 
-    // The cursor walks occurrences: repeats inside one message are distinct stops.
-    const matches = [
-        { messageId: "m2", count: 2 },
-        { messageId: "m5", count: 1 },
-    ];
-    expect(occurrenceAt(matches, 0)).toEqual({ messageId: "m2", index: 0 });
-    expect(occurrenceAt(matches, 1)).toEqual({ messageId: "m2", index: 1 });
-    expect(occurrenceAt(matches, 2)).toEqual({ messageId: "m5", index: 0 });
+    // The cursor walks occurrences: repeats inside one unit are distinct stops.
+    const match = (unit: string, count: number) => ({ rowId: unit, unit, messageId: unit, count });
+    const matches = [match("m2", 2), match("m5", 1)];
+    const at = (unit: string, index: number) => ({ rowId: unit, unit, messageId: unit, index });
+    expect(occurrenceAt(matches, 0)).toEqual(at("m2", 0));
+    expect(occurrenceAt(matches, 1)).toEqual(at("m2", 1));
+    expect(occurrenceAt(matches, 2)).toEqual(at("m5", 0));
     expect(occurrenceAt(matches, 3)).toBeUndefined();
     expect(occurrenceAt(matches, -1)).toBeUndefined();
 
-    // An older page loading in front of the cursor must not move the highlight to another message.
-    const after = [{ messageId: "m1", count: 3 }, ...matches];
-    expect(reanchorMatch(after, { messageId: "m5", index: 0 }, 0)).toBe(5);
-    // The second occurrence in a message stays the second occurrence after the set grows.
-    expect(reanchorMatch(after, { messageId: "m2", index: 1 }, 0)).toBe(4);
-    // An occurrence that disappeared clamps to the last one that still exists in its message.
-    expect(reanchorMatch(after, { messageId: "m2", index: 9 }, 0)).toBe(4);
-    // A message that stopped matching falls back to the nearest position that still exists.
-    expect(reanchorMatch(after, { messageId: "gone", index: 0 }, 9)).toBe(5);
-    expect(reanchorMatch([], { messageId: "m5", index: 0 }, 0)).toBe(-1);
+    // An older page loading in front of the cursor must not move the highlight to another unit.
+    const after = [match("m1", 3), ...matches];
+    expect(reanchorMatch(after, at("m5", 0), 0)).toBe(5);
+    // The second occurrence in a unit stays the second occurrence after the set grows.
+    expect(reanchorMatch(after, at("m2", 1), 0)).toBe(4);
+    // An occurrence that disappeared clamps to the last one that still exists in its unit.
+    expect(reanchorMatch(after, at("m2", 9), 0)).toBe(4);
+    // A unit that stopped matching leaves the cursor on what came next, or going back, on what came before.
+    expect(reanchorMatch(after, at("gone", 0), 3)).toBe(3);
+    expect(reanchorMatch(after, at("gone", 0), 3, -1)).toBe(2);
+    expect(reanchorMatch(after, at("gone", 0), 6)).toBe(0);
+    expect(reanchorMatch([], at("m5", 0), 0)).toBe(-1);
 });
 
-test("the search text cache follows a message that is still streaming", async () => {
+test("the search text cache follows a part that is still streaming", async () => {
     const { transcriptMatches } = await import("../src/state/transcript-search");
     const streaming = entry("m1", [{ type: "text", text: "cache" }]);
-    expect(transcriptMatches([streaming], "cache")).toEqual([{ messageId: "m1", count: 1 }]);
+    expect(transcriptMatches([streaming], "cache")[0].count).toBe(1);
     // The same object growing (a streamed reply) must invalidate the cached lowered text.
     (streaming.parts[0] as { text: string }).text = "cache then cache again";
-    expect(transcriptMatches([streaming], "cache")).toEqual([{ messageId: "m1", count: 2 }]);
+    expect(transcriptMatches([streaming], "cache")[0].count).toBe(2);
 });

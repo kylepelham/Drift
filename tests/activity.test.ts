@@ -644,7 +644,7 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
     expect(chat).not.toContain("translateY(${offsets()[range().start]}px)");
     expect(chat).toContain("height: `${offsets()[range().start]}px`");
     expect(chat).toContain("(offsets().at(-1) ?? 0) - offsets()[range().end]");
-    expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}");
+    expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry() && !waiting()}");
     expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}");
 });
 

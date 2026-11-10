@@ -136,6 +136,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/favicons/{host}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public site's icon, for the transcript to show beside a URL; the engine fetches it so the UI never does. */
+        get: operations["getFavicon"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/grammars": {
         parameters: {
             query?: never;
@@ -454,6 +471,23 @@ export interface paths {
         put?: never;
         /** Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart. */
         post: operations["reloadPlugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/processes/{id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A process's newest output, for its row in the dock; reading it marks nothing read for the model. */
+        get: operations["processOutput"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1970,6 +2004,12 @@ export interface components {
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
             /**
+             * Format: int32
+             * @description How many levels of subagents a conversation may have, 1 to 3: at 1 only the conversation delegates, above it
+             *     its subagents may too, in the foreground. Left out of a PUT, it stays as it is.
+             */
+            delegationDepth?: number | null;
+            /**
              * @description Compaction points in tokens for single models, by `provider/model`, in place of `compact_at`'s. A PUT replaces
              *     the whole map.
              */
@@ -2005,6 +2045,8 @@ export interface components {
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
+            /** Format: int32 */
+            delegationDepth?: number | null;
             modelCompact?: {
                 [key: string]: number;
             } | null;
@@ -2754,6 +2796,8 @@ export interface components {
             /** @description The end of what it printed. */
             output: string;
             processId: string;
+            /** @description Drift restarted while it ran, which ended it. */
+            restarted?: boolean;
             /** @enum {string} */
             type: "process_exit";
         } | {
@@ -2826,6 +2870,8 @@ export interface components {
             autoAccept?: boolean | null;
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
+            /** @description Ultra: on every substantive task the conversation orchestrates subagents, cost no object. */
+            ultra?: boolean | null;
         };
         /**
          * @description Which pays first for OpenAI images when both can.
@@ -2882,6 +2928,10 @@ export interface components {
          * @enum {string}
          */
         Preview: "lines" | "binary" | "large" | "unavailable";
+        ProcessOutput: {
+            /** @description The newest output, at most 64 KB, with colours and cursor moves taken out. */
+            output: string;
+        };
         /** @description A background process as the dock and the API show it. */
         ProcessRecord: {
             command: string;
@@ -3329,6 +3379,8 @@ export interface components {
             /** @description Whether a turn is in flight right now; set by the API, never stored. */
             running?: boolean;
             title: string;
+            /** @description Ultra: on every substantive task it orchestrates subagents, cost no object. Its subagents do not inherit it. */
+            ultra?: boolean;
             /** Format: int64 */
             updatedAt: number;
             /** @description The reasoning variant the user last chose; turns the engine starts itself run with it too. */
@@ -4045,6 +4097,33 @@ export interface operations {
             };
         };
     };
+    getFavicon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlobImage"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listGrammars: {
         parameters: {
             query?: never;
@@ -4685,6 +4764,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PluginInfo"][];
                 };
+            };
+        };
+    };
+    processOutput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessOutput"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

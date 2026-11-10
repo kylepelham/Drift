@@ -50,6 +50,7 @@ pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
         worktree: None,
         account: None,
         workdir: None,
+        ultra: false,
         running: false,
     }
 }

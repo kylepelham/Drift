@@ -3,6 +3,7 @@ import { RequestStackStrip } from "./request-stack";
 import { grantLabel } from "./settings-permissions";
 import { DiffPanel, parseDiff } from "./diff-panel";
 import { createSignal, For, Show } from "solid-js";
+import { composerCards } from "../state/prefs";
 import { RevertDock } from "./revert-dock";
 import { TaskDock } from "./task-dock";
 import { useEngine } from "../engine";
@@ -23,12 +24,19 @@ import type { PermissionResponse } from "../engine/actions";
 import type { components } from "../engine/native/types";
 import type { RequestStack } from "./request-stack";
 
+/** The docks above the composer, each unless the user hid it in Settings. */
 export function AttentionStrip() {
     return (
         <>
-            <TodoStrip />
-            <TaskDock />
-            <RevertDock />
+            <Show when={composerCards().todos}>
+                <TodoStrip />
+            </Show>
+            <Show when={composerCards().tasks}>
+                <TaskDock />
+            </Show>
+            <Show when={composerCards().revert}>
+                <RevertDock />
+            </Show>
         </>
     );
 }

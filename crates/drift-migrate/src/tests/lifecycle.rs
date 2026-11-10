@@ -122,6 +122,7 @@ fn a_conversation_a_stopped_run_left_half_written_is_finished_by_the_next_and_pr
         worktree: None,
         account: None,
         workdir: None,
+        ultra: false,
         running: false,
     };
     assert!(

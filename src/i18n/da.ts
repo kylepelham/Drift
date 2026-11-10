@@ -104,6 +104,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} underagenter",
     "drift.stop.commands.one": "{{count}} kommando",
     "drift.stop.commands.other": "{{count}} kommandoer",
+    "drift.waiting": "Venter",
+    "drift.waiting.on": "Venter på {{work}}",
+    "drift.settings.waiting.title": "Vis venten på baggrundsarbejde",
+    "drift.settings.waiting.description":
+        "Når kommandoer eller subagenter i baggrunden vil vække en samtale, og intet andet kører, vises et timeglas i sidepanelet og samtalen i stedet for Tænker.",
+    "drift.settings.composerCards": "Over skrivefeltet",
+    "drift.settings.composerCards.style.title": "Kortstil",
+    "drift.settings.composerCards.style.description":
+        "Indfoldede kort ligger bag skrivefeltet som én stak; adskilte kort står hver for sig over det. Anmodninger om tilladelse og spørgsmål vises altid, da agenten venter på dem.",
+    "drift.settings.composerCards.style.tucked": "Indfoldet",
+    "drift.settings.composerCards.style.separate": "Adskilt",
+    "drift.settings.composerCards.todos.title": "Opgaveliste",
+    "drift.settings.composerCards.todos.description": "Agentens plan for turen, og hvor langt den er nået.",
+    "drift.settings.composerCards.tasks.title": "Baggrundsopgaver",
+    "drift.settings.composerCards.tasks.description":
+        "Subagenter og kommandoer i baggrunden med deres output og Stop. Stop-knappen og venteindikatoren viser stadig, at de kører.",
+    "drift.settings.composerCards.revert.title": "Fortrudte beskeder",
+    "drift.settings.composerCards.revert.description": "Beskeder, du har fortrudt, så du kan gendanne dem.",
     "prompt.attachment.remove": "Fjern vedhæftning",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Spørg om hvad som helst...",
@@ -581,6 +599,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Baggrundsunderagenter ad gangen",
     "drift.settings.backgroundLimit.description":
         "Hvor mange baggrundsunderagenter der kører på samme tid. Andre venter i kø og starter, når der bliver plads; en lavere værdi stopper aldrig en, der kører.",
+    "drift.settings.delegationDepth.title": "Underagent-dybde",
+    "drift.settings.delegationDepth.description":
+        "Hvor mange niveauer af underagenter en samtale må have. Ved 1 uddelegerer kun samtalen; ved 2 eller 3 må dens underagenter også give opgaver videre og vente på hver. Udforskningsagenter uddelegerer aldrig.",
+    "drift.ultra.on":
+        "Ultra er slået til: denne samtale orkestrerer underagenter ved hver væsentlig opgave og tjekker deres arbejde, uanset pris. Klik for at slå det fra.",
+    "drift.ultra.off":
+        "Ultra: orkestrér underagenter ved hver væsentlig opgave og tjek deres arbejde. Langt grundigere, flere gange så mange tokens.",
     "drift.task.queued": "I kø",
     "drift.task.queued.description":
         "Venter på en ledig baggrundsplads. Indstillinger > Kørsel bestemmer, hvor mange underagenter der kører ad gangen.",
@@ -1102,6 +1127,7 @@ export const drift = {
     "drift.process.gone": "Kørte i baggrunden; Drift er genstartet siden.",
     "drift.process.ended": "Baggrundsproces afsluttet med kode {{code}}",
     "drift.process.endedStopped": "Baggrundsproces stoppet",
+    "drift.process.endedRestart": "Baggrundsproces afsluttet, da Drift genstartede",
     "drift.message.revertHere": "Rul tilbage hertil",
     "drift.message.revertKeepFiles": "Shift-klik for at beholde filerne, som de er",
     "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",

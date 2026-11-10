@@ -66,6 +66,9 @@ pub(super) struct PatchSession {
     /// Answer this session's asks, and its subagents', except secrets and anything outside the workspace.
     #[serde(default)]
     pub auto_accept: Option<bool>,
+    /// Ultra: on every substantive task the conversation orchestrates subagents, cost no object.
+    #[serde(default)]
+    pub ultra: Option<bool>,
     /// The provider account this chat uses while it has usage left, by account id; null leaves it to the account
     /// order. Left out, it stays as it is.
     #[serde(default, deserialize_with = "crate::session::turn::present")]
@@ -183,6 +186,12 @@ pub(super) async fn update(
     if let Some(on) = body.auto_accept {
         session = engine
             .set_session_auto_accept(&id, on)?
+            .ok_or_else(|| ApiError::not_found("session"))?;
+    }
+    if let Some(on) = body.ultra {
+        session = engine
+            .store
+            .set_session_ultra(&id, on)?
             .ok_or_else(|| ApiError::not_found("session"))?;
     }
     if let Some(account) = &body.account {

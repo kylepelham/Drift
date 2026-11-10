@@ -1,14 +1,19 @@
 //! Background processes as a conversation sees them: started from its calls, and their ending handed back
-//! to it as a prompt, so the model can carry on without waiting in a call.
+//! to it as a prompt, so the model can carry on without waiting in a call. One that Drift's stopping ended
+//! is told the same way when Drift next starts.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
+
+use tokio_util::sync::CancellationToken;
 
 use super::turn::{Admission, Prompt, TurnError};
 use super::types::{Part, Visibility};
 use crate::Engine;
 use crate::background::{Exit, HANDOFF_KEY, Handle, PROCESSES_KEY, Start, Watcher, Watching};
 use crate::event::Event;
+use crate::store::RunningProcess;
 
 /// How much of the end of a process's output its exit prompt carries.
 const EXIT_TAIL_BYTES: usize = 4 * 1024;
@@ -57,9 +62,15 @@ impl Engine {
         let (_, generation) = self.worker_scope(&start.session_id);
         let log_dir = self.data_dir.join("tool-output").join(&start.session_id);
 
+        let noting = Arc::downgrade(self);
         let publishing = Arc::downgrade(self);
         let ending = Arc::downgrade(self);
         let watcher = Watcher {
+            started: Some(Box::new(move |handle| {
+                if let Some(engine) = noting.upgrade() {
+                    let _ = engine.store.note_process(&running(handle));
+                }
+            })),
             changed: Box::new(move |process| {
                 if let Some(engine) = publishing.upgrade() {
                     engine.hub.publish(Event::ProcessUpdated { process });
@@ -67,6 +78,10 @@ impl Engine {
             }),
             ended: Box::new(move |handle| {
                 if let Some(engine) = ending.upgrade() {
+                    // One ended by Drift quitting stays noted, for the next start to tell.
+                    if !engine.processes.closing() {
+                        let _ = engine.store.forget_process(&handle.id);
+                    }
                     tokio::spawn(engine.process_ended(handle));
                 }
             }),
@@ -87,33 +102,108 @@ impl Engine {
             return;
         };
 
+        let submission = format!("process:{}", handle.id);
+        self.tell(&handle.session_id, vec![exit_part(&handle)], submission, &scope)
+            .await;
+    }
+
+    /// Tells each conversation, once on startup, which of its background processes ended when Drift last
+    /// stopped, unless the user pressed Stop since they started.
+    pub fn report_cut_off_processes(self: &Arc<Self>) {
+        let cut_off = std::mem::take(&mut *self.turns.cut_off_processes.lock().unwrap());
+        let mut by_session: BTreeMap<String, Vec<RunningProcess>> = BTreeMap::new();
+        for process in cut_off {
+            by_session.entry(process.session_id.clone()).or_default().push(process);
+        }
+
+        for (session_id, processes) in by_session {
+            let waited_on: Vec<_> = processes
+                .into_iter()
+                .filter_map(|process| Some((self.scope_at(&session_id, process.generation)?, process)))
+                .collect();
+            let Some((scope, first)) = waited_on.first().filter(|_| self.wakes(&session_id)) else {
+                continue;
+            };
+
+            let submission = format!("process-restart:{}", first.id);
+            let (engine, scope) = (self.clone(), scope.clone());
+            let parts = waited_on.iter().map(|(_, process)| cut_off_part(process)).collect();
+            tokio::spawn(async move { engine.tell(&session_id, parts, submission, &scope).await });
+        }
+    }
+
+    /// Hands `parts` to the conversation as its next prompt, steering into a running turn; a conversation
+    /// busy with another job is offered them every 30 s, ten times.
+    async fn tell(self: &Arc<Self>, session_id: &str, parts: Vec<Part>, submission: String, scope: &CancellationToken) {
         for _ in 0..BUSY_TRIES {
             let prompt = Prompt {
-                parts: vec![exit_part(&handle)],
+                parts: parts.clone(),
                 model: None,
                 variant: None,
                 agent: None,
-                submission_id: Some(format!("process:{}", handle.id)),
+                submission_id: Some(submission.clone()),
                 worktree: false,
             };
             let how = Admission {
-                parent: Some(&scope),
+                parent: Some(scope),
                 ..Admission::default()
             };
 
-            match self.admit(&handle.session_id, prompt, how).await {
+            match self.admit(session_id, prompt, how).await {
                 Err(TurnError::Busy) => tokio::time::sleep(BUSY_RETRY).await,
                 _ => return,
             }
         }
     }
 
-    /// A subagent's processes end with its run, so only a conversation the user sees is woken.
     fn wakes_for(&self, handle: &Handle) -> bool {
-        let session = self.store.session(&handle.session_id).ok().flatten();
+        self.wakes(&handle.session_id)
+    }
+
+    /// A subagent's processes end with its run, so only a conversation the user sees is woken.
+    fn wakes(&self, session_id: &str) -> bool {
+        let session = self.store.session(session_id).ok().flatten();
 
         session.is_some_and(|session| session.visibility != Visibility::Hidden && session.archived_at.is_none())
     }
+}
+
+fn running(handle: &Handle) -> RunningProcess {
+    RunningProcess {
+        id: handle.id.clone(),
+        session_id: handle.session_id.clone(),
+        command: handle.command.clone(),
+        description: handle.description.clone(),
+        log: handle.record().log,
+        generation: handle.generation,
+    }
+}
+
+fn cut_off_part(process: &RunningProcess) -> Part {
+    Part::ProcessExit {
+        process_id: process.id.clone(),
+        command: process.command.clone(),
+        description: process.description.clone(),
+        exit_code: None,
+        output: log_tail(&process.log, EXIT_TAIL_BYTES),
+        log: process.log.clone(),
+        restarted: true,
+    }
+}
+
+/// The end of a log on disk; empty when it is gone.
+fn log_tail(path: &str, bytes: usize) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let length = file.metadata().map_or(0, |metadata| metadata.len());
+    let mut tail = Vec::new();
+    let _ = file
+        .seek(SeekFrom::Start(length.saturating_sub(bytes as u64)))
+        .and_then(|_| file.read_to_end(&mut tail));
+
+    String::from_utf8_lossy(&tail).into_owned()
 }
 
 fn exit_part(handle: &Handle) -> Part {
@@ -126,6 +216,7 @@ fn exit_part(handle: &Handle) -> Part {
         exit_code: record.exit_code,
         output: handle.tail(EXIT_TAIL_BYTES),
         log: record.log,
+        restarted: false,
     }
 }
 
@@ -138,11 +229,18 @@ pub(crate) fn exit_text(part: &Part) -> String {
         exit_code,
         output,
         log,
+        restarted,
     } = part
     else {
         return String::new();
     };
-    let ended = exit_code.map_or_else(|| "was stopped".to_string(), |code| format!("exited with code {code}"));
+    let ended = match exit_code {
+        _ if *restarted => "ended when Drift restarted, before it finished; anything it held (a lock, a \
+            half-written file) may need cleaning up before it runs again"
+            .to_string(),
+        Some(code) => format!("exited with code {code}"),
+        None => "was stopped".to_string(),
+    };
 
     format!(
         "<process-exit id=\"{process_id}\">\n\

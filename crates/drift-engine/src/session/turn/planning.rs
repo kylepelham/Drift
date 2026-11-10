@@ -384,6 +384,10 @@ impl Engine {
     pub(super) fn offer(&self, plan: &Plan) -> Offer {
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let subagent = plan.session.visibility == Visibility::Hidden;
+        // A subagent may hand work on, in the foreground, while the depth setting allows; it never manages workers or branches.
+        let nests = subagent && self.may_delegate(&plan.session);
+        let withheld =
+            |name: &str| subagent && crate::tool::task::DELEGATION.contains(&name) && !(nests && name == "task");
         let rules = self
             .permissions
             .compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
@@ -396,7 +400,7 @@ impl Engine {
             .filter(|(spec, _)| self.built_in_available(&spec.name, repository))
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
-            .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
+            .filter(|(spec, _)| !withheld(&spec.name))
             .filter(|(_, tool)| !tool.denied_outright(&rules))
             .collect();
         let deferred = self.deferred_tools(plan, &tools);
@@ -432,6 +436,7 @@ impl Engine {
             agent: agent.as_ref(),
             delegates: tools.iter().any(|(spec, _)| spec.name == "task"),
             loads_skills: tools.iter().any(|(spec, _)| spec.name == "skill"),
+            ultra: plan.session.ultra,
             denied: &denied,
             model: &plan.model.name,
             servers: &servers,

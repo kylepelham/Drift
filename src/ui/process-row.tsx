@@ -1,7 +1,9 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { ShellOutput } from "./shell-output";
 import { openFile } from "../tool-actions";
 import { openExternal } from "../shell";
 import { useEngine } from "../engine";
+import { Chevron } from "./controls";
 import { NoteBox } from "./note-box";
 import { IconCode } from "./icons";
 import { t } from "../state/i18n";
@@ -31,45 +33,108 @@ function stateLabel(process: ProcessRecord) {
     return t("drift.process.exited", { code: process.exitCode ?? -1 });
 }
 
-/** One background process: what it is, how it is, its newest line, and Stop while it runs. */
-export function ProcessRow(props: { process: ProcessRecord }) {
+/** How long a process has run, as words: counting up each second while it runs, fixed once it ends. */
+function createRunningSpan(process: () => ProcessRecord | undefined) {
+    const [now, setNow] = createSignal(Date.now());
+    const running = createMemo(() => {
+        const record = process();
+        return !!record && typeof record.endedAt !== "number";
+    });
+    createEffect(() => {
+        if (!running()) return;
+
+        const tick = setInterval(() => setNow(Date.now()), 1000);
+        onCleanup(() => clearInterval(tick));
+    });
+
+    return () => {
+        const record = process();
+        return record ? processSpan((record.endedAt ?? now()) - record.startedAt) : "";
+    };
+}
+
+/** How often an open row asks for new output while its process runs. */
+const OUTPUT_POLL_MS = 1000;
+
+/** The process's newest output, read when opened and every second while it runs, as a shell call shows its own. */
+function ProcessOutput(props: { process: ProcessRecord }) {
     const engine = useEngine();
+    const [output, setOutput] = createSignal("");
+    const read = () => void engine.actions.processOutput(props.process.id).then(setOutput);
+
+    createEffect(() => {
+        read();
+        if (props.process.state !== "running") return;
+
+        const poll = setInterval(read, OUTPUT_POLL_MS);
+        onCleanup(() => clearInterval(poll));
+    });
 
     return (
-        <li class="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-ink-muted">
-            <span class={`size-2 shrink-0 rounded-full ${tone(props.process)}`} />
+        <div class="pt-1 pb-1.5 pl-4">
+            <ShellOutput
+                command={props.process.command}
+                output={output()}
+                running={props.process.state === "running"}
+                file={props.process.log}
+            />
+        </div>
+    );
+}
 
-            <span class="min-w-0 flex-1 truncate" title={props.process.command}>
-                <span class="text-ink">{props.process.description}</span>
-                <span class="text-ink-faint">
-                    {" "}
-                    · {t("drift.process.label")} · {stateLabel(props.process)}
-                </span>
-                <Show when={props.process.lastLine}>
-                    {(line) => <span class="font-mono text-accent/80"> · {line()}</span>}
-                </Show>
-            </span>
+/** One background process: what it is, how it is and for how long, its newest line, and Stop while it runs; open for its output. */
+export function ProcessRow(props: { process: ProcessRecord }) {
+    const engine = useEngine();
+    const span = createRunningSpan(() => props.process);
+    const [open, setOpen] = createSignal(false);
 
-            <Show when={props.process.url}>
-                {(url) => (
-                    <button
-                        class="shrink-0 truncate text-accent/80 underline-offset-2 hover:underline"
-                        title={url()}
-                        onClick={() => openExternal(url())}
-                    >
-                        {t("drift.process.open")}
-                    </button>
-                )}
-            </Show>
-
-            <Show when={props.process.state === "running"}>
+    return (
+        <li class="rounded-md text-xs text-ink-muted">
+            <div class="flex items-center gap-2 px-2 py-1">
                 <button
-                    class="shrink-0 rounded-md border border-edge px-2 py-0.5 transition-colors hover:border-danger/50 hover:text-danger"
-                    title={t("drift.process.stopHint")}
-                    onClick={() => void engine.actions.stopProcess(props.process.id)}
+                    class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    aria-expanded={open()}
+                    title={props.process.command}
+                    onClick={() => setOpen(!open())}
                 >
-                    {t("drift.task.stop")}
+                    <Chevron open={open()} />
+                    <span class={`size-2 shrink-0 rounded-full ${tone(props.process)}`} />
+                    <span class="min-w-0 flex-1 truncate">
+                        <span class="text-ink">{props.process.description}</span>
+                        <span class="text-ink-faint">
+                            {" "}
+                            · {t("drift.process.label")} · {stateLabel(props.process)} · {span()}
+                        </span>
+                        <Show when={!open() && props.process.lastLine}>
+                            {(line) => <span class="font-mono text-accent/80"> · {line()}</span>}
+                        </Show>
+                    </span>
                 </button>
+
+                <Show when={props.process.url}>
+                    {(url) => (
+                        <button
+                            class="shrink-0 truncate text-accent/80 underline-offset-2 hover:underline"
+                            title={url()}
+                            onClick={() => openExternal(url())}
+                        >
+                            {t("drift.process.open")}
+                        </button>
+                    )}
+                </Show>
+
+                <Show when={props.process.state === "running"}>
+                    <button
+                        class="shrink-0 rounded-md border border-edge px-2 py-0.5 transition-colors hover:border-danger/50 hover:text-danger"
+                        title={t("drift.process.stopHint")}
+                        onClick={() => void engine.actions.stopProcess(props.process.id)}
+                    >
+                        {t("drift.task.stop")}
+                    </button>
+                </Show>
+            </div>
+            <Show when={open()}>
+                <ProcessOutput process={props.process} />
             </Show>
         </li>
     );
@@ -77,10 +142,12 @@ export function ProcessRow(props: { process: ProcessRecord }) {
 
 /** Why a turn started by itself: a background process ended. Folded like an answer; open for its output. */
 export function ProcessExitRow(props: { part: ProcessExitPart }) {
-    const label = () =>
-        props.part.exitCode === undefined || props.part.exitCode === null
+    const label = () => {
+        if (props.part.restarted) return t("drift.process.endedRestart");
+        return props.part.exitCode === undefined || props.part.exitCode === null
             ? t("drift.process.endedStopped")
             : t("drift.process.ended", { code: props.part.exitCode });
+    };
 
     return (
         <div class="flex min-w-0 justify-end">
@@ -123,20 +190,7 @@ export function ShellProcessStatus(props: { sessionId: string; processId: string
     const engine = useEngine();
     const record = () => engine.state.processes[props.sessionId]?.find((process) => process.id === props.processId);
 
-    // The running time counts up while it runs; an ended one shows how long it ran.
-    const [now, setNow] = createSignal(Date.now());
-    const running = createMemo(() => {
-        const process = record();
-        return !!process && typeof process.endedAt !== "number";
-    });
-    createEffect(() => {
-        if (!running()) return;
-
-        const tick = setInterval(() => setNow(Date.now()), 1000);
-        onCleanup(() => clearInterval(tick));
-    });
-
-    const span = (process: ProcessRecord) => processSpan((process.endedAt ?? now()) - process.startedAt);
+    const span = createRunningSpan(record);
 
     return (
         <div class="mt-1 flex min-w-0 items-center gap-2 px-1 text-xs text-ink-faint">
@@ -146,7 +200,7 @@ export function ShellProcessStatus(props: { sessionId: string; processId: string
                         <span class={`size-1.5 shrink-0 rounded-full ${tone(process())}`} />
                         <span class="shrink-0 text-ink-muted">{t("drift.process.title")}</span>
                         <span class="shrink-0">
-                            {stateLabel(process())} · {span(process())}
+                            {stateLabel(process())} · {span()}
                         </span>
                         <Show when={process().state === "running" && process().lastLine}>
                             {(line) => <span class="min-w-0 truncate font-mono text-accent/80">{line()}</span>}

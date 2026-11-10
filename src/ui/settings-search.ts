@@ -88,6 +88,15 @@ const settingsSearchDefinitions = {
         { title: "drift.textSize.icons", description: "drift.textSize.icons.description" },
         { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
         { title: "drift.settings.thinking", description: "drift.settings.thinking.preview.description" },
+        { title: "drift.settings.waiting.title", description: "drift.settings.waiting.description" },
+        {
+            title: "drift.settings.composerCards.style.title",
+            description: "drift.settings.composerCards.style.description",
+        },
+        ...(["todos", "tasks", "revert"] as const).map((kind) => ({
+            title: `drift.settings.composerCards.${kind}.title`,
+            description: `drift.settings.composerCards.${kind}.description`,
+        })),
         { title: "startup.settings.show.title", description: "startup.settings.show.description" },
         { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
         { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },
@@ -131,11 +140,46 @@ const settingsSearchDefinitions = {
     Tools: [
         { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
         { title: "drift.settings.backgroundLimit.title", description: "drift.settings.backgroundLimit.description" },
+        { title: "drift.settings.delegationDepth.title", description: "drift.settings.delegationDepth.description" },
         {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
         { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
+        { title: "drift.settings.resumeTurns.title", description: "drift.settings.resumeTurns.description" },
+        {
+            title: "drift.settings.promptCache.warming.title",
+            description: "drift.settings.promptCache.warming.description",
+        },
+        {
+            title: "drift.settings.promptCache.interval.title",
+            description: "drift.settings.promptCache.interval.description",
+        },
+        {
+            title: "drift.settings.promptCache.window.title",
+            description: "drift.settings.promptCache.window.description",
+        },
+        {
+            title: "drift.settings.promptCache.prompt.title",
+            description: "drift.settings.promptCache.prompt.description",
+        },
+        {
+            title: "drift.settings.promptCache.subagent.title",
+            description: "drift.settings.promptCache.subagent.description",
+        },
+        {
+            title: "drift.settings.webSearch.provider.title",
+            description: "drift.settings.webSearch.provider.description",
+        },
+        { title: "drift.settings.imageGeneration.provider.title" },
+        {
+            title: "drift.settings.imageGeneration.size.title",
+            description: "drift.settings.imageGeneration.size.description",
+        },
+        {
+            title: "drift.settings.imageGeneration.payFirst.title",
+            description: "drift.settings.imageGeneration.payFirst.description",
+        },
     ],
     Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },

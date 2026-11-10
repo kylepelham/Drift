@@ -175,7 +175,7 @@ impl crate::Engine {
             .await
             .map_err(|source| SignInError::Start {
                 server: name.to_owned(),
-                source,
+                source: Box::new(source),
             })?;
 
         let page = state.get_authorization_url().await?;
@@ -300,7 +300,7 @@ async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> R
         }
         Err(error) => {
             crate::llm::openai::oauth::respond(&mut socket, 400, &format!("Sign-in failed: {error}")).await;
-            Err(SignInError::Auth(error))
+            Err(error.into())
         }
     }
 }

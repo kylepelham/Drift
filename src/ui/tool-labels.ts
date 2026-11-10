@@ -49,7 +49,14 @@ export function commandLabel(part: ToolPart) {
     return description ? { text: description, mono: false } : { text: command, mono: true };
 }
 
-type ToolInfo = { title?: string; titleMono?: boolean; called?: string; subtitle?: string; mono?: boolean };
+type ToolInfo = {
+    title?: string;
+    titleMono?: boolean;
+    called?: string;
+    subtitle?: string;
+    mono?: boolean;
+    host?: string;
+};
 export type PatchFile = {
     filePath: string;
     relativePath?: string;
@@ -58,6 +65,30 @@ export type PatchFile = {
     additions: number;
     deletions: number;
 };
+
+/** The full path of the one file a call read or changed: as the engine recorded it, else as asked, under `directory`. */
+export function toolFullPath(part: ToolPart, directory?: string) {
+    const recorded = part.metadata?.files?.find((file): file is string => typeof file === "string");
+    const patched = patchFiles(part);
+    const input = toolInput(part);
+    const asked = [input.filePath, input.path].find((value): value is string => typeof value === "string" && !!value);
+    const path = recorded ?? (patched.length === 1 ? patched[0].filePath : undefined) ?? asked;
+    if (!path || /^(?:[a-zA-Z]:)?[\\/]/.test(path) || !directory) return path;
+
+    const separator = directory.includes("\\") ? "\\" : "/";
+    return `${directory.replace(/[\\/]+$/, "")}${separator}${path.replace(/^\.[\\/]/, "").replace(/[\\/]/g, separator)}`;
+}
+
+/** The public host a URL names, or nothing for a private, local or unparsable one. */
+export function faviconHost(url?: string) {
+    if (!url) return undefined;
+    try {
+        const { hostname, protocol } = new URL(url);
+        return /^https?:$/.test(protocol) && hostname.includes(".") ? hostname.toLowerCase() : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 export function toolFilename(path?: string) {
     if (!path) return undefined;
@@ -104,7 +135,7 @@ export function toolInfo(part: ToolPart): ToolInfo {
         case "apply_patch":
             return { title: changeTitle(part), subtitle: patchSubtitle(part) };
         case "webfetch":
-            return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true };
+            return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true, host: faviconHost(text("url")) };
         case "generate_image":
             return { title: t("drift.tool.generateImage"), subtitle: text("prompt") };
         default:

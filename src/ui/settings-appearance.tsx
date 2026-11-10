@@ -1,6 +1,7 @@
 import { corners, customCss, setCorners, setCustomCss, setUiFont, theme, uiFont } from "../state/theme";
 import { interfaceZoom, maxZoom, minZoom, setInterfaceZoom } from "../state/zoom";
 import { AccentPicker, CustomColors, ThemeGallery } from "./settings-theme";
+import { ComposerCardsSettings } from "./settings-composer-cards";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { defaultFonts, FontPicker } from "./settings-font";
 import { Segmented, Slider, Toggle } from "./controls";
@@ -157,6 +158,8 @@ export function AppearanceSection() {
             </SettingsGroup>
 
             <ThinkingSettings />
+
+            <ComposerCardsSettings />
 
             <SettingsGroup title={t("startup.settings.title")}>
                 <SettingsRow

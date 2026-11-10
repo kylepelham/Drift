@@ -96,6 +96,7 @@ pub enum Error {
     NoGit,
     TooLarge(String),
     TooManyFiles,
+    Held(String),
     Failed(String),
 }
 
@@ -111,6 +112,10 @@ impl std::fmt::Display for Error {
             Self::TooManyFiles => write!(
                 formatter,
                 "the workspace holds more than {MAX_TREE_FILES} files, too many to record"
+            ),
+            Self::Held(path) => write!(
+                formatter,
+                "another program has {path} open without letting it be read; close it there and try again"
             ),
             Self::Failed(message) => write!(formatter, "git: {message}"),
         }

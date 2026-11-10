@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "субагентів: {{count}}",
     "drift.stop.commands.one": "команд: {{count}}",
     "drift.stop.commands.other": "команд: {{count}}",
+    "drift.waiting": "Очікування",
+    "drift.waiting.on": "Очікування: {{work}}",
+    "drift.settings.waiting.title": "Показувати очікування фонової роботи",
+    "drift.settings.waiting.description":
+        "Коли фонові команди або субагенти розбудять розмову, а більше нічого не виконується, на бічній панелі та в розмові замість «Думає» показується пісочний годинник.",
+    "drift.settings.composerCards": "Над полем введення",
+    "drift.settings.composerCards.style.title": "Стиль карток",
+    "drift.settings.composerCards.style.description":
+        "Вкладені картки ховаються за полем введення однією стопкою; окремі картки стоять кожна сама над ним. Запити дозволів і питання показуються завжди, бо агент на них чекає.",
+    "drift.settings.composerCards.style.tucked": "Вкладені",
+    "drift.settings.composerCards.style.separate": "Окремі",
+    "drift.settings.composerCards.todos.title": "Список завдань",
+    "drift.settings.composerCards.todos.description": "План агента на хід і наскільки він просунувся.",
+    "drift.settings.composerCards.tasks.title": "Фонові завдання",
+    "drift.settings.composerCards.tasks.description":
+        "Фонові субагенти й команди, з їхнім виводом і кнопкою «Зупинити». Кнопка зупинки й індикатор очікування й далі показують, що вони працюють.",
+    "drift.settings.composerCards.revert.title": "Скасовані повідомлення",
+    "drift.settings.composerCards.revert.description": "Повідомлення, які ви скасували, щоб відновити їх.",
     "prompt.attachment.remove": "Видалити вкладення",
     "prompt.mode.shell": "Команда",
     "prompt.placeholder.simple": "Запитайте що завгодно...",
@@ -583,6 +601,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Фонових субагентів одночасно",
     "drift.settings.backgroundLimit.description":
         "Скільки фонових субагентів працює одночасно. Решта чекає в черзі й запускається, коли звільняється місце; зменшення значення не зупиняє тих, що вже працюють.",
+    "drift.settings.delegationDepth.title": "Глибина субагентів",
+    "drift.settings.delegationDepth.description":
+        "Скільки рівнів субагентів може мати розмова. При 1 делегує лише розмова; при 2 або 3 її субагенти теж можуть передавати завдання, чекаючи на кожне. Агенти-дослідники ніколи не делегують.",
+    "drift.ultra.on":
+        "Ultra увімкнено: ця розмова організовує субагентів у кожному суттєвому завданні й перевіряє їхню роботу, не зважаючи на витрати. Натисніть, щоб вимкнути.",
+    "drift.ultra.off":
+        "Ultra: організовувати субагентів у кожному суттєвому завданні й перевіряти їхню роботу. Значно ретельніше, у кілька разів більше токенів.",
     "drift.task.queued": "У черзі",
     "drift.task.queued.description":
         "Чекає на вільне місце для фонової роботи. Налаштування > Виконання задають, скільки субагентів працює одночасно.",
@@ -1102,6 +1127,7 @@ export const drift = {
     "drift.process.gone": "Виконувався у фоні; відтоді Drift перезапускався.",
     "drift.process.ended": "Фоновий процес завершено з кодом {{code}}",
     "drift.process.endedStopped": "Фоновий процес зупинено",
+    "drift.process.endedRestart": "Фоновий процес завершено під час перезапуску Drift",
     "drift.message.revertHere": "Повернутися сюди",
     "drift.message.revertKeepFiles": "Shift+клік залишає файли як є",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",

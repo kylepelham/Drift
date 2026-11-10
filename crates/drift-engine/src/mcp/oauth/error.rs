@@ -9,7 +9,7 @@ pub enum SignInError {
     #[error(transparent)]
     Callback(#[from] crate::llm::OAuthError),
     #[error(transparent)]
-    Auth(#[from] rmcp::transport::auth::AuthError),
+    Auth(Box<rmcp::transport::auth::AuthError>),
     #[error("no MCP server named {0}")]
     MissingServer(String),
     #[error("a server on stdio has no sign-in")]
@@ -17,7 +17,7 @@ pub enum SignInError {
     #[error("could not start signing in to {server}: {source}")]
     Start {
         server: String,
-        source: rmcp::transport::auth::AuthError,
+        source: Box<rmcp::transport::auth::AuthError>,
     },
     #[error("no answer from the browser within {minutes} minutes")]
     BrowserTimeout { minutes: u64 },
@@ -25,4 +25,11 @@ pub enum SignInError {
     Refused(String),
     #[error("the server sent no code")]
     NoCode,
+}
+
+/// Boxed, as rmcp's error is large enough to make every `Result` carrying this one large.
+impl From<rmcp::transport::auth::AuthError> for SignInError {
+    fn from(error: rmcp::transport::auth::AuthError) -> Self {
+        Self::Auth(Box::new(error))
+    }
 }

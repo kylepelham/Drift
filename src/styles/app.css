@@ -763,8 +763,20 @@ textarea {
 }
 
 /* Docks stacked on each other tuck in as the last one tucks into the composer: the stack's gap would add 0.5rem. */
-.composer-attention-stack > .composer-layer-card + .composer-layer-card {
+.composer-attention-stack[data-cards="tucked"] > .composer-layer-card + .composer-layer-card {
     margin-top: -0.5rem;
+}
+
+/* Separate: each card stands on its own, rounded all round, with the stack's gap between them and the composer. */
+.composer-attention-stack[data-cards="separate"] .composer-layer-card {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-radius: 0.9rem;
+    box-shadow: 0 8px 24px color-mix(in srgb, black 16%, transparent);
+}
+
+.composer-attention-stack[data-cards="separate"]:has(> *) {
+    padding-bottom: 0.5rem;
 }
 
 .drift-wordmark {
@@ -1132,6 +1144,27 @@ textarea {
     width: fit-content;
     padding-top: 0.7rem;
     font-size: 0.78rem;
+}
+
+@keyframes waiting-flip {
+    0%,
+    70% {
+        transform: rotate(0deg);
+    }
+    85%,
+    100% {
+        transform: rotate(180deg);
+    }
+}
+
+.waiting-hourglass {
+    animation: waiting-flip 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .waiting-hourglass {
+        animation: none;
+    }
 }
 
 .tool-row-title {

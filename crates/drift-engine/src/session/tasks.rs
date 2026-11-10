@@ -20,6 +20,9 @@ pub const DEFAULT_BACKGROUND_LIMIT: usize = 4;
 pub const MAX_BACKGROUND_LIMIT: usize = 64;
 pub const BACKGROUND_TASKS_KEY: &str = "backgroundTasks";
 pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
+/// How many levels of subagents a conversation may have: 1, its own only, up to [`MAX_DELEGATION_DEPTH`].
+pub const DELEGATION_DEPTH_KEY: &str = "delegationDepth";
+pub const MAX_DELEGATION_DEPTH: u8 = 3;
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
 
@@ -366,6 +369,36 @@ impl Engine {
     /// How many background workers run at once.
     pub fn background_limit(&self) -> usize {
         stored_background_limit(&self.store)
+    }
+
+    /// How many levels of subagents a conversation may have, all three unless set; 1 keeps delegation to the conversation itself.
+    pub fn delegation_depth(&self) -> u8 {
+        let saved: Option<u8> = self.store.setting(DELEGATION_DEPTH_KEY).ok().flatten();
+        saved
+            .filter(|depth| (1..=MAX_DELEGATION_DEPTH).contains(depth))
+            .unwrap_or(MAX_DELEGATION_DEPTH)
+    }
+
+    /// Whether `session` may hand work on: a conversation always, a subagent while the depth setting allows.
+    pub fn may_delegate(&self, session: &super::types::Session) -> bool {
+        self.worker_depth(session) < self.delegation_depth()
+    }
+
+    /// How many subagent levels down `session` is: 0 for a conversation, 1 for its subagent, and so on.
+    fn worker_depth(&self, session: &super::types::Session) -> u8 {
+        let mut depth = 0;
+        let mut current = Some(session.clone());
+        while let Some(worker) = current.filter(|worker| worker.visibility == super::types::Visibility::Hidden) {
+            depth += 1;
+            if depth > MAX_DELEGATION_DEPTH {
+                break;
+            }
+            current = worker
+                .parent_id
+                .and_then(|parent| self.store.session(&parent).ok().flatten());
+        }
+
+        depth
     }
 
     /// Saves a new background limit and applies it to the slots straight away.

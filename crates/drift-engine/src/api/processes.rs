@@ -1,9 +1,11 @@
-//! Background processes: what a conversation has running, and stopping one from the dock.
+//! Background processes: what a conversation has running, its output, and stopping one from the dock.
 
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use serde::Serialize;
+use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::Engine;
@@ -30,4 +32,29 @@ pub(super) async fn stop(
     handle.stop();
 
     Ok(Json(handle.record()))
+}
+
+/// How much of a process's newest output its row in the dock shows.
+const OUTPUT_BYTES: usize = 64 * 1024;
+
+#[derive(Serialize, ToSchema)]
+pub(super) struct ProcessOutput {
+    /// The newest output, at most 64 KB, with colours and cursor moves taken out.
+    output: String,
+}
+
+/// A process's newest output, for its row in the dock; reading it marks nothing read for the model.
+#[utoipa::path(get, path = "/processes/{id}/output", operation_id = "processOutput", responses((status = 200, body = ProcessOutput), (status = 404)))]
+pub(super) async fn output(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+) -> Result<Json<ProcessOutput>, ApiError> {
+    let handle = engine
+        .processes
+        .get(&id)
+        .ok_or_else(|| ApiError::not_found("process"))?;
+
+    Ok(Json(ProcessOutput {
+        output: handle.tail(OUTPUT_BYTES),
+    }))
 }

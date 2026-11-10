@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "เอเจนต์ย่อย {{count}} ตัว",
     "drift.stop.commands.one": "คำสั่ง {{count}} รายการ",
     "drift.stop.commands.other": "คำสั่ง {{count}} รายการ",
+    "drift.waiting": "กำลังรอ",
+    "drift.waiting.on": "กำลังรอ {{work}}",
+    "drift.settings.waiting.title": "แสดงการรองานเบื้องหลัง",
+    "drift.settings.waiting.description":
+        "เมื่อคำสั่งหรือเอเจนต์ย่อยเบื้องหลังจะปลุกบทสนทนาและไม่มีอะไรอื่นทำงานอยู่ จะแสดงนาฬิกาทรายในแถบด้านข้างและบทสนทนาแทนกำลังคิด",
+    "drift.settings.composerCards": "เหนือช่องพิมพ์",
+    "drift.settings.composerCards.style.title": "รูปแบบการ์ด",
+    "drift.settings.composerCards.style.description":
+        "การ์ดแบบซ้อนจะพับอยู่หลังช่องพิมพ์เป็นกองเดียว การ์ดแบบแยกจะตั้งอยู่เดี่ยว ๆ เหนือช่องพิมพ์ คำขอสิทธิ์และคำถามแสดงเสมอ เพราะเอเจนต์รอคำตอบอยู่",
+    "drift.settings.composerCards.style.tucked": "ซ้อน",
+    "drift.settings.composerCards.style.separate": "แยก",
+    "drift.settings.composerCards.todos.title": "รายการสิ่งที่ต้องทำ",
+    "drift.settings.composerCards.todos.description": "แผนของเอเจนต์สำหรับรอบนี้และความคืบหน้า",
+    "drift.settings.composerCards.tasks.title": "งานเบื้องหลัง",
+    "drift.settings.composerCards.tasks.description":
+        "เอเจนต์ย่อยและคำสั่งเบื้องหลัง พร้อมเอาต์พุตและปุ่มหยุด ปุ่มหยุดและตัวบอกการรอยังคงแสดงว่ากำลังทำงานอยู่",
+    "drift.settings.composerCards.revert.title": "ข้อความที่ย้อนกลับ",
+    "drift.settings.composerCards.revert.description": "ข้อความที่คุณย้อนกลับ เพื่อกู้คืน",
     "prompt.attachment.remove": "เอาไฟล์แนบออก",
     "prompt.mode.shell": "เชลล์",
     "prompt.placeholder.simple": "ถามอะไรก็ได้...",
@@ -570,6 +588,12 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "เอเจนต์ย่อยเบื้องหลังพร้อมกัน",
     "drift.settings.backgroundLimit.description":
         "จำนวนเอเจนต์ย่อยเบื้องหลังที่ทำงานพร้อมกัน ตัวอื่นจะรอในคิวและเริ่มเมื่อมีช่องว่าง การลดค่านี้จะไม่หยุดตัวที่กำลังทำงานอยู่",
+    "drift.settings.delegationDepth.title": "ความลึกของเอเจนต์ย่อย",
+    "drift.settings.delegationDepth.description":
+        "จำนวนชั้นของเอเจนต์ย่อยที่บทสนทนามีได้ ที่ 1 มีเพียงบทสนทนาที่มอบหมายงาน ที่ 2 หรือ 3 เอเจนต์ย่อยก็ส่งงานต่อได้โดยรอแต่ละงาน เอเจนต์สำรวจไม่มอบหมายงานต่อ",
+    "drift.ultra.on":
+        "Ultra เปิดอยู่: บทสนทนานี้จัดการเอเจนต์ย่อยในทุกงานสำคัญและตรวจสอบผลงาน ไม่คำนึงถึงค่าใช้จ่าย คลิกเพื่อปิด",
+    "drift.ultra.off": "Ultra: จัดการเอเจนต์ย่อยในทุกงานสำคัญและตรวจสอบผลงาน ละเอียดกว่ามาก ใช้โทเค็นหลายเท่า",
     "drift.task.queued": "อยู่ในคิว",
     "drift.task.queued.description":
         "กำลังรอช่องว่างเบื้องหลัง การตั้งค่า > การทำงาน กำหนดจำนวนเอเจนต์ย่อยที่ทำงานพร้อมกัน",
@@ -1081,6 +1105,7 @@ export const drift = {
     "drift.process.gone": "ทำงานอยู่เบื้องหลัง Drift ถูกเริ่มใหม่ตั้งแต่นั้น",
     "drift.process.ended": "โปรเซสเบื้องหลังจบด้วยรหัส {{code}}",
     "drift.process.endedStopped": "หยุดโปรเซสเบื้องหลังแล้ว",
+    "drift.process.endedRestart": "โปรเซสเบื้องหลังจบลงเมื่อ Drift เริ่มใหม่",
     "drift.message.revertHere": "ย้อนกลับมาที่นี่",
     "drift.message.revertKeepFiles": "กด Shift ค้างแล้วคลิกเพื่อคงไฟล์ไว้ตามเดิม",
     "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",

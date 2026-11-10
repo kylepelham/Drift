@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} workers",
     "drift.stop.commands.one": "{{count}} command",
     "drift.stop.commands.other": "{{count}} commands",
+    "drift.waiting": "Waiting",
+    "drift.waiting.on": "Waiting on {{work}}",
+    "drift.settings.waiting.title": "Show waiting on background work",
+    "drift.settings.waiting.description":
+        "When background commands or subagents will wake a conversation and nothing else runs, show an hourglass in the sidebar and the conversation instead of Thinking.",
+    "drift.settings.composerCards": "Above the composer",
+    "drift.settings.composerCards.style.title": "Card style",
+    "drift.settings.composerCards.style.description":
+        "Tucked cards fold in behind the composer as one stack; separate cards each stand on their own above it. Permission requests and questions always show, since the agent waits on them.",
+    "drift.settings.composerCards.style.tucked": "Tucked",
+    "drift.settings.composerCards.style.separate": "Separate",
+    "drift.settings.composerCards.todos.title": "Todo list",
+    "drift.settings.composerCards.todos.description": "The agent's plan for the turn and how far along it is.",
+    "drift.settings.composerCards.tasks.title": "Background tasks",
+    "drift.settings.composerCards.tasks.description":
+        "Background subagents and commands, with their output and Stop. The Stop button and the waiting indicator still show that they run.",
+    "drift.settings.composerCards.revert.title": "Rolled back messages",
+    "drift.settings.composerCards.revert.description": "Messages you undid, to restore them.",
     "prompt.attachment.remove": "Remove attachment",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Ask anything...",
@@ -584,6 +602,14 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Background subagents at once",
     "drift.settings.backgroundLimit.description":
         "How many background subagents run at the same time. Others wait in a queue and start as slots free up; lowering this never stops one that is running.",
+    "drift.settings.delegationDepth.title": "Subagent depth",
+    "drift.settings.delegationDepth.description":
+        "How many levels of subagents a conversation may have. At 1 only the conversation delegates; at 2 or 3 its subagents may hand jobs on too, waiting for each. Explore agents never delegate.",
+    "drift.ultra.label": "Ultra",
+    "drift.ultra.on":
+        "Ultra is on: this chat orchestrates subagents on every substantive task and checks their work, cost no object. Click to turn it off.",
+    "drift.ultra.off":
+        "Ultra: orchestrate subagents on every substantive task and check their work. Much more thorough, several times the tokens.",
     "drift.task.queued": "Queued",
     "drift.task.queued.description":
         "Waiting for a free background slot. Settings > Execution sets how many subagents run at once.",
@@ -1108,6 +1134,7 @@ export const drift = {
     "drift.process.gone": "Ran in the background; Drift has restarted since.",
     "drift.process.ended": "Background process exited with code {{code}}",
     "drift.process.endedStopped": "Background process stopped",
+    "drift.process.endedRestart": "Background process ended when Drift restarted",
     "drift.message.revertHere": "Revert to here",
     "drift.message.revertKeepFiles": "Shift-click to keep the files as they are",
     "drift.message.tokenCounts": "{{input}} in / {{output}} out",

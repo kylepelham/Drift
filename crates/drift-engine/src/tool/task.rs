@@ -15,7 +15,8 @@ use crate::session::turn::Prompt;
 use crate::session::types::{Part, Visibility};
 use crate::store::{Launch, NewSession, NewTask};
 
-/// Tools a subagent is never offered: delegation stays one level deep and branches belong to conversations.
+/// Tools a subagent is not offered: `task` only while the depth setting allows nesting, the rest never, as its own
+/// subagents run in the foreground and branches belong to conversations.
 pub const DELEGATION: [&str; 4] = ["task", "task_output", "task_stop", "read_thread"];
 
 const SUMMARY_CHARS: usize = 4_000;
@@ -79,7 +80,10 @@ impl Tool for Task {
                 |earlier| earlier.agent.as_str(),
             );
             let config = &ctx.config;
-            let (mode, reason) = task_mode(ctx, &input, agent)?;
+            let (mode, reason) = match parent.visibility {
+                Visibility::Hidden => (Mode::Foreground, "a subagent's own"),
+                Visibility::Sibling => task_mode(ctx, &input, agent)?,
+            };
             let model = worker_model(ctx, &input, agent, &parent)?;
             let workdir = asked_workdir(ctx, &input)?;
             let title = format!("{description} (@{agent} subagent)");
@@ -198,15 +202,18 @@ fn asked_workdir(ctx: &Context, input: &Value) -> Result<Option<String>, ToolErr
     Ok(Some(inside).filter(|inside| !inside.is_empty()))
 }
 
-/// The conversation making the call, which must be one the user sees: subagents do not delegate.
+/// The conversation or subagent making the call; a subagent only while Settings allows another level.
 fn delegating(ctx: &Context) -> Result<crate::session::types::Session, ToolError> {
     let parent = ctx
         .engine
         .store
         .session(&ctx.session_id)?
         .ok_or(ToolError("parent session is gone".into()))?;
-    if parent.visibility == Visibility::Hidden {
-        return Err(ToolError("subagents cannot delegate".into()));
+    if !ctx.engine.may_delegate(&parent) {
+        return Err(ToolError(format!(
+            "subagents cannot delegate this deep: Settings allows {} level(s) of subagents",
+            ctx.engine.delegation_depth()
+        )));
     }
 
     Ok(parent)

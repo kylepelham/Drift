@@ -104,6 +104,24 @@ export const dict = {
     "drift.stop.workers.other": "podagenci: {{count}}",
     "drift.stop.commands.one": "polecenia: {{count}}",
     "drift.stop.commands.other": "polecenia: {{count}}",
+    "drift.waiting": "Oczekiwanie",
+    "drift.waiting.on": "Oczekiwanie na {{work}}",
+    "drift.settings.waiting.title": "Pokazuj oczekiwanie na pracę w tle",
+    "drift.settings.waiting.description":
+        "Gdy polecenia lub podagenci w tle wybudzą rozmowę, a nic innego nie działa, pasek boczny i rozmowa pokazują klepsydrę zamiast Myśli.",
+    "drift.settings.composerCards": "Nad polem wpisywania",
+    "drift.settings.composerCards.style.title": "Styl kart",
+    "drift.settings.composerCards.style.description":
+        "Wsunięte karty chowają się za polem wpisywania jako jeden stos; oddzielne karty stoją każda osobno nad nim. Prośby o uprawnienia i pytania zawsze się pokazują, bo agent na nie czeka.",
+    "drift.settings.composerCards.style.tucked": "Wsunięte",
+    "drift.settings.composerCards.style.separate": "Oddzielne",
+    "drift.settings.composerCards.todos.title": "Lista zadań",
+    "drift.settings.composerCards.todos.description": "Plan agenta na turę i jak daleko w nim jest.",
+    "drift.settings.composerCards.tasks.title": "Zadania w tle",
+    "drift.settings.composerCards.tasks.description":
+        "Podagenci i polecenia w tle, z ich wyjściem i przyciskiem Zatrzymaj. Przycisk Zatrzymaj i wskaźnik oczekiwania nadal pokazują, że działają.",
+    "drift.settings.composerCards.revert.title": "Cofnięte wiadomości",
+    "drift.settings.composerCards.revert.description": "Wiadomości, które cofnięto, do przywrócenia.",
     "prompt.attachment.remove": "Usuń załącznik",
     "prompt.mode.shell": "Terminal",
     "prompt.placeholder.simple": "Zapytaj o cokolwiek...",
@@ -585,6 +603,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",
     "drift.settings.backgroundLimit.description":
         "Ilu podagentów w tle działa jednocześnie. Pozostali czekają w kolejce i startują, gdy zwolni się miejsce; zmniejszenie tej wartości nigdy nie zatrzymuje działającego podagenta.",
+    "drift.settings.delegationDepth.title": "Głębokość podagentów",
+    "drift.settings.delegationDepth.description":
+        "Ile poziomów podagentów może mieć rozmowa. Przy 1 deleguje tylko rozmowa; przy 2 lub 3 jej podagenci też mogą przekazywać zadania, czekając na każde. Agenci eksploracji nigdy nie delegują.",
+    "drift.ultra.on":
+        "Ultra jest włączone: ta rozmowa koordynuje podagentów przy każdym istotnym zadaniu i sprawdza ich pracę, bez względu na koszt. Kliknij, aby wyłączyć.",
+    "drift.ultra.off":
+        "Ultra: koordynuj podagentów przy każdym istotnym zadaniu i sprawdzaj ich pracę. Znacznie dokładniej, kilka razy więcej tokenów.",
     "drift.task.queued": "W kolejce",
     "drift.task.queued.description":
         "Czeka na wolne miejsce w tle. Ustawienia > Wykonywanie określają, ilu podagentów działa jednocześnie.",
@@ -1106,6 +1131,7 @@ export const drift = {
     "drift.process.gone": "Działał w tle; Drift został od tego czasu uruchomiony ponownie.",
     "drift.process.ended": "Proces w tle zakończony z kodem {{code}}",
     "drift.process.endedStopped": "Proces w tle zatrzymany",
+    "drift.process.endedRestart": "Proces w tle zakończony przy ponownym uruchomieniu Drift",
     "drift.message.revertHere": "Cofnij do tego miejsca",
     "drift.message.revertKeepFiles": "Shift+klik, aby zostawić pliki bez zmian",
     "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",

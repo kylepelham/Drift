@@ -141,6 +141,7 @@ impl Engine {
         tool::stage::recover_leftovers(&store);
         // Taken before anything can run, so a turn started during startup is never mistaken for a cut-off one.
         let cut_off = store.claimed_turns()?;
+        let cut_off_processes = store.take_running_processes()?;
         platform::temp::folder("scratch");
 
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
@@ -193,6 +194,7 @@ impl Engine {
             reference_fetches: Default::default(),
         });
         *engine.turns.cut_off.lock().unwrap() = cut_off;
+        *engine.turns.cut_off_processes.lock().unwrap() = cut_off_processes;
         *engine.turns.restarting.lock().unwrap() = restarting;
 
         Ok(engine)
@@ -656,6 +658,7 @@ pub fn start(engine: &Arc<Engine>) {
         starting.recover_tasks().await;
         starting.restart_workers().await;
         starting.resume_turns().await;
+        starting.report_cut_off_processes();
         starting.maintain().await;
     });
 }

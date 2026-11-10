@@ -64,6 +64,7 @@ export function Row(props: {
         <div
             ref={props.measure}
             data-mid={props.entry.info.id}
+            data-find-unit={props.entry.info.role === "user" ? props.entry.info.id : undefined}
             class="min-w-0 max-w-full"
             classList={{
                 "fade-up": fadeIn,

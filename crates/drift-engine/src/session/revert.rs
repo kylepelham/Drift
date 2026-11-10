@@ -2,6 +2,7 @@
 //! Files changed by another writer are kept and reported; unrelated workspace files are untouched.
 //! Hidden history is deleted only when a new prompt commits the undo (see `Store::admit_prompt`).
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -279,12 +280,8 @@ impl Engine {
     ) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
 
-        if !self
-            .store
-            .transcript(session_id)?
-            .iter()
-            .any(|m| m.info.id == message_id && m.info.role == Role::User)
-        {
+        let point = self.store.message(message_id)?;
+        if !point.is_some_and(|point| point.session_id == session_id && point.role == Role::User) {
             return Err(RevertError::NotAPrompt);
         }
         // A previous keep-files undo can leave files at a different point from the conversation.
@@ -377,8 +374,9 @@ impl Engine {
             _turns: Some(turns),
             ..Shifted::default()
         };
+        let contents = self.contents(&nets, &direction).await;
         for net in nets {
-            match self.shift_one(net, &direction, &mut shifted).await {
+            match self.shift_one(net, &direction, &contents, &mut shifted).await {
                 Ok(Some(done)) => shifted.applied.push(done),
                 Ok(None) => {}
                 // On failure, files this shift already changed are restored, so a shift is all or nothing.
@@ -400,11 +398,36 @@ impl Engine {
         crate::tool::lock::files(&paths).await
     }
 
+    /// The bytes every change in `nets` would write, read per history store in one go. A store that cannot be read
+    /// gives nothing, so its files fail one by one as they are written.
+    async fn contents(&self, nets: &[Net], direction: &Direction) -> HashMap<String, Vec<u8>> {
+        let mut wanted: HashMap<PathBuf, Vec<&str>> = HashMap::new();
+        for net in nets
+            .iter()
+            .filter(|net| !net.observed && !net.broken && net.file.is_some())
+        {
+            let target = match direction {
+                Direction::Back => &net.before,
+                Direction::Forward => &net.after,
+            };
+            if let (Some(blob), Some(root)) = (target.blob.as_deref(), self.root_of(&target.owner)) {
+                wanted.entry(root).or_default().push(blob);
+            }
+        }
+
+        let mut contents = HashMap::new();
+        for (root, blobs) in wanted {
+            contents.extend(self.snapshots.blobs(&root, &blobs).await.unwrap_or_default());
+        }
+        contents
+    }
+
     /// Applies one path's change, or records why it is left alone; `Some` names what to put back if a later path fails.
     async fn shift_one(
         &self,
         net: Net,
         direction: &Direction,
+        contents: &HashMap<String, Vec<u8>>,
         shifted: &mut Shifted,
     ) -> Result<Option<Applied>, ShiftError> {
         if net.observed {
@@ -435,13 +458,20 @@ impl Engine {
             return Ok(None);
         }
 
-        self.snapshots
-            .put(&self.store, &target_workspace, &path, target.blob.as_deref())
-            .await
-            .map_err(|error| ShiftError::Put {
-                path: net.path.clone(),
-                error,
-            })?;
+        let written = match target.blob.as_deref().map(|blob| contents.get(blob)) {
+            Some(Some(content)) => self.snapshots.write(&self.store, file, Some(content)).await,
+            // Not read in the batch: one read of its own says why.
+            Some(None) => {
+                self.snapshots
+                    .put(&self.store, &target_workspace, &path, target.blob.as_deref())
+                    .await
+            }
+            None => self.snapshots.write(&self.store, file, None).await,
+        };
+        written.map_err(|error| ShiftError::Put {
+            path: net.path.clone(),
+            error,
+        })?;
 
         Ok(Some(Applied {
             workspace: previous_workspace,
@@ -489,10 +519,12 @@ impl Engine {
         let mut unrecorded: Vec<String> = Vec::new();
 
         for member in self.store.session_tree(&session.id)? {
-            for message in
-                self.store.transcript(&member)?.iter().filter(|message| {
-                    message.info.id.as_str() >= from && to.is_none_or(|to| message.info.id.as_str() < to)
-                })
+            // Only the span: a long conversation's whole history is hundreds of megabytes.
+            for message in self
+                .store
+                .messages_from(&member, from)?
+                .iter()
+                .filter(|message| to.is_none_or(|to| message.info.id.as_str() < to))
             {
                 for row in &message.parts {
                     if let Some(record) = recorded_changes(&row.part) {

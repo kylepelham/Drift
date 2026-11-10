@@ -466,10 +466,19 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Grep and glob are bounded: 20 s budget with partial results, early stop, a skip list for heavy and system folders unless named or asked for, files over 10 MB skipped, a cheaper per-file check
 - [x] Grep takes Claude Code's options (`output_mode`, `-A`/`-B`/`-C`, `-i`, `type`, `multiline`, `head_limit`, `offset`) and can search ignored folders
 - [x] Read: a negative `offset` reads the tail, `pages` reads PDF page ranges; webfetch takes `offset`
-- [x] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped
+- [x] Instruction files on read: no race between parallel reads, content already shown is skipped, template, fixture and example folders are skipped; what was shown outlasts a restart
 - [x] MCP servers whose tools are all deferred give their instructions with `tool_search` results, not in every prompt
 - [x] Plugin language servers start at the edited file's git root
 - [x] Prompts: prefer read and grep over bash, filter build output, `read`'s rule names write and delete, parallel reads and edits, inserting after an anchor, line endings kept, no "one long wait" for subagents
+- [x] Waiting, not thinking: an accent hourglass in the sidebar and in the Thinking row, labelled "Waiting on" while only background commands or workers will wake a conversation, or its turn only waits on them; on by default
+- [x] Background commands in the dock show how long they have run and open to their output
+- [x] Cards above the composer tuck in or stand apart; the todo list, background tasks and rolled back messages can be hidden
+- [x] Background commands a restart ended are told to their conversation at the next start, with the command, the end of its log and the log path
+- [x] Subagents may delegate in the foreground up to a depth set in Settings (1 to 3, default 3); explore never delegates
+- [x] Ultra: a per-conversation toggle that orchestrates subagents on every substantive task and checks their work
+- [x] Expanded reads and edits show the file's full path, selectable
+- [x] Fetch rows show the site's icon, fetched by the engine from public hosts only
+- [x] Find in session highlights the words, opens the folded row an occurrence is in until the cursor moves on, lands on every occurrence (later steps drawn in an earlier group, scrolled output boxes), and starts from the view
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
 
 ## Readability and tooling pass

@@ -62,6 +62,7 @@ pub(super) fn attached(context: &Context, path: &Path, mime: &str, bytes: &[u8])
         ),
         metadata: ToolMetadata {
             images: Some(image::metadata(&[file])),
+            files: Some(vec![super::read_file(path)]),
             ..Default::default()
         },
     })

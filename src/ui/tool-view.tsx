@@ -9,6 +9,7 @@ import { CoveredDuration, ToolDuration } from "./tool-duration";
 import { toolMetadata as toolMeta } from "../engine/parts";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
+import { findOpens } from "./transcript-find";
 import { taskTiming } from "../engine/store";
 import { TextShimmer } from "./text-shimmer";
 import { IconArrowUpRight } from "./icons";
@@ -16,6 +17,7 @@ import { parseDiff } from "./diff-panel";
 import { ToolBody } from "./tool-body";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
+import { Favicon } from "./favicon";
 import { t } from "../state/i18n";
 
 import type { ToolPart } from "../engine/parts";
@@ -212,7 +214,8 @@ export function ToolView(props: { part: ToolPart }) {
         ),
     );
 
-    const expanded = () => open();
+    // The row an in-session search is on opens until the search moves on.
+    const expanded = () => open() || findOpens(props.part.id);
 
     const toggleOpen = () => {
         const next = !open();
@@ -240,7 +243,11 @@ export function ToolView(props: { part: ToolPart }) {
     const inlineExpanded = () => expanded() && !spawnedId();
 
     return (
-        <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
+        <div
+            class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm"
+            data-find-unit={props.part.id}
+            data-find-open={inlineExpanded() ? undefined : "false"}
+        >
             <button
                 class="tool-row-header flex min-h-7 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
                 aria-expanded={inlineExpanded()}
@@ -304,6 +311,7 @@ export function ToolView(props: { part: ToolPart }) {
                         timing={timing()}
                     />
                 </Show>
+                <Show when={info().host}>{(host) => <Favicon host={host()} />}</Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
                         class="tool-row-subtitle min-w-0 truncate"
@@ -394,7 +402,7 @@ function ExploredCalls(props: { parts: ToolPart[] }) {
     const single = createMemo(() => exploredSingle(props.parts, running()));
     const heading = () => single()?.before ?? summary();
 
-    const expanded = () => open() || waiting();
+    const expanded = () => open() || waiting() || props.parts.some((part) => findOpens(part.id));
 
     return (
         <div class="tool-row flex flex-col gap-1.5 text-sm">

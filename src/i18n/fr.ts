@@ -106,6 +106,24 @@ export const dict = {
     "drift.stop.workers.other": "{{count}} sous-agents",
     "drift.stop.commands.one": "{{count}} commande",
     "drift.stop.commands.other": "{{count}} commandes",
+    "drift.waiting": "En attente",
+    "drift.waiting.on": "En attente de {{work}}",
+    "drift.settings.waiting.title": "Afficher l'attente du travail en arrière-plan",
+    "drift.settings.waiting.description":
+        "Quand des commandes ou des sous-agents en arrière-plan vont réveiller une conversation et que rien d'autre ne tourne, un sablier remplace Réflexion dans la barre latérale et la conversation.",
+    "drift.settings.composerCards": "Au-dessus de l'éditeur",
+    "drift.settings.composerCards.style.title": "Style des cartes",
+    "drift.settings.composerCards.style.description":
+        "Les cartes repliées se glissent derrière l'éditeur en une seule pile ; les cartes séparées tiennent chacune seule au-dessus. Les demandes d'autorisation et les questions s'affichent toujours, car l'agent les attend.",
+    "drift.settings.composerCards.style.tucked": "Repliées",
+    "drift.settings.composerCards.style.separate": "Séparées",
+    "drift.settings.composerCards.todos.title": "Liste des tâches",
+    "drift.settings.composerCards.todos.description": "Le plan de l'agent pour le tour et son avancement.",
+    "drift.settings.composerCards.tasks.title": "Tâches en arrière-plan",
+    "drift.settings.composerCards.tasks.description":
+        "Sous-agents et commandes en arrière-plan, avec leur sortie et Arrêter. Le bouton Arrêter et l'indicateur d'attente montrent toujours qu'ils tournent.",
+    "drift.settings.composerCards.revert.title": "Messages annulés",
+    "drift.settings.composerCards.revert.description": "Les messages que vous avez annulés, pour les restaurer.",
     "prompt.attachment.remove": "Supprimer la pièce jointe",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Demandez n'importe quoi...",
@@ -595,6 +613,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Sous-agents en arrière-plan simultanés",
     "drift.settings.backgroundLimit.description":
         "Nombre de sous-agents en arrière-plan qui s'exécutent en même temps. Les autres attendent dans une file et démarrent dès qu'une place se libère ; baisser cette valeur n'arrête jamais un sous-agent en cours.",
+    "drift.settings.delegationDepth.title": "Profondeur des sous-agents",
+    "drift.settings.delegationDepth.description":
+        "Combien de niveaux de sous-agents une conversation peut avoir. À 1, seule la conversation délègue ; à 2 ou 3, ses sous-agents peuvent aussi confier des tâches, en attendant chacune. Les agents d'exploration ne délèguent jamais.",
+    "drift.ultra.on":
+        "Ultra est activé : cette conversation orchestre des sous-agents sur chaque tâche importante et vérifie leur travail, quel qu'en soit le coût. Cliquez pour le désactiver.",
+    "drift.ultra.off":
+        "Ultra : orchestrer des sous-agents sur chaque tâche importante et vérifier leur travail. Bien plus approfondi, plusieurs fois plus de jetons.",
     "drift.task.queued": "En file d'attente",
     "drift.task.queued.description":
         "En attente d'une place libre en arrière-plan. Paramètres > Exécution fixe le nombre de sous-agents simultanés.",
@@ -1121,6 +1146,7 @@ export const drift = {
     "drift.process.gone": "Exécuté en arrière-plan ; Drift a redémarré depuis.",
     "drift.process.ended": "Processus en arrière-plan terminé avec le code {{code}}",
     "drift.process.endedStopped": "Processus en arrière-plan arrêté",
+    "drift.process.endedRestart": "Processus en arrière-plan terminé au redémarrage de Drift",
     "drift.message.revertHere": "Revenir ici",
     "drift.message.revertKeepFiles": "Maj+clic pour garder les fichiers tels quels",
     "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",

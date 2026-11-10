@@ -103,6 +103,24 @@ export const dict = {
     "drift.stop.workers.other": "podagenata: {{count}}",
     "drift.stop.commands.one": "naredbi: {{count}}",
     "drift.stop.commands.other": "naredbi: {{count}}",
+    "drift.waiting": "Čeka",
+    "drift.waiting.on": "Čeka na {{work}}",
+    "drift.settings.waiting.title": "Prikaži čekanje na rad u pozadini",
+    "drift.settings.waiting.description":
+        "Kada će naredbe ili podagenti u pozadini probuditi razgovor, a ništa drugo ne radi, prikazuje pješčani sat u bočnoj traci i razgovoru umjesto Razmišlja.",
+    "drift.settings.composerCards": "Iznad polja za unos",
+    "drift.settings.composerCards.style.title": "Stil kartica",
+    "drift.settings.composerCards.style.description":
+        "Uvučene kartice skrivaju se iza polja za unos kao jedna hrpa; odvojene kartice stoje svaka za sebe iznad njega. Zahtjevi za dozvolu i pitanja uvijek se prikazuju, jer agent čeka na njih.",
+    "drift.settings.composerCards.style.tucked": "Uvučene",
+    "drift.settings.composerCards.style.separate": "Odvojene",
+    "drift.settings.composerCards.todos.title": "Lista zadataka",
+    "drift.settings.composerCards.todos.description": "Agentov plan za potez i koliko je odmakao.",
+    "drift.settings.composerCards.tasks.title": "Pozadinski zadaci",
+    "drift.settings.composerCards.tasks.description":
+        "Podagenti i naredbe u pozadini, s izlazom i dugmetom Zaustavi. Dugme Zaustavi i indikator čekanja i dalje pokazuju da rade.",
+    "drift.settings.composerCards.revert.title": "Poništene poruke",
+    "drift.settings.composerCards.revert.description": "Poruke koje ste poništili, da ih vratite.",
     "prompt.attachment.remove": "Ukloni prilog",
     "prompt.mode.shell": "Shell",
     "prompt.placeholder.simple": "Pitaj bilo šta...",
@@ -580,6 +598,13 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",
     "drift.settings.backgroundLimit.description":
         "Koliko pozadinskih podagenata radi u isto vrijeme. Ostali čekaju u redu i pokreću se kad se mjesto oslobodi; smanjivanje nikad ne zaustavlja podagenta koji već radi.",
+    "drift.settings.delegationDepth.title": "Dubina podagenata",
+    "drift.settings.delegationDepth.description":
+        "Koliko nivoa podagenata razgovor može imati. Na 1 delegira samo razgovor; na 2 ili 3 i njegovi podagenti mogu prosljeđivati poslove, čekajući svaki. Agenti za istraživanje nikad ne delegiraju.",
+    "drift.ultra.on":
+        "Ultra je uključen: ovaj razgovor orkestrira podagente na svakom ozbiljnom zadatku i provjerava njihov rad, bez obzira na cijenu. Kliknite da ga isključite.",
+    "drift.ultra.off":
+        "Ultra: orkestrira podagente na svakom ozbiljnom zadatku i provjerava njihov rad. Mnogo temeljitije, višestruko više tokena.",
     "drift.task.queued": "U redu",
     "drift.task.queued.description":
         "Čeka slobodno pozadinsko mjesto. Postavke > Izvršavanje određuju koliko podagenata radi istovremeno.",
@@ -1097,6 +1122,7 @@ export const drift = {
     "drift.process.gone": "Radio je u pozadini; Drift je od tada ponovo pokrenut.",
     "drift.process.ended": "Proces u pozadini završen s kodom {{code}}",
     "drift.process.endedStopped": "Proces u pozadini zaustavljen",
+    "drift.process.endedRestart": "Proces u pozadini završen kada se Drift ponovo pokrenuo",
     "drift.message.revertHere": "Vrati do ovdje",
     "drift.message.revertKeepFiles": "Shift+klik da datoteke ostanu kakve jesu",
     "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

@@ -6,6 +6,8 @@ use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, image, required_str};
 use crate::llm::ToolSpec;
 
+pub mod favicon;
+
 const TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const MAX_BYTES: usize = 5 * 1024 * 1024;
 /// An HTML page with less visible text than this is taken for one that builds itself with JavaScript.

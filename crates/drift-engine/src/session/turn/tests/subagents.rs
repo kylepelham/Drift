@@ -137,6 +137,10 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
         .find(|id| id.as_str() != "claude-sonnet-4-5")
         .unwrap()
         .clone();
+    h.engine
+        .store
+        .set_setting(crate::session::tasks::DELEGATION_DEPTH_KEY, &1u8)
+        .unwrap();
     let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}") }));
     h.engine
         .set_agent_overrides(std::collections::HashMap::from([("general".to_string(), pin)]));
@@ -215,8 +219,17 @@ async fn aborting_the_parent_aborts_a_running_child() {
 }
 
 #[tokio::test]
-async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
+async fn at_depth_one_subagents_are_not_offered_delegation_and_cannot_call_it() {
     let h = harness().await;
+    assert_eq!(
+        h.engine.delegation_depth(),
+        3,
+        "subagents delegate three levels deep unless set"
+    );
+    h.engine
+        .store
+        .set_setting(crate::session::tasks::DELEGATION_DEPTH_KEY, &1u8)
+        .unwrap();
     h.provider
         .push(tool_call(
             "task",
@@ -255,4 +268,55 @@ async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
         tool(&h.engine.store.transcript(&child).unwrap()[1].parts[0]).status,
         ToolStatus::Error
     );
+}
+
+#[tokio::test]
+async fn a_subagent_delegates_in_the_foreground_only_as_deep_as_settings_allow() {
+    let h = harness().await;
+    let offered = |request: &llm::Request, name: &str| request.tools.iter().any(|tool| tool.name == name);
+    h.engine
+        .store
+        .set_setting(crate::session::tasks::DELEGATION_DEPTH_KEY, &2u8)
+        .unwrap();
+    h.provider
+        .push(tool_call(
+            "task",
+            r#"{"description": "Survey", "prompt": "Survey the parser"}"#,
+        ))
+        .push(tool_call(
+            "task",
+            r#"{"description": "Find callers", "prompt": "Who calls parse?", "subagent_type": "general", "run_in_background": true}"#,
+        ))
+        .push(text("main.rs calls parse"))
+        .push(text("survey done: main.rs"))
+        .push(text("all done"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert!(offered(&requests[1], "task"), "the first level may delegate");
+    assert!(requests[1].system.contains("# Subagents"));
+    for name in ["task_output", "task_stop", "read_thread"] {
+        assert!(!offered(&requests[1], name), "{name} stays with the conversation");
+    }
+    assert!(!offered(&requests[2], "task"), "the second level is the last");
+    assert!(!requests[2].system.contains("# Subagents"));
+
+    let (_, _, survey) = task_call(&transcript(&h));
+    let worker = survey["sessionId"].as_str().unwrap().to_string();
+    let nested = h.engine.store.transcript(&worker).unwrap();
+    let call = tool(&nested[1].parts[0]);
+    assert_eq!(call.status, ToolStatus::Done);
+    assert!(
+        call.output.unwrap().starts_with("main.rs calls parse"),
+        "it waited for its own subagent, background asked or not"
+    );
+    let grandchild = h
+        .engine
+        .store
+        .session(call.metadata.unwrap().session_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(grandchild.parent_id.as_deref(), Some(worker.as_str()));
+    assert_eq!(grandchild.visibility, Visibility::Hidden);
 }

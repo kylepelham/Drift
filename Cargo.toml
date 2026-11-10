@@ -4,14 +4,14 @@ members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate"
 
 # Every crate carries the app's version, so the engine reports what the shell is; the release stamp sets it.
 [workspace.package]
-version = "2.5.0"
+version = "2.5.1"
 license = "MIT"
 
 [workspace.dependencies]
 axum = "0.8"
 futures-util = "0.3"
 getrandom = "0.3"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Typed errors; already in the tree through rmcp and wasmtime.

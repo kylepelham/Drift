@@ -1,4 +1,5 @@
-//! The files each session has read, kept so edits stay allowed after the engine restarts.
+//! The files each session has read, kept so edits stay allowed after the engine restarts, and the
+//! instruction files it was shown, so a restart does not show them again.
 
 use rusqlite::{Connection, params};
 
@@ -18,6 +19,30 @@ impl Store {
         let mut statement = conn.prepare_cached("SELECT path FROM read_file WHERE session_id = ?1")?;
 
         statement.query_map([session_id], |row| row.get(0))?.collect()
+    }
+
+    /// Records an instruction file shown to the session by its `path:` or `text:` key.
+    pub fn mark_shown(&self, session_id: &str, key: &str) -> rusqlite::Result<()> {
+        self.lock()
+            .prepare_cached("INSERT OR IGNORE INTO shown_instruction(session_id, key) VALUES(?1, ?2)")?
+            .execute(params![session_id, key])?;
+
+        Ok(())
+    }
+
+    pub fn shown_instructions(&self, session_id: &str) -> rusqlite::Result<Vec<String>> {
+        let conn = self.read();
+        let mut statement = conn.prepare_cached("SELECT key FROM shown_instruction WHERE session_id = ?1")?;
+
+        statement.query_map([session_id], |row| row.get(0))?.collect()
+    }
+
+    pub fn forget_shown(&self, session_id: &str) -> rusqlite::Result<()> {
+        self.lock()
+            .prepare_cached("DELETE FROM shown_instruction WHERE session_id = ?1")?
+            .execute([session_id])?;
+
+        Ok(())
     }
 }
 

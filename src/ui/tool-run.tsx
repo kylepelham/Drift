@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { returnedImages, ToolThumbnails } from "./tool-image";
 import { toolDisplay } from "./tool-presentation";
 import { CoveredDuration } from "./tool-duration";
+import { findOpens } from "./transcript-find";
 import { TextShimmer } from "./text-shimmer";
 import { toolInput } from "../engine/parts";
 import { ToolView } from "./tool-view";
@@ -167,7 +168,7 @@ export function ToolRun(props: { parts: ToolPart[] }) {
     const summary = createMemo(() => runSummary(props.parts, running()));
     const detail = createMemo(() => runDetail(props.parts));
     const background = () => stillRunning(engine.state, props.parts);
-    const expanded = () => open() || waiting();
+    const expanded = () => open() || waiting() || props.parts.some((part) => findOpens(part.id));
 
     return (
         <div class="tool-row flex flex-col gap-1.5 text-sm">
