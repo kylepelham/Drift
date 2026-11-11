@@ -1,4 +1,4 @@
-//! Passes the UI's requests to the chosen PC with this phone's session, and its event socket through as is.
+//! Passes the UI's requests to the chosen PC with this device's session, and its event socket through as is.
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -21,7 +21,7 @@ const HOP: [&str; 8] = [
     "transfer-encoding",
     "upgrade",
 ];
-/// What the WebView sends that is this proxy's, not the PC's: the PC gets the phone's session instead.
+/// What the WebView sends that is this proxy's, not the PC's: the PC gets the device's session instead.
 const LOCAL: [&str; 5] = ["host", "cookie", "origin", "authorization", "content-length"];
 const UNREACHABLE: &str = "the computer could not be reached";
 
@@ -63,7 +63,7 @@ pub(super) async fn forward(State(proxy): State<Proxy>, request: Request) -> Res
     relay(response)
 }
 
-/// Signing out from the UI removes the PC from this phone too: its session is gone.
+/// Signing out from the UI removes the PC from this device too: its session is gone.
 fn forget(proxy: &Proxy, id: &str) {
     proxy.route.lock().unwrap().take();
     let _ = proxy.computers.lock().unwrap().remove(id);

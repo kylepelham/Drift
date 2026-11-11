@@ -1,7 +1,7 @@
 use crate::remote_auth;
 use crate::store::Store;
 
-use super::{RemoteAccess, RemotePairing, RemoteStatus};
+use super::{RemoteAccess, RemoteStatus};
 
 #[tauri::command]
 pub(crate) async fn remote_access_status(access: tauri::State<'_, RemoteAccess>) -> Result<RemoteStatus, String> {
@@ -54,13 +54,26 @@ pub(crate) async fn remote_access_disable(
     Ok(access.status().await)
 }
 
-/// A one-time pairing code for the Drift app; showing it again replaces the last one.
+/// The devices asking to connect that wait for an answer.
 #[tauri::command]
-pub(crate) async fn remote_access_pairing(access: tauri::State<'_, RemoteAccess>) -> Result<RemotePairing, String> {
-    access
-        .pairing()
-        .await
-        .ok_or_else(|| "Turn on Remote Access and connect this PC to a network first.".into())
+pub(crate) fn remote_access_requests(access: tauri::State<'_, RemoteAccess>) -> Vec<remote_auth::Prompt> {
+    access.auth().prompts()
+}
+
+/// Accepts or declines a device asking to connect.
+#[tauri::command]
+pub(crate) fn remote_access_answer(
+    app: tauri::AppHandle,
+    access: tauri::State<'_, RemoteAccess>,
+    id: String,
+    accept: bool,
+) -> Result<(), String> {
+    if !access.auth().answer(&id, accept) {
+        return Err("That device stopped waiting.".into());
+    }
+    remote_auth::requests_changed(&app, false);
+
+    Ok(())
 }
 
 /// Turns the browser version on or off: its sign-in page, password sign-in, and every browser's session.

@@ -1435,6 +1435,7 @@ dependencies = [
  "drift-engine",
  "drift-migrate",
  "drift-pairing",
+ "drift-remote-client",
  "futures-util",
  "getrandom 0.3.4",
  "hyper",
@@ -1443,7 +1444,6 @@ dependencies = [
  "mime_guess",
  "opentunnel",
  "pbkdf2",
- "qrcode",
  "rcgen",
  "reqwest",
  "rfd",
@@ -1476,28 +1476,13 @@ dependencies = [
 name = "drift-android"
 version = "2.5.1"
 dependencies = [
- "axum",
- "drift-pairing",
- "futures-util",
+ "drift-remote-client",
  "getrandom 0.3.4",
- "hyper",
- "hyper-util",
- "mime_guess",
- "rcgen",
- "reqwest",
  "rust-embed",
- "rustls",
- "rustls-webpki",
  "serde",
- "serde_json",
- "sha2 0.10.9",
  "tauri",
  "tauri-build",
- "thiserror 2.0.21",
  "tokio",
- "tokio-rustls",
- "url",
- "webpki-root-certs",
 ]
 
 [[package]]
@@ -1583,8 +1568,34 @@ dependencies = [
 name = "drift-pairing"
 version = "2.5.1"
 dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "drift-remote-client"
+version = "2.5.1"
+dependencies = [
+ "axum",
+ "drift-pairing",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hyper",
+ "hyper-util",
+ "mime_guess",
+ "rcgen",
+ "reqwest",
+ "rustls",
+ "rustls-webpki",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
  "url",
+ "webpki-root-certs",
 ]
 
 [[package]]
@@ -4292,12 +4303,6 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
-
-[[package]]
-name = "qrcode"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"

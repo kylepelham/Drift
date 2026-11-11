@@ -3,9 +3,9 @@ import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { backendInvoke, backendRoute } from "../src/backend";
 import {
+    answerConnectRequest,
+    connectRequests,
     nextRemoteAccessEnabled,
-    pairedDevice,
-    pairingReachesAnywhere,
     remoteStatusTone,
     tunnelUrl,
     type RemoteAccessStatus,
@@ -183,22 +183,36 @@ test("remote access toggle has one state transition helper", async () => {
     expect(section).not.toContainCode("remote-access-card");
 });
 
-test("the pairing code counts as used once an app device signs in after it was shown", () => {
-    const device = (method: "link" | "password" | "app", createdAt: number) => ({
-        id: `${method}${createdAt}`,
-        name: `${method} device`,
-        method,
-        createdAt,
-        lastSeenAt: createdAt,
-    });
-    const status = (devices: ReturnType<typeof device>[]) => remoteStatus({ devices });
+test("this PC's user is asked about devices connecting, and only in its own window", async () => {
+    const invoke = mock(async (command: string) =>
+        command === "remote_access_requests"
+            ? [{ id: "r1", name: "Pixel", code: "482 913", address: "192.168.1.20", expiresAt: 0 }]
+            : null,
+    );
+    const location = { pathname: "/", origin: "http://tauri.localhost", replace: replaceMock };
+    setGlobal("location", location);
+    setGlobal("window", { location });
+    (globalThis as Record<string, unknown>).__TAURI__ = { core: { invoke } };
 
-    expect(pairedDevice(status([device("app", 5), device("link", 20)]), 10)).toBeUndefined();
-    expect(pairedDevice(status([device("app", 5), device("app", 12)]), 10)?.id).toBe("app12");
-    expect(pairedDevice(null, 10)).toBeUndefined();
+    try {
+        expect((await connectRequests()).map((request) => request.code)).toEqual(["482 913"]);
+        await answerConnectRequest("r1", true);
+        expect(invoke.mock.calls).toEqual([
+            ["remote_access_requests"],
+            ["remote_access_answer", { id: "r1", accept: true }],
+        ] as never);
+
+        const remote = { pathname: "/app", origin: "http://127.0.0.1:52011", replace: replaceMock };
+        setGlobal("location", remote);
+        setGlobal("window", { location: remote });
+        expect(await connectRequests()).toEqual([]);
+        expect(invoke).toHaveBeenCalledTimes(2);
+    } finally {
+        delete (globalThis as Record<string, unknown>).__TAURI__;
+    }
 });
 
-test("the tunnel address shows only while it carries traffic, and a code says whether it reaches past the network", () => {
+test("the tunnel address shows only while it carries traffic", () => {
     const url = "https://k2v7qxmd4hzt6wnc.x3fp8rk2mq7a.opentunnel.xyz";
     const tunnel = (phase: RemoteAccessStatus["tunnel"]["phase"]) => remoteStatus({ tunnel: { phase, url } });
 
@@ -207,10 +221,6 @@ test("the tunnel address shows only while it carries traffic, and a code says wh
     expect(tunnelUrl(tunnel("setting-up"))).toBeUndefined();
     expect(tunnelUrl(tunnel("failed"))).toBeUndefined();
     expect(tunnelUrl(null)).toBeUndefined();
-
-    const code = (query: string) => ({ uri: `drift://pair?v=1&a=192.168.1.20${query}&t=ab`, qr: "", expiresAt: 0 });
-    expect(pairingReachesAnywhere(code("&h=k2v7.x3fp8rk2mq7a.opentunnel.xyz&k=5a"))).toBeTrue();
-    expect(pairingReachesAnywhere(code(""))).toBeFalse();
 });
 
 test("the shared access-key flow is gone and management stays desktop-only", async () => {
@@ -240,10 +250,18 @@ test("device activity reads as relative time", async () => {
     );
 });
 
-test("devices link only by the app's pairing code; browsers sign in with a password behind their own switch", async () => {
+test("devices link only by asking to connect; browsers sign in with a password behind their own switch", async () => {
     const section = await Bun.file("src/ui/settings-remote-access.tsx").text();
     const state = await Bun.file("src/state/remote-access.ts").text();
-    for (const gone of ["remote-link-code", "remote_access_link", "pendingLinks", "addressQr", "certificateWords"]) {
+    for (const gone of [
+        "remote-link-code",
+        "remote_access_link",
+        "pendingLinks",
+        "addressQr",
+        "certificateWords",
+        "remote_access_pairing",
+        "drift://pair",
+    ]) {
         expect(section + state).not.toContain(gone);
     }
     expect(state).toContainCode('call("remote_access_set_browser", { enabled })');
@@ -274,7 +292,77 @@ function remoteStatus(patch: Partial<RemoteAccessStatus> = {}): RemoteAccessStat
         tunnelEnabled: false,
         tunnel: { phase: "off" },
         devices: [],
+        addresses: ["192.168.1.20"],
         certificateFingerprint: "AB:CD",
         ...patch,
     };
 }
+
+test("another computer shown in the desktop window drives the window but never this PC's commands", async () => {
+    const { isDesktopShell, shellEvents, shellInvoke, shellWindow } = await import("../src/shell");
+    const { computerSwitcher } = await import("../src/state/computers");
+    const invoke = mock(async () => []);
+    const desktopWindow = { minimize: () => {} };
+    const location = { pathname: "/app", origin: "http://127.0.0.1:52011", replace: replaceMock };
+    setGlobal("location", location);
+    setGlobal("window", { location });
+    (globalThis as Record<string, unknown>).__TAURI__ = {
+        core: { invoke },
+        window: { getCurrentWindow: () => desktopWindow },
+        event: { listen: async () => () => {} },
+    };
+    fetchMock.mockImplementation(async () =>
+        Response.json({ computers: [{ id: "pc", name: "Studio", anywhere: false, active: true }], local: "Desk" }),
+    );
+
+    try {
+        expect(shellInvoke()).toBeUndefined();
+        expect(isDesktopShell()).toBeFalse();
+        expect(shellEvents()).toBeUndefined();
+        expect(shellWindow()).toBe(desktopWindow as never);
+        expect(backendInvoke()).not.toBe(invoke as never);
+
+        const switcher = await computerSwitcher();
+        expect(switcher?.current).toBe("pc");
+        await switcher?.home();
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/app/api/computers", "/app/api/local"]);
+        expect(invoke).not.toHaveBeenCalled();
+    } finally {
+        delete (globalThis as Record<string, unknown>).__TAURI__;
+    }
+});
+
+test("the phone app's proxy has no PC of its own, so it offers no switcher", async () => {
+    const { computerSwitcher } = await import("../src/state/computers");
+    const location = { pathname: "/app", origin: "http://127.0.0.1:52011", replace: replaceMock };
+    setGlobal("location", location);
+    setGlobal("window", { location });
+    fetchMock.mockImplementation(async () => Response.json({ computers: [], local: null }));
+
+    expect(await computerSwitcher()).toBeUndefined();
+});
+
+test("the app's computers page asks a computer to connect through its proxy and waits for the answer", async () => {
+    const { appConnector } = await import("../src/app/api");
+    const replies: Record<string, unknown> = {
+        "/app/api/nearby": { nearby: [{ id: "pc", name: "Studio", address: "192.168.1.20:41718", linked: false }] },
+        "/app/api/ask": { id: "r1", name: "Studio", code: "482 913" },
+        "/app/api/answer": { id: "pc", linked: "Studio" },
+    };
+    fetchMock.mockImplementation(async (url: string) => Response.json(replies[url]));
+
+    expect((await appConnector.nearby()).map((computer) => computer.name)).toEqual(["Studio"]);
+    expect((await appConnector.ask("192.168.1.20:41718")).code).toBe("482 913");
+    expect((await appConnector.answer("r1")).id).toBe("pc");
+    const bodies = fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).body]);
+    expect(bodies).toEqual([
+        ["/app/api/nearby", undefined],
+        ["/app/api/ask", JSON.stringify({ address: "192.168.1.20:41718" })],
+        ["/app/api/answer", JSON.stringify({ id: "r1" })],
+    ]);
+
+    fetchMock.mockImplementation(async () =>
+        Response.json({ error: "Studio declined the connection" }, { status: 400 }),
+    );
+    await expect(appConnector.answer("r1")).rejects.toThrow("Studio declined the connection");
+});

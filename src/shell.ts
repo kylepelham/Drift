@@ -1,5 +1,7 @@
 /** Accesses the injected desktop bridge; missing browser-runtime capabilities return undefined. */
 
+import { isRemoteRuntime } from "./runtime";
+
 export type ShellInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 export type ShellWindow = {
@@ -26,12 +28,17 @@ type TauriGlobal = {
 };
 
 function tauri() {
-    return (globalThis as { __TAURI__?: TauriGlobal }).__TAURI__;
+    const global = (globalThis as { __TAURI__?: TauriGlobal }).__TAURI__;
+    // Another computer's Drift, shown in this window through the desktop's proxy, drives the window and nothing else
+    // of this PC: its commands, engine and events are that computer's.
+    if (global && isRemoteRuntime()) return { window: global.window, webview: global.webview };
+
+    return global;
 }
 
 /** True when running inside the desktop shell rather than a browser. */
 export function isDesktopShell() {
-    return Boolean(tauri());
+    return Boolean(shellInvoke());
 }
 
 /** Invokes a Rust command, or `undefined` when there is no desktop backend. */

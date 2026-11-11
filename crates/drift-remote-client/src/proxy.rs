@@ -1,7 +1,7 @@
-//! The phone's side of a PC: a server on 127.0.0.1 that the WebView treats as the PC's gateway. It serves the
+//! This device's side of a PC: a server on 127.0.0.1 that the WebView treats as the PC's gateway. It serves the
 //! bundled UI, answers the app's own computers page, and passes everything else to the chosen PC over TLS that
-//! trusts only that PC, adding this phone's session. Other apps on the phone cannot use it: every request needs
-//! the cookie only the WebView was given, with this launch's secret.
+//! trusts only that PC, adding this device's session. Other programs on the device cannot use it: every request
+//! needs the cookie only the WebView was given, with this launch's secret.
 
 mod api;
 mod forward;
@@ -11,36 +11,52 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use serde::Serialize;
+
 use axum::Router;
 use axum::extract::{Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get};
-use rust_embed::RustEmbed;
 
+use crate::Host;
 use crate::computers::{Computer, Computers};
-use crate::native::Native;
-use crate::pc::{self, Pc, PcError};
+use crate::pc::{self, Asking, Pc, PcError};
 
 const COOKIE: &str = "drift_app";
 
-#[derive(RustEmbed)]
-#[folder = "../dist"]
-struct Dist;
-
 /// The PC requests go to now, and the session they carry.
 #[derive(Clone)]
-pub(crate) struct Route {
+pub struct Route {
     pub id: String,
     pub pc: Pc,
     pub token: String,
 }
 
-pub(crate) struct Shared {
+/// A computer that answered nearby, as the computers page lists it.
+#[derive(Clone, Debug, Serialize)]
+pub struct Nearby {
+    pub id: String,
+    pub name: String,
+    pub address: String,
+    pub linked: bool,
+}
+
+/// A computer asked to accept this device, as the page shows it while its user decides.
+#[derive(Clone, Debug, Serialize)]
+pub struct Waiting {
+    pub id: String,
+    pub name: String,
+    pub code: String,
+}
+
+pub struct Shared {
     pub computers: Mutex<Computers>,
     pub route: Mutex<Option<Route>>,
-    pub native: Arc<Native>,
+    pub host: Arc<dyn Host>,
+    /// The computer asked to accept this device, by the id the page waits on; asking another replaces it.
+    asking: Mutex<Option<(String, Asking)>>,
     /// Held while looking for the chosen PC again, so a burst of requests looks once.
     reaching: tokio::sync::Mutex<()>,
     secret: String,
@@ -50,7 +66,7 @@ pub(crate) struct Shared {
     storing: Mutex<storage::Storing>,
 }
 
-pub(crate) type Proxy = Arc<Shared>;
+pub type Proxy = Arc<Shared>;
 
 /// Why a request could not be passed on.
 pub(crate) enum Unrouted {
@@ -59,11 +75,12 @@ pub(crate) enum Unrouted {
 }
 
 impl Shared {
-    pub(crate) fn new(computers: Computers, native: Arc<Native>, secret: String, port: u16, storage: PathBuf) -> Proxy {
+    pub fn new(computers: Computers, host: Arc<dyn Host>, secret: String, port: u16, storage: PathBuf) -> Proxy {
         Arc::new(Self {
             computers: Mutex::new(computers),
             route: Mutex::new(None),
-            native,
+            host,
+            asking: Mutex::default(),
             reaching: tokio::sync::Mutex::new(()),
             secret,
             port,
@@ -91,7 +108,7 @@ impl Shared {
     }
 
     /// Reaches a linked PC, makes it the one requests go to, and remembers it for the next launch.
-    pub(crate) async fn connect(&self, computer: &Computer) -> Result<(), PcError> {
+    pub async fn connect(&self, computer: &Computer) -> Result<(), PcError> {
         let (pc, reach) = pc::reach(computer).await?;
         let mut computers = self.computers.lock().unwrap();
         let refreshed = computers.refresh(&computer.id, &pc.endpoint, reach);
@@ -107,7 +124,7 @@ impl Shared {
     }
 
     /// Saves a PC just linked and connects to it at the address it answered on.
-    pub(crate) fn adopt(&self, computer: Computer, pc: Pc) -> Result<(), PcError> {
+    pub fn adopt(&self, computer: Computer, pc: Pc) -> Result<(), PcError> {
         let mut computers = self.computers.lock().unwrap();
         let saved = computers.upsert(computer.clone());
         let activated = computers.set_active(Some(&computer.id));
@@ -121,16 +138,126 @@ impl Shared {
         saved.and(activated).map_err(PcError::Unsaved)
     }
 
-    /// How the PC lists this phone: the name the user gave it, read on Android's own thread.
-    pub(crate) async fn device_name(&self) -> String {
-        let native = self.native.clone();
-        tokio::task::spawn_blocking(move || native.device_name())
+    /// The computers with Remote Access on that answer on this device's networks, this device's own left out.
+    pub async fn nearby(&self) -> Result<Vec<Nearby>, String> {
+        let found = crate::nearby::discover(self.host.broadcasts(), drift_pairing::PORT)
             .await
-            .unwrap_or_else(|_| "Android".into())
+            .map_err(|error| error.to_string())?;
+        let own = self.host.this_computer_id();
+        let computers = self.computers.lock().unwrap();
+
+        Ok(found
+            .into_iter()
+            .filter(|found| own.as_deref() != Some(found.announcement.id.as_str()))
+            .map(|found| Nearby {
+                linked: computers.get(&found.announcement.id).is_some(),
+                id: found.announcement.id,
+                name: found.announcement.name,
+                address: found.address.to_string(),
+            })
+            .collect())
+    }
+
+    /// Asks the computer at a found or typed address to accept this device; the code to show while it decides.
+    pub async fn ask(&self, address: &str) -> Result<Waiting, String> {
+        let address = pc::resolve(address).await.map_err(|error| error.to_string())?;
+        let device = self.device_name().await;
+        let own = self.host.this_computer_id();
+        let asking = pc::ask(address, &device, own.as_deref())
+            .await
+            .map_err(|error| error.to_string())?;
+        let waiting = Waiting {
+            id: random_id(),
+            name: asking.name.clone(),
+            code: asking.code.clone(),
+        };
+
+        let replaced = self.asking.lock().unwrap().replace((waiting.id.clone(), asking));
+        if let Some((_, replaced)) = replaced {
+            tokio::spawn(async move { pc::cancel(&replaced).await });
+        }
+        Ok(waiting)
+    }
+
+    /// Waits for the computer asked to answer. Accepted, it is linked and requests go to it; its id and name.
+    pub async fn answer(&self, id: &str) -> Result<(String, String), String> {
+        let asking = self.asking(id)?;
+        let answered = pc::answer(&asking).await;
+        let still_asked = self
+            .asking
+            .lock()
+            .unwrap()
+            .take_if(|(current, _)| current == id)
+            .is_some();
+        if !still_asked {
+            return Err("cancelled".into());
+        }
+
+        let (computer, pc) = answered.map_err(|error| error.to_string())?;
+        let linked = (computer.id.clone(), computer.name.clone());
+        self.adopt(computer, pc).map_err(|error| error.to_string())?;
+        Ok(linked)
+    }
+
+    /// Stops waiting, and tells the computer so its user is no longer asked.
+    pub async fn cancel(&self, id: &str) {
+        let taken = self.asking.lock().unwrap().take_if(|(current, _)| current == id);
+        if let Some((_, asking)) = taken {
+            pc::cancel(&asking).await;
+        }
+    }
+
+    fn asking(&self, id: &str) -> Result<Asking, String> {
+        let current = self.asking.lock().unwrap();
+        match current.as_ref() {
+            Some((current, asking)) if current == id => Ok(asking.clone()),
+            _ => Err("that request is no longer waiting; connect again".into()),
+        }
+    }
+
+    /// Removes a PC from this device, signing it out of the PC in the background when it can be reached.
+    pub fn forget(&self, id: &str) {
+        let computer = self.computers.lock().unwrap().get(id).cloned();
+        let Some(computer) = computer else {
+            return;
+        };
+
+        let mut route = self.route.lock().unwrap();
+        if route.as_ref().is_some_and(|route| route.id == computer.id) {
+            *route = None;
+        }
+        drop(route);
+        let _ = self.computers.lock().unwrap().remove(&computer.id);
+
+        tokio::spawn(async move {
+            if let Ok((pc, _)) = pc::reach(&computer).await {
+                pc.sign_out(&computer.token).await;
+            }
+        });
+    }
+
+    /// Leaves the PC requests went to for this device's own Drift, which the next launch also opens on.
+    pub fn leave(&self) -> Result<(), String> {
+        self.host.show_this_computer()?;
+        let _ = self.computers.lock().unwrap().set_active(None);
+        Ok(())
+    }
+
+    /// How the PC lists this device, read off the async threads.
+    pub async fn device_name(&self) -> String {
+        let host = self.host.clone();
+        tokio::task::spawn_blocking(move || host.device_name())
+            .await
+            .unwrap_or_else(|_| "Drift".into())
+    }
+
+    /// The address the WebView opens to enter with this launch's secret.
+    pub fn entry(&self) -> String {
+        format!("http://127.0.0.1:{}/app/enter?secret={}", self.port, self.secret)
     }
 }
 
-pub(crate) fn router(proxy: Proxy) -> Router {
+pub fn router(proxy: Proxy) -> Router {
     Router::new()
         .route("/app/enter", get(enter))
         .route("/app", get(main_page))
@@ -145,7 +272,7 @@ pub(crate) fn router(proxy: Proxy) -> Router {
         .with_state(proxy)
 }
 
-pub(crate) async fn serve(listener: tokio::net::TcpListener, proxy: Proxy) {
+pub async fn serve(listener: tokio::net::TcpListener, proxy: Proxy) {
     let _ = axum::serve(listener, router(proxy)).await;
 }
 
@@ -174,6 +301,12 @@ fn holds_secret(headers: &HeaderMap, secret: &str) -> bool {
         .flat_map(|cookies| cookies.split(';'))
         .filter_map(|cookie| cookie.trim().split_once('='))
         .any(|(name, value)| name == COOKIE && same(value.as_bytes(), secret.as_bytes()))
+}
+
+fn random_id() -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("the system random source works");
+    pc::hex(&bytes)
 }
 
 /// Compares in time that does not depend on where the inputs differ.
@@ -222,10 +355,10 @@ async fn main_page(State(proxy): State<Proxy>) -> Response {
         return Redirect::to(&format!("/app/computers?{query}")).into_response();
     }
 
-    let Some(page) = Dist::get("index.html") else {
+    let Some(page) = proxy.host.asset("index.html") else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let page = storage::with_restore(&String::from_utf8_lossy(&page.data));
+    let page = storage::with_restore(&String::from_utf8_lossy(&page));
     (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
@@ -236,16 +369,16 @@ async fn main_page(State(proxy): State<Proxy>) -> Response {
         .into_response()
 }
 
-async fn computers_page() -> Response {
-    file("app.html")
+async fn computers_page(State(proxy): State<Proxy>) -> Response {
+    file(&proxy, "app.html")
 }
 
-async fn asset(request: Request) -> Response {
-    file(request.uri().path().trim_start_matches('/'))
+async fn asset(State(proxy): State<Proxy>, request: Request) -> Response {
+    file(&proxy, request.uri().path().trim_start_matches('/'))
 }
 
-fn file(path: &str) -> Response {
-    let Some(found) = Dist::get(path) else {
+fn file(proxy: &Proxy, path: &str) -> Response {
+    let Some(found) = proxy.host.asset(path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let kind = mime_guess::from_path(path).first_or_octet_stream();
@@ -258,7 +391,7 @@ fn file(path: &str) -> Response {
 
     (
         [(header::CONTENT_TYPE, kind.as_ref()), (header::CACHE_CONTROL, cache)],
-        found.data,
+        found.into_owned(),
     )
         .into_response()
 }

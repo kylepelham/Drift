@@ -1,6 +1,11 @@
+mod requests;
 mod routes;
 
-pub(crate) use routes::{certificate, login, logout, me, options, pair};
+pub(crate) use requests::Prompt;
+pub(crate) use routes::{
+    certificate, login, logout, me, options, request_cancel, request_open, request_reveal, request_wait,
+    requests_changed,
+};
 
 use crate::remote::constant_time_eq;
 use crate::store::{RemoteDevice, Store};
@@ -17,8 +22,6 @@ use std::time::{Duration, Instant};
 pub(crate) const COOKIE_NAME: &str = "drift_remote";
 pub(crate) const SIGN_IN_PAGE: &str = include_str!("remote_sign_in.html");
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
-/// How long a pairing code shown on the desktop works; it works once.
-pub(crate) const TICKET_TTL: Duration = Duration::from_secs(600);
 const PASSWORD_KEY: &str = "remote_password";
 const PASSWORD_ITERATIONS: u32 = 600_000;
 const FREE_FAILURES: u32 = 5;
@@ -28,8 +31,6 @@ const TOUCH_INTERVAL_MS: i64 = 60_000;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AuthError {
-    #[error("That pairing code has expired or was already used. Show a new one on the PC.")]
-    UnknownTicket,
     #[error("Username must be 1 to 64 characters.")]
     InvalidUsername,
     #[error("Password must be 8 to 256 characters.")]
@@ -46,23 +47,17 @@ struct Password {
     hash: String,
 }
 
-/// The secret in the pairing code the desktop shows the Drift app.
-struct Ticket {
-    secret: String,
-    expires: Instant,
-}
-
 struct Failure {
     count: u32,
     locked_until: Option<Instant>,
     last: Instant,
 }
 
-/// Signed-in devices, the pairing ticket, the browser password, and sign-in throttling.
+/// Signed-in devices, devices asking to connect, the browser password, and sign-in throttling.
 pub(crate) struct Auth {
     devices: HashMap<String, RemoteDevice>,
     password: Option<Password>,
-    ticket: Option<Ticket>,
+    requests: requests::Requests,
     failures: HashMap<IpAddr, Failure>,
 }
 
@@ -79,7 +74,7 @@ impl Auth {
                 .map(|device| (device.token_hash.clone(), device))
                 .collect(),
             password,
-            ticket: None,
+            requests: requests::Requests::default(),
             failures: HashMap::new(),
         })
     }
@@ -112,30 +107,21 @@ impl Auth {
         self.password.as_ref().map(|password| password.username.clone())
     }
 
-    /// A new pairing secret for the desktop to show; it replaces any earlier one.
-    pub(crate) fn new_ticket(&mut self) -> String {
-        let secret = random_hex(32);
-        self.ticket = Some(Ticket {
-            secret: secret.clone(),
-            expires: Instant::now() + TICKET_TTL,
-        });
-
-        secret
+    /// The devices asking to connect that this computer's user is asked about now.
+    pub(crate) fn prompts(&mut self) -> Vec<Prompt> {
+        self.requests.prompts(Instant::now())
     }
 
-    /// Signs in the app that scanned the current pairing code, once; returns its session token.
-    fn redeem(&mut self, supplied: &str, name: String, store: &Store) -> Result<String, AuthError> {
-        self.prune(Instant::now());
-        let matches = self
-            .ticket
-            .as_ref()
-            .is_some_and(|ticket| constant_time_eq(supplied.as_bytes(), ticket.secret.as_bytes()));
-        if !matches {
-            return Err(AuthError::UnknownTicket);
+    /// Accepts or declines a device asking to connect; a decline counts toward its address's lockout.
+    pub(crate) fn answer(&mut self, id: &str, accept: bool) -> bool {
+        let Some(address) = self.requests.answer(id, accept) else {
+            return false;
+        };
+        if !accept {
+            self.fail(address, Instant::now());
         }
 
-        self.ticket = None;
-        self.create_device(name, "app", store)
+        true
     }
 
     fn create_device(&mut self, name: String, method: &str, store: &Store) -> Result<String, AuthError> {
@@ -202,12 +188,6 @@ impl Auth {
             let doublings = (failure.count - FREE_FAILURES).min(5);
             let delay = (Duration::from_secs(30) * 2u32.pow(doublings)).min(MAX_LOCK);
             failure.locked_until = Some(now + delay);
-        }
-    }
-
-    fn prune(&mut self, now: Instant) {
-        if self.ticket.as_ref().is_some_and(|ticket| ticket.expires <= now) {
-            self.ticket = None;
         }
     }
 }
@@ -337,7 +317,12 @@ pub(crate) fn public_path(path: &str) -> bool {
     path.starts_with("/auth/") && !matches!(path, "/auth/logout" | "/auth/me")
 }
 
-/// Routes only a browser uses: the UI itself and its sign-in. The app has its own UI and links by pairing code.
+/// Routes a device asks to connect by, which a first link may only use from this computer's networks.
+pub(crate) fn request_path(path: &str) -> bool {
+    path == "/auth/request" || path.starts_with("/auth/request/")
+}
+
+/// Routes only a browser uses: the UI itself and its sign-in. The app has its own UI and links by asking to connect.
 pub(crate) fn browser_path(path: &str) -> bool {
     let api = ["/auth/", "/engine", "/api/"]
         .iter()

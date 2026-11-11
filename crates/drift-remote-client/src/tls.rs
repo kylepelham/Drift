@@ -1,6 +1,8 @@
 //! Connections that trust exactly one PC. On a network that is its Remote Access certificate authority, by SHA-256.
 //! Through OpenTunnel it is a publicly trusted certificate for the tunnel's name that also carries the PC's own key,
-//! which never leaves the PC, so not even the relay that controls the name can stand in for it.
+//! which never leaves the PC, so not even the relay that controls the name can stand in for it. A PC not linked yet
+//! is trusted on first use: whatever authority it shows is the one every later connection must show, and the code
+//! the two screens compare is what proves it was the PC (`drift_pairing`).
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -14,11 +16,11 @@ use sha2::{Digest, Sha256};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub(crate) type Fingerprint = [u8; 32];
+pub type Fingerprint = [u8; 32];
 
 /// What a connection to a PC trusts.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Trust {
+pub enum Trust {
     /// The PC's own certificate authority, by fingerprint.
     Authority(Fingerprint),
     /// A publicly trusted certificate whose public key has this SHA-256.
@@ -27,14 +29,22 @@ pub(crate) enum Trust {
 
 #[derive(Debug)]
 struct Pinned {
-    trust: Trust,
+    /// `None` on first use, when the authority met first is pinned in `met`.
+    trust: Option<Trust>,
+    met: Arc<OnceLock<Fingerprint>>,
     public: Arc<RootCertStore>,
     provider: Arc<CryptoProvider>,
 }
 
 /// A client for one PC that trusts only what `trust` names.
-pub(crate) fn client(trust: Trust) -> reqwest::Client {
-    build(trust, public_roots())
+pub fn client(trust: Trust) -> reqwest::Client {
+    build(Some(trust), Arc::default(), public_roots())
+}
+
+/// A client for a PC not linked yet, and the authority it met, which every later connection of it must meet again.
+pub fn first_use() -> (reqwest::Client, Arc<OnceLock<Fingerprint>>) {
+    let met = Arc::new(OnceLock::new());
+    (build(None, met.clone(), public_roots()), met)
 }
 
 fn public_roots() -> Arc<RootCertStore> {
@@ -48,10 +58,11 @@ fn public_roots() -> Arc<RootCertStore> {
         .clone()
 }
 
-fn build(trust: Trust, public: Arc<RootCertStore>) -> reqwest::Client {
+fn build(trust: Option<Trust>, met: Arc<OnceLock<Fingerprint>>, public: Arc<RootCertStore>) -> reqwest::Client {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let verifier = Pinned {
         trust,
+        met,
         public,
         provider: provider.clone(),
     };
@@ -73,12 +84,12 @@ fn build(trust: Trust, public: Arc<RootCertStore>) -> reqwest::Client {
         .expect("a client with a preconfigured TLS backend builds")
 }
 
-pub(crate) fn fingerprint(certificate: &[u8]) -> Fingerprint {
+pub fn fingerprint(certificate: &[u8]) -> Fingerprint {
     Sha256::digest(certificate).into()
 }
 
 /// SHA-256 of a certificate's public key, as the PC reports it for its tunnel.
-pub(crate) fn key_of(certificate: &CertificateDer<'_>) -> Option<Fingerprint> {
+pub fn key_of(certificate: &CertificateDer<'_>) -> Option<Fingerprint> {
     let certificate = webpki::EndEntityCert::try_from(certificate).ok()?;
     Some(Sha256::digest(certificate.subject_public_key_info().as_ref()).into())
 }
@@ -101,19 +112,34 @@ impl ServerCertVerifier for Pinned {
         now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
         let not_it = || Error::General("this is not the PC Drift linked with".into());
+        // Whether an authority issued the leaf for this name.
+        let issued = |authority: &CertificateDer<'_>| -> Result<(), Error> {
+            let mut roots = RootCertStore::empty();
+            roots.add(authority.clone().into_owned())?;
+            self.verifier(Arc::new(roots))?
+                .verify_server_cert(leaf, &[], name, ocsp, now)
+                .map(|_| ())
+        };
         match self.trust {
-            Trust::Authority(pinned) => {
-                // The gateway sends its authority in the chain; the leaf must be issued by it for this address.
+            // The gateway sends its authority in the chain; the leaf must be issued by it for this address.
+            Some(Trust::Authority(pinned)) => {
                 let authority = chain
                     .iter()
                     .find(|certificate| fingerprint(certificate) == pinned)
                     .ok_or_else(not_it)?;
-                let mut roots = RootCertStore::empty();
-                roots.add(authority.clone())?;
-                self.verifier(Arc::new(roots))?
-                    .verify_server_cert(leaf, &[], name, ocsp, now)?;
+                issued(authority)?;
             }
-            Trust::Key(pinned) => {
+            None => {
+                let authority = chain
+                    .iter()
+                    .find(|authority| issued(authority).is_ok())
+                    .ok_or_else(|| Error::General("this is not a Drift computer".into()))?;
+                let met = fingerprint(authority);
+                if *self.met.get_or_init(|| met) != met {
+                    return Err(not_it());
+                }
+            }
+            Some(Trust::Key(pinned)) => {
                 self.verifier(self.public.clone())?
                     .verify_server_cert(leaf, chain, name, ocsp, now)?;
                 if key_of(leaf) != Some(pinned) {

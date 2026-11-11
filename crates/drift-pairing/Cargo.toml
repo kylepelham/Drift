@@ -8,6 +8,10 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-thiserror = { workspace = true }
-# The pairing URI's query, percent-encoded both ways; already in the tree.
-url = "2"
+# The announcement a computer answers a nearby device with; already in the tree.
+serde = { workspace = true }
+# The commitment and the matching code.
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = { workspace = true }

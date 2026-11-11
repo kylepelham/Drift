@@ -2,6 +2,7 @@
 
 mod clipboard;
 mod commands;
+mod computers;
 mod config;
 mod editor;
 mod file_preview;
@@ -108,72 +109,85 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(VoiceDownload::default())
         .manage(permissions::DictationConsent::default())
-        // generate_handler! resolves command helper macros in their defining module, not through ordinary re-exports.
-        .invoke_handler(tauri::generate_handler![
-            native::native_engine_status,
-            fonts::system_fonts,
-            opencode_import::opencode_import_summary,
-            updater::check_update,
-            updater::install_update,
-            usage_limits::provider_usage,
-            updater::update_support,
-            clipboard::clipboard_write_text,
-            config::config_read,
-            editor::pick_folder,
-            editor::save_json_file,
-            editor::open_file,
-            editor::open_file_in_editor,
-            file_preview::read_file_preview,
-            commands::store_workspaces,
-            commands::store_removed_workspaces,
-            commands::store_add_workspace,
-            commands::store_save_workspace,
-            commands::store_touch_workspace,
-            commands::store_remove_workspace,
-            commands::store_expired_removed_workspaces,
-            commands::store_forget_workspace,
-            commands::store_archived,
-            commands::store_archive_session,
-            commands::store_unarchive_session,
-            commands::store_expired_archived,
-            prompts::prompt_snapshot,
-            prompts::prompt_save,
-            prompts::prompt_reset,
-            show_main_window,
-            open_webview_devtools,
-            set_window_icon,
-            taskbar::taskbar_light,
-            commands::session_search,
-            commands::storage_stats,
-            commands::storage_prune,
-            commands::storage_compact,
-            voice::voice_supported,
-            voice::voice_acceleration,
-            voice::voice_models,
-            voice::voice_model_download,
-            voice::voice_model_remove,
-            voice::voice_model_cancel,
-            voice::voice_transcribe,
-            permissions::voice_dictation_set_enabled,
-            remote::access_commands::remote_access_status,
-            remote::access_commands::remote_access_enable,
-            remote::access_commands::remote_access_disable,
-            remote::access_commands::remote_access_set_browser,
-            remote::access_commands::remote_access_set_tunnel,
-            remote::access_commands::remote_access_pairing,
-            remote::access_commands::remote_access_revoke,
-            remote::access_commands::remote_access_set_password,
-            ui_state::ui_state_initialize,
-            ui_state::ui_state_snapshot,
-            ui_state::ui_state_update,
-            ui_state::timeout::shell_timeout_initialize,
-            ui_state::timeout::shell_timeout_snapshot,
-            ui_state::timeout::shell_timeout_update
-        ])
+        .invoke_handler(commands())
         .setup(setup)
         .build(tauri::generate_context!())
         .expect("failed to build drift")
         .run(on_run_event);
+}
+
+/// Every command the UI invokes.
+fn commands() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    // generate_handler! resolves command helper macros in their defining module, not through ordinary re-exports.
+    tauri::generate_handler![
+        native::native_engine_status,
+        fonts::system_fonts,
+        opencode_import::opencode_import_summary,
+        updater::check_update,
+        updater::install_update,
+        usage_limits::provider_usage,
+        updater::update_support,
+        clipboard::clipboard_write_text,
+        config::config_read,
+        editor::pick_folder,
+        editor::save_json_file,
+        editor::open_file,
+        editor::open_file_in_editor,
+        file_preview::read_file_preview,
+        commands::store_workspaces,
+        commands::store_removed_workspaces,
+        commands::store_add_workspace,
+        commands::store_save_workspace,
+        commands::store_touch_workspace,
+        commands::store_remove_workspace,
+        commands::store_expired_removed_workspaces,
+        commands::store_forget_workspace,
+        commands::store_archived,
+        commands::store_archive_session,
+        commands::store_unarchive_session,
+        commands::store_expired_archived,
+        prompts::prompt_snapshot,
+        prompts::prompt_save,
+        prompts::prompt_reset,
+        show_main_window,
+        open_webview_devtools,
+        set_window_icon,
+        taskbar::taskbar_light,
+        commands::session_search,
+        commands::storage_stats,
+        commands::storage_prune,
+        commands::storage_compact,
+        voice::voice_supported,
+        voice::voice_acceleration,
+        voice::voice_models,
+        voice::voice_model_download,
+        voice::voice_model_remove,
+        voice::voice_model_cancel,
+        voice::voice_transcribe,
+        permissions::voice_dictation_set_enabled,
+        remote::access_commands::remote_access_status,
+        remote::access_commands::remote_access_enable,
+        remote::access_commands::remote_access_disable,
+        remote::access_commands::remote_access_set_browser,
+        remote::access_commands::remote_access_set_tunnel,
+        remote::access_commands::remote_access_requests,
+        remote::access_commands::remote_access_answer,
+        remote::access_commands::remote_access_revoke,
+        remote::access_commands::remote_access_set_password,
+        computers::computers_list,
+        computers::computers_nearby,
+        computers::computers_ask,
+        computers::computers_answer,
+        computers::computers_cancel,
+        computers::computers_open,
+        computers::computers_forget,
+        ui_state::ui_state_initialize,
+        ui_state::ui_state_snapshot,
+        ui_state::ui_state_update,
+        ui_state::timeout::shell_timeout_initialize,
+        ui_state::timeout::shell_timeout_snapshot,
+        ui_state::timeout::shell_timeout_update
+    ]
 }
 
 /// A second launch shows the window already running, once it has been revealed.
@@ -229,6 +243,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to load remote access settings");
     let start_remote = remote_access.should_start();
     app.manage(remote_access);
+    app.manage(computers::Linked::new(data_dir.clone()));
     if start_remote {
         let app = app.handle().clone();
         tauri::async_runtime::spawn(async move {

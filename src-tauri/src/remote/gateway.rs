@@ -1,7 +1,7 @@
 use crate::{remote_auth, ui_state};
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Extension, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -34,7 +34,10 @@ pub(super) fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/options", get(remote_auth::options))
         .route("/auth/certificate", get(remote_auth::certificate))
         .route("/auth/login", post(remote_auth::login))
-        .route("/auth/pair", post(remote_auth::pair))
+        .route("/auth/request", post(remote_auth::request_open))
+        .route("/auth/request/reveal", post(remote_auth::request_reveal))
+        .route("/auth/request/wait", post(remote_auth::request_wait))
+        .route("/auth/request/cancel", post(remote_auth::request_cancel))
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
         // A wildcard route would leak its path parameter into the engine's own extractors.
@@ -103,6 +106,13 @@ async fn gateway_middleware(State(app): State<tauri::AppHandle>, mut request: Re
     let enabled = access.should_start();
     let response = if enabled && remote_auth::browser_path(&path) && !access.browser_enabled() {
         (StatusCode::NOT_FOUND, "Browser access is turned off in Drift.").into_response()
+    } else if remote_auth::request_path(&path) && !from_this_network(&request) {
+        let refusal = "Connect from the same network the first time. After that this device reaches it from anywhere.";
+        (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "error": refusal })),
+        )
+            .into_response()
     } else if enabled && remote_auth::public_path(&path) {
         next.run(request).await
     } else if let Some((auth, device)) = access.authorize(request.headers(), &app.state::<Store>()) {
@@ -116,6 +126,13 @@ async fn gateway_middleware(State(app): State<tauri::AppHandle>, mut request: Re
     };
 
     secure(response)
+}
+
+/// A first link comes from this computer's own networks: never through the tunnel, whose visitors are anyone.
+fn from_this_network(request: &Request) -> bool {
+    let peer = request.extensions().get::<ConnectInfo<std::net::SocketAddr>>();
+    request.extensions().get::<TunnelHost>().is_none()
+        && peer.is_some_and(|ConnectInfo(peer)| drift_pairing::on_local_network(peer.ip()))
 }
 
 /// Checks host and origin before authentication so DNS-rebound pages cannot reach even sign-in routes. A request

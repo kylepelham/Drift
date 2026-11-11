@@ -6,6 +6,7 @@ import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
 import { pickBackup, saveBackup } from "./session-backup";
+import { ComputerBrand } from "./computer-switcher";
 import { openSettings } from "../state/settings";
 import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
@@ -15,7 +16,6 @@ import { persisted } from "../state/persist";
 import { ArchiveModal } from "./archive";
 import { nativeFrame } from "./titlebar";
 import { useEngine } from "../engine";
-import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
 import {
     archiveSession,
@@ -211,10 +211,7 @@ export function Sidebar() {
                         </span>
                     }
                 >
-                    <div class="pointer-events-none flex min-w-0 items-center gap-2 text-ink-faint">
-                        <DriftLogo class="size-4 shrink-0" />
-                        <span class="truncate text-xs font-medium">Drift</span>
-                    </div>
+                    <ComputerBrand />
                 </Show>
                 <div class="flex items-center gap-0.5">
                     <button

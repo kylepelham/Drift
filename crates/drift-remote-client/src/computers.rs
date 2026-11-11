@@ -1,4 +1,4 @@
-//! The PCs this phone is linked with, kept in the app's private storage.
+//! The PCs this device is linked with, kept in the app's private storage.
 
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use crate::tls::Trust;
 
 /// One linked PC. Its certificate authority is its identity; its addresses are only where to look for it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Computer {
+pub struct Computer {
     /// The authority's SHA-256 as hex.
     pub id: String,
     pub name: String,
@@ -22,44 +22,37 @@ pub(crate) struct Computer {
     /// Where it answers from anywhere, through OpenTunnel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tunnel: Option<Tunnel>,
-    /// This phone's device session on the PC.
+    /// This device's session on the PC.
     pub token: String,
 }
 
 /// The PC's name through the tunnel, and the SHA-256 of the key its certificate must carry, as hex.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Tunnel {
+pub struct Tunnel {
     pub host: String,
     pub key: String,
 }
 
-impl Tunnel {
-    pub(crate) fn from_pairing(tunnel: &drift_pairing::Tunnel) -> Self {
-        Self {
-            host: tunnel.host.clone(),
-            key: drift_pairing::hex(&tunnel.key),
-        }
-    }
-}
-
-/// Where a PC can be reached now, as it reports it to a phone signed in to it.
+/// Where a PC can be reached now, as it reports it to a device signed in to it.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub(crate) struct Reach {
+pub struct Reach {
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
     #[serde(default)]
     pub port: Option<u16>,
     #[serde(default)]
     pub tunnel: Option<Tunnel>,
+    #[serde(default)]
+    pub mac: Option<String>,
 }
 
 impl Computer {
-    pub(crate) fn fingerprint(&self) -> Option<crate::tls::Fingerprint> {
+    pub fn fingerprint(&self) -> Option<crate::tls::Fingerprint> {
         drift_pairing::parse_fingerprint(&self.id)
     }
 
     /// Every way to reach it, its networks first, each with what the connection must trust.
-    pub(crate) fn endpoints(&self) -> Vec<(Endpoint, Trust)> {
+    pub fn endpoints(&self) -> Vec<(Endpoint, Trust)> {
         let mut endpoints = Vec::new();
         if let Some(authority) = self.fingerprint() {
             for address in &self.addresses {
@@ -83,14 +76,14 @@ struct Saved {
     active: Option<String>,
 }
 
-pub(crate) struct Computers {
+pub struct Computers {
     path: PathBuf,
     saved: Saved,
 }
 
 impl Computers {
     /// What was saved at `path`; nothing saved, or a file this build cannot read, is an empty list.
-    pub(crate) fn load(path: PathBuf) -> Self {
+    pub fn load(path: PathBuf) -> Self {
         let saved = std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -99,25 +92,25 @@ impl Computers {
         Self { path, saved }
     }
 
-    pub(crate) fn list(&self) -> &[Computer] {
+    pub fn list(&self) -> &[Computer] {
         &self.saved.computers
     }
 
-    pub(crate) fn get(&self, id: &str) -> Option<&Computer> {
+    pub fn get(&self, id: &str) -> Option<&Computer> {
         self.saved.computers.iter().find(|computer| computer.id == id)
     }
 
-    pub(crate) fn active(&self) -> Option<&Computer> {
+    pub fn active(&self) -> Option<&Computer> {
         self.get(self.saved.active.as_deref()?)
     }
 
-    pub(crate) fn set_active(&mut self, id: Option<&str>) -> std::io::Result<()> {
+    pub fn set_active(&mut self, id: Option<&str>) -> std::io::Result<()> {
         self.saved.active = id.map(str::to_string);
         self.save()
     }
 
     /// Adds a PC, or replaces it when linked again: its new token, plus any address it offers now.
-    pub(crate) fn upsert(&mut self, mut computer: Computer) -> std::io::Result<()> {
+    pub fn upsert(&mut self, mut computer: Computer) -> std::io::Result<()> {
         if let Some(index) = self.saved.computers.iter().position(|known| known.id == computer.id) {
             let old = self.saved.computers.remove(index);
             for address in old.addresses {
@@ -134,8 +127,8 @@ impl Computers {
     }
 
     /// Takes what the PC reports over a connection that trusted it: its addresses now, with the one that answered
-    /// first, and its tunnel, which it may have turned on or off since the phone last looked.
-    pub(crate) fn refresh(&mut self, id: &str, answered: &Endpoint, reach: Reach) -> std::io::Result<()> {
+    /// first, and its tunnel, which it may have turned on or off since this device last looked.
+    pub fn refresh(&mut self, id: &str, answered: &Endpoint, reach: Reach) -> std::io::Result<()> {
         let Some(computer) = self.saved.computers.iter_mut().find(|computer| computer.id == id) else {
             return Ok(());
         };
@@ -152,6 +145,7 @@ impl Computers {
                 addresses
             },
             port: reach.port.unwrap_or(computer.port),
+            mac: reach.mac.or(computer.mac.clone()),
             tunnel: reach.tunnel,
             ..computer.clone()
         };
@@ -163,7 +157,7 @@ impl Computers {
         self.save()
     }
 
-    pub(crate) fn remove(&mut self, id: &str) -> std::io::Result<()> {
+    pub fn remove(&mut self, id: &str) -> std::io::Result<()> {
         self.saved.computers.retain(|computer| computer.id != id);
         if self.saved.active.as_deref() == Some(id) {
             self.saved.active = None;
@@ -252,6 +246,7 @@ mod tests {
             addresses: vec!["192.168.1.31".parse().unwrap(), "100.101.2.3".parse().unwrap()],
             port: Some(41718),
             tunnel: None,
+            mac: None,
         };
         computers.refresh("aa", &answered, reach).unwrap();
 

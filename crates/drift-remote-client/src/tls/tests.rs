@@ -113,18 +113,34 @@ async fn through_the_tunnel_only_a_publicly_trusted_certificate_with_the_pcs_key
     let (address, leaf) = public.serve_leaf(hello()).await;
     let key = key_of(&leaf).unwrap();
 
-    let pinned = build(Trust::Key(key), public.as_public_roots());
+    let pinned = build(Some(Trust::Key(key)), Arc::default(), public.as_public_roots());
     assert_eq!(get(&pinned, address).await.unwrap(), "hello");
 
-    let relay = build(Trust::Key([7; 32]), public.as_public_roots());
+    let relay = build(Some(Trust::Key([7; 32])), Arc::default(), public.as_public_roots());
     assert!(
         get(&relay, address).await.is_err(),
         "a valid certificate for the name with another key is refused"
     );
 
-    let unknown = build(Trust::Key(key), Arc::new(RootCertStore::empty()));
+    let unknown = build(Some(Trust::Key(key)), Arc::default(), Arc::new(RootCertStore::empty()));
     assert!(
         get(&unknown, address).await.is_err(),
         "the right key under an untrusted issuer is refused"
+    );
+}
+
+#[tokio::test]
+async fn a_pc_met_first_is_the_only_one_its_connections_trust_after() {
+    let pc = Authority::new();
+    let address = pc.serve(hello()).await;
+    let (client, met) = first_use();
+
+    assert_eq!(get(&client, address).await.unwrap(), "hello");
+    assert_eq!(met.get(), Some(&pc.fingerprint()), "the authority it showed is pinned");
+
+    let other = Authority::new().serve(hello()).await;
+    assert!(
+        get(&client, other).await.is_err(),
+        "another authority is refused once one was met"
     );
 }

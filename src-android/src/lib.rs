@@ -1,25 +1,34 @@
 //! Drift for Android: drives the Drift on your PCs, on their networks or from anywhere through OpenTunnel. The
 //! WebView talks to a proxy on 127.0.0.1 that pins each PC, so no certificate warning can ever appear
-//! (`docs/android.md`).
+//! (`docs/android.md`). The proxy and everything it knows of PCs is `drift-remote-client`, shared with the desktop.
 
-mod computers;
 mod native;
-mod pc;
-mod proxy;
-mod tls;
 
-/// Where tests write: Drift's own folder in the system's temporary directory, never loose beside it.
-#[cfg(test)]
-fn test_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("Drift").join("tests").join("android");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+use drift_remote_client::computers::Computers;
+use drift_remote_client::{Host, pc, proxy};
+use rust_embed::RustEmbed;
 use tauri::Manager;
+
+#[derive(RustEmbed)]
+#[folder = "../dist"]
+struct Dist;
+
+/// The phone: the UI it carries, and its name from the Kotlin plugin.
+struct Phone(Arc<native::Native>);
+
+impl Host for Phone {
+    fn asset(&self, path: &str) -> Option<Cow<'static, [u8]>> {
+        Dist::get(path).map(|file| file.data)
+    }
+
+    fn device_name(&self) -> String {
+        self.0.device_name()
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,21 +42,21 @@ pub fn run() {
 /// Starts the proxy on a free loopback port, then opens the WebView on it with this launch's secret.
 fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let data = app.path().app_data_dir()?;
-    let computers = computers::Computers::load(data.join("computers.json"));
-    let native = app.state::<Arc<native::Native>>().inner().clone();
+    let computers = Computers::load(data.join("computers.json"));
+    let phone = Arc::new(Phone(app.state::<Arc<native::Native>>().inner().clone()));
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let secret = pc::hex(&secret());
 
-    let proxy = proxy::Shared::new(computers, native, secret.clone(), port, data.join("ui-storage.json"));
+    let proxy = proxy::Shared::new(computers, phone, secret, port, data.join("ui-storage.json"));
+    let url = proxy.entry().parse()?;
     tauri::async_runtime::spawn(async move {
         if let Ok(listener) = tokio::net::TcpListener::from_std(listener) {
             proxy::serve(listener, proxy).await;
         }
     });
 
-    let url = format!("http://127.0.0.1:{port}/app/enter?secret={secret}").parse()?;
     tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url)).build()?;
     Ok(())
 }

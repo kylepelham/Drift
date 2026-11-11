@@ -7,15 +7,29 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
-use super::{constant_time_eq, device_name, session_cookie, verify_password, with_cookie};
+use super::requests::Answer;
+use super::{constant_time_eq, device_name, random_bytes, session_cookie, verify_password, with_cookie};
+
+/// How long one wait for an answer is held open before the device asks again.
+const ANSWER_POLL: Duration = Duration::from_secs(25);
 
 #[derive(Deserialize)]
-pub(crate) struct PairRequest {
-    ticket: String,
+pub(crate) struct OpenRequest {
     name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RevealRequest {
+    id: String,
+    secret: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RequestId {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -31,6 +45,20 @@ fn failure(status: StatusCode, message: &str) -> Response {
 
 fn notify(app: &tauri::AppHandle) {
     let _ = app.emit("remote-access-changed", ());
+}
+
+/// Tells the desktop the requests to ask about changed, and brings its window up when one was just shown.
+pub(crate) fn requests_changed(app: &tauri::AppHandle, shown: bool) {
+    let _ = app.emit("remote-access-requests", ());
+    if shown && let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn gone() -> Response {
+    failure(StatusCode::GONE, &super::requests::RequestError::Unknown.to_string())
 }
 
 /// The public CA certificate; installing it on a device removes the browser warning.
@@ -62,12 +90,12 @@ pub(crate) async fn options(State(app): State<tauri::AppHandle>) -> Response {
     .into_response()
 }
 
-/// The Drift app redeems the pairing code it scanned for a session token it sends as a bearer token.
-/// Wrong secrets count toward the same lockout as wrong passwords.
-pub(crate) async fn pair(
+/// A device asks to connect. This computer commits to its secret now and reveals it only once the device sent its own.
+/// Declined requests count toward the same lockout as wrong passwords.
+pub(crate) async fn request_open(
     State(app): State<tauri::AppHandle>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    Json(request): Json<PairRequest>,
+    Json(request): Json<OpenRequest>,
 ) -> Response {
     let access = app.state::<RemoteAccess>();
     let address = peer.ip();
@@ -76,19 +104,79 @@ pub(crate) async fn pair(
         return locked_response(wait);
     }
 
-    match auth.redeem(request.ticket.trim(), device_name(request.name), &app.state::<Store>()) {
-        Ok(token) => {
-            auth.failures.remove(&address);
-            drop(auth);
-            notify(&app);
-            Json(json!({ "token": token })).into_response()
+    let opened = auth
+        .requests
+        .open(device_name(request.name), address, random_bytes(), Instant::now());
+    drop(auth);
+    match opened {
+        Ok((id, commitment)) => {
+            requests_changed(&app, false);
+            Json(json!({ "id": id, "commitment": drift_pairing::hex(&commitment) })).into_response()
         }
-        Err(super::AuthError::UnknownTicket) => {
-            auth.fail(address, Instant::now());
-            failure(StatusCode::UNAUTHORIZED, &super::AuthError::UnknownTicket.to_string())
-        }
-        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        Err(error) => failure(StatusCode::TOO_MANY_REQUESTS, &error.to_string()),
     }
+}
+
+/// Takes the device's secret and reveals this computer's, so both can show the code; the user is asked from now on.
+pub(crate) async fn request_reveal(
+    State(app): State<tauri::AppHandle>,
+    Json(request): Json<RevealRequest>,
+) -> Response {
+    let Some(device) = drift_pairing::parse_fingerprint(&request.secret) else {
+        return failure(StatusCode::BAD_REQUEST, "The secret is not valid.");
+    };
+    let access = app.state::<RemoteAccess>();
+    let authority = access.authority();
+    let revealed = access
+        .auth()
+        .requests
+        .reveal(&request.id, &device, &authority, Instant::now());
+
+    match revealed {
+        Ok(secret) => {
+            requests_changed(&app, true);
+            Json(json!({ "secret": drift_pairing::hex(&secret) })).into_response()
+        }
+        Err(_) => gone(),
+    }
+}
+
+/// Holds the device until the user answers, or for a while, after which it asks again. Accepted, it gets its session.
+pub(crate) async fn request_wait(State(app): State<tauri::AppHandle>, Json(request): Json<RequestId>) -> Response {
+    let access = app.state::<RemoteAccess>();
+    let Some(mut answer) = access.auth().requests.watch(&request.id) else {
+        return gone();
+    };
+    let _ = tokio::time::timeout(ANSWER_POLL, answer.wait_for(|answer| *answer != Answer::Waiting)).await;
+
+    let mut auth = access.auth();
+    let settled = auth.requests.settle(&request.id);
+    let response = match settled {
+        None if auth.requests.watch(&request.id).is_some() => return Json(json!({ "waiting": true })).into_response(),
+        None => return gone(),
+        Some((Answer::Accepted, name)) => match auth.create_device(name, "app", &app.state::<Store>()) {
+            Ok(token) => Json(json!({ "token": token })).into_response(),
+            Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        },
+        Some(_) => {
+            let message = format!("{} declined the connection.", crate::remote::computer_name());
+            failure(StatusCode::FORBIDDEN, &message)
+        }
+    };
+    drop(auth);
+    notify(&app);
+    requests_changed(&app, false);
+
+    response
+}
+
+/// The device stopped waiting; its request is no longer shown.
+pub(crate) async fn request_cancel(State(app): State<tauri::AppHandle>, Json(request): Json<RequestId>) -> Response {
+    if app.state::<RemoteAccess>().auth().requests.cancel(&request.id) {
+        requests_changed(&app, false);
+    }
+
+    StatusCode::NO_CONTENT.into_response()
 }
 
 pub(crate) async fn login(

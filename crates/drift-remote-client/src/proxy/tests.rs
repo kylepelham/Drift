@@ -13,6 +13,23 @@ use crate::tls::tests::Authority;
 
 const SECRET: &str = "launch-secret";
 
+/// A host whose bundled UI is two pages, and which names itself as the phone did.
+struct Bundle;
+
+impl crate::Host for Bundle {
+    fn asset(&self, path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+        match path {
+            "index.html" => Some(b"<html><head></head><body>drift</body></html>".as_slice().into()),
+            "app.html" => Some(b"<html><head></head><body>computers</body></html>".as_slice().into()),
+            _ => None,
+        }
+    }
+
+    fn device_name(&self) -> String {
+        "Android".into()
+    }
+}
+
 /// The proxy on a free port, with no PC linked, and a client that does not follow redirects.
 async fn proxy() -> (Proxy, SocketAddr, reqwest::Client) {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -21,7 +38,7 @@ async fn proxy() -> (Proxy, SocketAddr, reqwest::Client) {
     let address = listener.local_addr().unwrap();
     let proxy = Shared::new(
         Computers::load(path.clone()),
-        Arc::new(Native {}),
+        Arc::new(Bundle),
         SECRET.into(),
         address.port(),
         path.with_extension("storage.json"),
@@ -371,7 +388,7 @@ async fn next_launch_restores(proxy: &Proxy) -> String {
     let address = listener.local_addr().unwrap();
     let proxy = Shared::new(
         Computers::load(crate::test_dir().join("unused.json")),
-        Arc::new(Native {}),
+        Arc::new(Bundle),
         SECRET.into(),
         address.port(),
         proxy.storage.clone(),
@@ -387,4 +404,268 @@ async fn next_launch_restores(proxy: &Proxy) -> String {
         .text()
         .await
         .unwrap()
+}
+
+/// A desktop as the proxy's host: its own Drift to go back to.
+#[derive(Default)]
+struct Desk {
+    shown: std::sync::atomic::AtomicBool,
+    id: Option<String>,
+}
+
+impl crate::Host for Desk {
+    fn asset(&self, path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+        Bundle.asset(path)
+    }
+
+    fn device_name(&self) -> String {
+        "Desk".into()
+    }
+
+    fn this_computer(&self) -> Option<String> {
+        Some("Desk".into())
+    }
+
+    fn this_computer_id(&self) -> Option<String> {
+        self.id.clone()
+    }
+
+    fn show_this_computer(&self) -> Result<(), String> {
+        self.shown.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+async fn desk_proxy(desk: Arc<Desk>) -> (Proxy, String) {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let path = crate::test_dir().join(format!("drift-desk-{}.json", pc::hex(&rand_bytes())));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let proxy = Shared::new(
+        Computers::load(path.clone()),
+        desk,
+        SECRET.into(),
+        address.port(),
+        path.with_extension("storage.json"),
+    );
+    tokio::spawn(serve(listener, proxy.clone()));
+
+    (proxy, format!("http://{address}"))
+}
+
+/// A PC's side of a device asking to connect: it commits to `secret`, takes the device's, and answers `wait` with
+/// `answer` once asked twice, so the device's waiting is seen to carry on.
+fn asked(secret: drift_pairing::Secret, answer: (StatusCode, serde_json::Value)) -> (Router, Arc<Mutex<Vec<String>>>) {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let waits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let log = |seen: &Arc<Mutex<Vec<String>>>, entry: String| seen.lock().unwrap().push(entry);
+
+    let router = gateway()
+        .route(
+            "/auth/request",
+            axum::routing::post({
+                let seen = seen.clone();
+                move |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    log(&seen, format!("request {}", body["name"]));
+                    let commitment = pc::hex(&drift_pairing::commitment(&secret));
+                    axum::Json(json!({ "id": "r1", "commitment": commitment }))
+                }
+            }),
+        )
+        .route(
+            "/auth/request/reveal",
+            axum::routing::post({
+                let seen = seen.clone();
+                move |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    log(&seen, format!("reveal {}", body["secret"].as_str().unwrap()));
+                    axum::Json(json!({ "secret": pc::hex(&secret) }))
+                }
+            }),
+        )
+        .route(
+            "/auth/request/wait",
+            axum::routing::post(move || async move {
+                if waits.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return (StatusCode::OK, axum::Json(json!({ "waiting": true })));
+                }
+                (answer.0, axum::Json(answer.1))
+            }),
+        )
+        .route(
+            "/auth/request/cancel",
+            axum::routing::post({
+                let seen = seen.clone();
+                move || async move { log(&seen, "cancel".into()) }
+            }),
+        );
+
+    (router, seen)
+}
+
+#[tokio::test]
+async fn a_desktop_asks_a_pc_to_connect_shows_the_code_its_user_sees_and_goes_back_to_its_own_drift() {
+    let authority = Authority::new();
+    let pc_secret = [5u8; 32];
+    let (gateway, seen) = asked(pc_secret, (StatusCode::OK, json!({ "token": "desk-session" })));
+    let address = authority.serve(gateway).await;
+    let desk = Arc::new(Desk::default());
+    let (proxy, base) = desk_proxy(desk.clone()).await;
+    let client = reqwest::Client::new();
+    let call = |method: reqwest::Method, path: &str| {
+        client
+            .request(method, format!("{base}/app/api{path}"))
+            .header("cookie", signed_in())
+    };
+
+    let waiting: serde_json::Value = call(reqwest::Method::POST, "/ask")
+        .json(&json!({ "address": format!(" {address} ") }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(waiting["name"], "PC", "{waiting}");
+    let device_secret = seen.lock().unwrap()[1]
+        .strip_prefix("reveal ")
+        .and_then(drift_pairing::parse_fingerprint)
+        .unwrap();
+    assert_eq!(
+        seen.lock().unwrap()[0],
+        r#"request "Desk""#,
+        "the PC lists the desktop by its name"
+    );
+    assert_eq!(
+        waiting["code"],
+        drift_pairing::matching_code(&authority.fingerprint(), &device_secret, &pc_secret),
+        "the code its user sees on the PC"
+    );
+
+    let linked: serde_json::Value = call(reqwest::Method::POST, "/answer")
+        .json(&json!({ "id": waiting["id"] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(linked["linked"], "PC", "{linked}");
+    assert_eq!(
+        proxy.route.lock().unwrap().as_ref().map(|route| route.token.clone()),
+        Some("desk-session".into()),
+        "requests go to the PC just linked"
+    );
+    let saved = proxy.computers.lock().unwrap().list()[0].clone();
+    assert_eq!(
+        saved.id,
+        pc::hex(&authority.fingerprint()),
+        "the authority met first is pinned"
+    );
+    assert_eq!(saved.addresses, vec![address.ip()]);
+
+    let listed: serde_json::Value = call(reqwest::Method::GET, "/computers")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(listed["local"], "Desk");
+    assert_eq!(listed["computers"][0]["active"], true);
+
+    let left = call(reqwest::Method::POST, "/local").send().await.unwrap();
+    assert!(left.status().is_success());
+    assert!(
+        desk.shown.load(std::sync::atomic::Ordering::SeqCst),
+        "the window shows this PC again"
+    );
+    assert!(
+        proxy.computers.lock().unwrap().active().is_none(),
+        "this PC is what the window shows now"
+    );
+}
+
+#[tokio::test]
+async fn a_declined_or_cancelled_request_links_nothing() {
+    let authority = Authority::new();
+    let (declining, _) = asked([5u8; 32], (StatusCode::FORBIDDEN, json!({ "error": "declined" })));
+    let declining = authority.serve(declining).await;
+    let (proxy, _) = desk_proxy(Arc::default()).await;
+
+    let waiting = proxy.ask(&declining.to_string()).await.unwrap();
+    let declined = proxy.answer(&waiting.id).await.unwrap_err();
+    assert_eq!(declined, "PC declined the connection");
+    assert!(proxy.computers.lock().unwrap().list().is_empty());
+    assert!(proxy.answer(&waiting.id).await.is_err(), "an answered request is over");
+
+    let (patient, seen) = asked([5u8; 32], (StatusCode::OK, json!({ "waiting": true })));
+    let patient = Authority::new().serve(patient).await;
+    let waiting = proxy.ask(&patient.to_string()).await.unwrap();
+    proxy.cancel(&waiting.id).await;
+    assert_eq!(
+        seen.lock().unwrap().last().unwrap(),
+        "cancel",
+        "the PC stops asking its user"
+    );
+    assert!(proxy.answer(&waiting.id).await.is_err());
+}
+
+#[tokio::test]
+async fn a_pc_that_changes_its_secret_after_seeing_the_devices_is_refused() {
+    let authority = Authority::new();
+    let gateway = gateway()
+        .route(
+            "/auth/request",
+            axum::routing::post(|| async {
+                axum::Json(json!({ "id": "r1", "commitment": pc::hex(&drift_pairing::commitment(&[1u8; 32])) }))
+            }),
+        )
+        .route(
+            "/auth/request/reveal",
+            axum::routing::post(|| async { axum::Json(json!({ "secret": pc::hex(&[2u8; 32]) })) }),
+        );
+    let address = authority.serve(gateway).await;
+    let (proxy, _) = desk_proxy(Arc::default()).await;
+
+    let refused = proxy.ask(&address.to_string()).await.unwrap_err();
+    assert!(refused.contains("changed its answer"), "{refused}");
+}
+
+#[tokio::test]
+async fn a_desktop_never_asks_itself() {
+    let authority = Authority::new();
+    let (gateway, seen) = asked([5u8; 32], (StatusCode::OK, json!({ "token": "t" })));
+    let address = authority.serve(gateway).await;
+    let desk = Arc::new(Desk {
+        id: Some(pc::hex(&authority.fingerprint())),
+        ..Desk::default()
+    });
+    let (proxy, _) = desk_proxy(desk).await;
+
+    assert_eq!(
+        proxy.ask(&address.to_string()).await.unwrap_err(),
+        "that is this computer"
+    );
+    assert!(seen.lock().unwrap().is_empty(), "its user is never asked");
+}
+
+#[tokio::test]
+async fn a_phone_has_no_drift_of_its_own_to_go_back_to() {
+    let (_, address, client) = proxy().await;
+    let call = |method: reqwest::Method, path: &str| {
+        client
+            .request(method, format!("http://{address}/app/api{path}"))
+            .header("cookie", signed_in())
+    };
+
+    let listed: serde_json::Value = call(reqwest::Method::GET, "/computers")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(listed["local"].is_null());
+    let refused = call(reqwest::Method::POST, "/local").send().await.unwrap();
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
 }

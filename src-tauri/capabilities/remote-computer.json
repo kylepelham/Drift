@@ -1,0 +1,18 @@
+{
+    "identifier": "remote-computer",
+    "description": "Another computer's Drift, shown in the main window through this PC's local proxy (src-tauri/src/computers.rs): it may move, size and zoom the window, and nothing else of this PC.",
+    "windows": ["main"],
+    "remote": {
+        "urls": ["http://127.0.0.1:*"]
+    },
+    "permissions": [
+        "core:window:allow-minimize",
+        "core:window:allow-toggle-maximize",
+        "core:window:allow-close",
+        "core:window:allow-start-dragging",
+        "core:window:allow-is-maximized",
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+        "core:webview:allow-set-webview-zoom"
+    ]
+}

@@ -1,10 +1,12 @@
 pub(crate) mod access_commands;
+mod discovery;
 mod gateway;
 mod interfaces;
 mod transport;
 mod tunnel;
 
 use gateway::router;
+pub(crate) use interfaces::broadcasts;
 
 use transport::{accept_loop, local_ipv4};
 
@@ -27,7 +29,7 @@ use tokio::sync::{Mutex as AsyncMutex, watch};
 use tokio::task::JoinHandle;
 use tunnel::TunnelStatus;
 
-pub(crate) const HTTP_PORT: u16 = 41718;
+pub(crate) const HTTP_PORT: u16 = drift_pairing::PORT;
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
 const BROWSER_KEY: &str = "remote_browser";
 const TUNNEL_KEY: &str = "remote_tunnel";
@@ -60,6 +62,8 @@ struct RemoteConfig {
 struct Running {
     shutdown: watch::Sender<bool>,
     http: JoinHandle<()>,
+    /// Answers devices looking for computers nearby; `None` when another program holds the port.
+    discovery: Option<JoinHandle<()>>,
     router: Router,
     tunnel: Option<tunnel::Running>,
 }
@@ -90,18 +94,11 @@ pub(crate) struct RemoteStatus {
     tunnel_enabled: bool,
     tunnel: TunnelStatus,
     devices: Vec<RemoteDevice>,
+    /// Where a device on this network connects when it does not find this computer nearby.
+    addresses: Vec<String>,
     password_username: Option<String>,
     certificate_fingerprint: String,
     error: Option<String>,
-}
-
-/// The pairing code for the Drift app: what it holds, and as a scannable SVG.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemotePairing {
-    uri: String,
-    qr: String,
-    expires_at: i64,
 }
 
 impl RemoteAccess {
@@ -154,6 +151,7 @@ impl RemoteAccess {
         let router = router(self.app.clone());
         let tunnel = config.tunnel.then(|| self.start_tunnel(&router)).transpose()?;
         let (shutdown, http_shutdown) = watch::channel(false);
+        let discovery = discovery::start(self.announcement(), shutdown.subscribe()).await;
         let http = tokio::spawn(accept_loop(
             http_listener,
             router.clone(),
@@ -164,6 +162,7 @@ impl RemoteAccess {
         *running = Some(Running {
             shutdown,
             http,
+            discovery,
             router,
             tunnel,
         });
@@ -177,6 +176,9 @@ impl RemoteAccess {
         let Some(mut running) = running else { return };
 
         let _ = running.shutdown.send(true);
+        if let Some(discovery) = running.discovery.take() {
+            discovery.abort();
+        }
         if let Some(tunnel) = running.tunnel.take() {
             tunnel.stop().await;
         }
@@ -275,51 +277,41 @@ impl RemoteAccess {
         drop(auth);
         status.tunnel = self.tunnel_status.lock().unwrap().clone();
         status.certificate_fingerprint = self.tls.fingerprint().to_string();
+        if listening {
+            let (addresses, _) = interfaces::reachable(local_ipv4());
+            status.addresses = addresses.iter().map(ToString::to_string).collect();
+        }
 
         status
     }
 
-    /// Where a phone reaches this PC now: its network addresses, the gateway's port, and the tunnel while it is up.
+    /// Where a device reaches this PC now: its network addresses, the gateway's port, the tunnel while it is up, and
+    /// the LAN adapter's hardware address, for Wake-on-LAN.
     pub(crate) fn reach(&self) -> Value {
-        let (addresses, _) = interfaces::reachable(local_ipv4());
+        let (addresses, mac) = interfaces::reachable(local_ipv4());
         let tunnel = self.tunnel_endpoint.lock().unwrap().clone();
 
         json!({
             "addresses": addresses,
             "port": HTTP_PORT,
             "tunnel": tunnel.map(|tunnel| json!({ "host": tunnel.host, "key": drift_pairing::hex(&tunnel.key) })),
+            "mac": mac.map(|mac| drift_pairing::hex(&mac)),
         })
     }
 
-    /// A fresh one-time pairing code, replacing any shown before; `None` while the gateway is not listening.
-    async fn pairing(&self) -> Option<RemotePairing> {
-        if self.running.lock().await.is_none() {
-            return None;
-        }
-        let fingerprint = drift_pairing::parse_fingerprint(self.tls.fingerprint())?;
-        let (addresses, mac) = interfaces::reachable(local_ipv4());
-        let tunnel = self.tunnel_endpoint.lock().unwrap().clone();
-        if addresses.is_empty() && tunnel.is_none() {
-            return None;
-        }
+    /// SHA-256 of this PC's certificate authority, the identity a device links to.
+    pub(crate) fn authority(&self) -> [u8; 32] {
+        drift_pairing::parse_fingerprint(self.tls.fingerprint()).expect("the authority's fingerprint is hex")
+    }
 
-        let pairing = drift_pairing::Pairing {
+    /// How this PC answers a device looking for computers nearby.
+    fn announcement(&self) -> drift_pairing::Announcement {
+        drift_pairing::Announcement {
             name: computer_name(),
-            fingerprint,
-            addresses: addresses.into_iter().map(Into::into).collect(),
+            id: drift_pairing::hex(&self.authority()),
             port: HTTP_PORT,
-            mac,
-            tunnel,
-            ticket: self.auth().new_ticket(),
-        };
-        let uri = pairing.to_uri();
-        let expires_at = remote_auth::now_ms() + remote_auth::TICKET_TTL.as_millis() as i64;
-
-        Some(RemotePairing {
-            qr: qr_svg(&uri)?,
-            uri,
-            expires_at,
-        })
+            api: drift_pairing::API_VERSION,
+        }
     }
 
     pub(crate) fn certificate(&self) -> Vec<u8> {
@@ -382,20 +374,11 @@ fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
         tunnel_enabled: config.tunnel,
         tunnel: TunnelStatus::OFF,
         devices: Vec::new(),
+        addresses: Vec::new(),
         password_username: None,
         certificate_fingerprint: String::new(),
         error: config.error.clone(),
     }
-}
-
-/// The pairing code as an SVG big enough to scan from across a desk.
-fn qr_svg(text: &str) -> Option<String> {
-    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
-    Some(
-        code.render::<qrcode::render::svg::Color<'_>>()
-            .min_dimensions(240, 240)
-            .build(),
-    )
 }
 
 /// This computer's name, so the Drift app can label it among several.

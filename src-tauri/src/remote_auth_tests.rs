@@ -50,10 +50,6 @@ fn auth_errors_keep_the_command_boundary_text() {
     let cases = [
         (AuthError::InvalidUsername, "Username must be 1 to 64 characters."),
         (AuthError::InvalidPassword, "Password must be 8 to 256 characters."),
-        (
-            AuthError::UnknownTicket,
-            "That pairing code has expired or was already used. Show a new one on the PC.",
-        ),
     ];
 
     for (error, message) in cases {
@@ -62,36 +58,119 @@ fn auth_errors_keep_the_command_boundary_text() {
 }
 
 #[test]
-fn a_pairing_code_signs_in_one_app_once_and_a_new_code_replaces_the_last() {
+fn a_device_asking_to_connect_is_shown_once_it_sent_its_secret_with_the_code_its_screen_shows() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
-    let replaced = auth.new_ticket();
-    let ticket = auth.new_ticket();
+    let now = Instant::now();
+    let (authority, device_secret, computer_secret) = ([7u8; 32], [1u8; 32], [2u8; 32]);
 
-    assert!(matches!(
-        auth.redeem(&replaced, "Pixel".into(), &store),
-        Err(AuthError::UnknownTicket)
-    ));
-    let token = auth.redeem(&ticket, "Pixel".into(), &store).unwrap();
+    let (id, commitment) = auth
+        .requests
+        .open("Pixel".into(), address(20), computer_secret, now)
+        .unwrap();
+    assert_eq!(commitment, drift_pairing::commitment(&computer_secret));
     assert!(
-        matches!(
-            auth.redeem(&ticket, "Pixel".into(), &store),
-            Err(AuthError::UnknownTicket)
-        ),
-        "a code works once"
+        auth.prompts().is_empty(),
+        "nothing is asked before the device sent its secret"
     );
 
+    let revealed = auth.requests.reveal(&id, &device_secret, &authority, now).unwrap();
+    assert_eq!(revealed, computer_secret);
+    assert_eq!(
+        auth.requests.reveal(&id, &[9u8; 32], &authority, now),
+        Err(requests::RequestError::Unknown),
+        "the device's secret is taken once, so it cannot be changed to fit"
+    );
+    let prompts = auth.prompts();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(
+        (prompts[0].name.as_str(), prompts[0].address.as_str()),
+        ("Pixel", "192.168.1.20")
+    );
+    assert_eq!(
+        prompts[0].code,
+        drift_pairing::matching_code(&authority, &device_secret, &computer_secret)
+    );
+
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn an_accepted_device_is_signed_in_once() {
+    use requests::Answer;
+
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    let now = Instant::now();
+    let (id, _) = auth.requests.open("Pixel".into(), address(20), [2u8; 32], now).unwrap();
+    auth.requests.reveal(&id, &[1u8; 32], &[7u8; 32], now).unwrap();
+
+    let answer = auth.requests.watch(&id).unwrap();
+    assert!(auth.requests.settle(&id).is_none(), "still waiting");
+    assert!(auth.answer(&id, true));
+    assert_eq!(*answer.borrow(), Answer::Accepted);
+    assert!(
+        auth.prompts().is_empty(),
+        "an answered request is no longer asked about"
+    );
+    let (settled, name) = auth.requests.settle(&id).unwrap();
+    assert_eq!((settled, name.as_str()), (Answer::Accepted, "Pixel"));
+    assert!(auth.requests.watch(&id).is_none(), "settled once");
+
+    let token = auth.create_device(name, "app", &store).unwrap();
     let device = auth.device(&token, &store).unwrap();
     assert_eq!((device.name.as_str(), device.method.as_str()), ("Pixel", "app"));
     assert!(auth.device("not-a-token", &store).is_none());
     assert_device_persisted_without_token(&store, &device);
 
-    let expired = auth.new_ticket();
-    auth.ticket.as_mut().unwrap().expires = Instant::now() - Duration::from_secs(1);
-    assert!(matches!(
-        auth.redeem(&expired, "Pixel".into(), &store),
-        Err(AuthError::UnknownTicket)
-    ));
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn requests_are_declined_replaced_limited_and_expire() {
+    use requests::{Answer, REQUEST_TTL, RequestError};
+
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    let now = Instant::now();
+    let open = |auth: &mut Auth, last: u8, at: Instant| {
+        auth.requests
+            .open("Phone".into(), address(last), [0u8; 32], at)
+            .map(|(id, _)| id)
+    };
+
+    let old = open(&mut auth, 30, now).unwrap();
+    let replaced = auth.requests.watch(&old).unwrap();
+    let new = open(&mut auth, 30, now).unwrap();
+    assert_eq!(
+        *replaced.borrow(),
+        Answer::Gone,
+        "a newer request from the same address replaces it"
+    );
+
+    auth.requests.reveal(&new, &[1u8; 32], &[7u8; 32], now).unwrap();
+    assert!(auth.answer(&new, false));
+    assert_eq!(
+        auth.requests.settle(&new).map(|(answer, _)| answer),
+        Some(Answer::Declined)
+    );
+    assert!(
+        auth.failures.contains_key(&address(30)),
+        "a decline counts toward the lockout"
+    );
+    assert!(!auth.answer("never-asked", true));
+
+    let waiting: Vec<String> = (40..43).map(|last| open(&mut auth, last, now).unwrap()).collect();
+    assert_eq!(open(&mut auth, 43, now), Err(RequestError::TooMany));
+    assert!(auth.requests.cancel(&waiting[0]));
+    open(&mut auth, 43, now).unwrap();
+
+    let expired = auth.requests.watch(&waiting[1]).unwrap();
+    open(&mut auth, 50, now + REQUEST_TTL).unwrap();
+    assert_eq!(*expired.borrow(), Answer::Gone);
+    assert!(auth.requests.watch(&waiting[1]).is_none());
 
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
@@ -227,9 +306,17 @@ fn session_tokens_come_from_bearer_or_a_cookie_while_browsers_may_sign_in() {
 
 #[test]
 fn only_sign_in_routes_are_public() {
-    for path in ["/auth/options", "/auth/login", "/auth/pair", "/auth/certificate"] {
+    for path in [
+        "/auth/options",
+        "/auth/login",
+        "/auth/request",
+        "/auth/request/wait",
+        "/auth/certificate",
+    ] {
         assert!(public_path(path), "{path}");
     }
+    assert!(request_path("/auth/request") && request_path("/auth/request/reveal"));
+    assert!(!request_path("/auth/requested") && !request_path("/auth/login"));
 
     for path in [
         "/auth/logout",
@@ -252,7 +339,7 @@ fn only_the_browser_version_and_its_sign_in_close_with_browser_access() {
     }
     for path in [
         "/auth/options",
-        "/auth/pair",
+        "/auth/request",
         "/auth/me",
         "/auth/logout",
         "/engine/session",
