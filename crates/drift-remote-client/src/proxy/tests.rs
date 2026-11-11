@@ -586,6 +586,67 @@ async fn a_desktop_asks_a_pc_to_connect_shows_the_code_its_user_sees_and_goes_ba
 }
 
 #[tokio::test]
+async fn the_sidebar_tabs_are_a_saved_choice_and_only_computers_that_answer_are_online() {
+    let authority = Authority::new();
+    let (gateway, _) = asked([5u8; 32], (StatusCode::OK, json!({ "token": "desk-session" })));
+    let address = authority.serve(gateway).await;
+    let (proxy, base) = desk_proxy(Arc::default()).await;
+    let waiting = proxy.ask(&address.to_string()).await.unwrap();
+    let (answering, _) = proxy.answer(&waiting.id).await.unwrap();
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let mut gone = proxy.computers.lock().unwrap().get(&answering).unwrap().clone();
+    gone.id = "ab".repeat(32);
+    gone.addresses = vec![closed.ip()];
+    gone.port = closed.port();
+    proxy.computers.lock().unwrap().upsert(gone.clone()).unwrap();
+    // A route left from before, as after going back to this PC, says nothing of whether the computer answers now.
+    proxy.route.lock().unwrap().as_mut().unwrap().id = gone.id;
+
+    let client = reqwest::Client::new();
+    let call = |method: reqwest::Method, path: &str| {
+        client
+            .request(method, format!("{base}/app/api{path}"))
+            .header("cookie", signed_in())
+    };
+    let listed = || async {
+        let value: serde_json::Value = call(reqwest::Method::GET, "/computers")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        value
+    };
+    assert_eq!(listed().await["tabs"], false, "off until turned on");
+    let turned = call(reqwest::Method::POST, "/tabs")
+        .json(&json!({ "on": true }))
+        .send()
+        .await
+        .unwrap();
+    assert!(turned.status().is_success());
+    assert_eq!(listed().await["tabs"], true);
+    assert!(proxy.computers.lock().unwrap().tabs());
+
+    let online: serde_json::Value = call(reqwest::Method::GET, "/online")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        online["online"],
+        json!([answering]),
+        "the computer whose port is closed is not online"
+    );
+}
+
+#[tokio::test]
 async fn a_declined_or_cancelled_request_links_nothing() {
     let authority = Authority::new();
     let (declining, _) = asked([5u8; 32], (StatusCode::FORBIDDEN, json!({ "error": "declined" })));

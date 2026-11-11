@@ -413,6 +413,8 @@ export const drift = {
         "Aktiviere auf dem anderen Computer Remote Access in Einstellungen. Es erscheint hier, und du verbindest dich, sobald sein Benutzer akzeptiert.",
     "drift.computers.linked": "Verknüpfte Computer",
     "drift.computers.openFailed": "Computer konnte nicht gewechselt werden",
+    "drift.computers.tabs": "Als Registerkarten in der Seitenleiste anzeigen",
+    "drift.computers.offline": "Antwortet nicht",
     "drift.connect.nearby": "In der Nähe",
     "drift.connect.looking": "Suche nach Computern...",
     "drift.connect.none":
@@ -1421,6 +1423,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Vergrößern",
     "drift.shortcuts.zoomOut": "Verkleinern",
     "drift.shortcuts.zoomReset": "Zoom zurücksetzen",
+    "drift.shortcuts.nextComputer": "Nächster Computer",
+    "drift.shortcuts.previousComputer": "Vorheriger Computer",
     "drift.sidebar.addWorkspace": "Arbeitsbereich hinzufügen",
     "drift.sidebar.archived": "Archivierte Elemente",
     "drift.sidebar.empty": "Füge einen Arbeitsbereich hinzu, um loszulegen.",

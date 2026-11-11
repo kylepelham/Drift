@@ -403,6 +403,8 @@ export const drift = {
         "다른 컴퓨터에서 설정의 원격 액세스를 켜세요. 여기에 표시되며, 사용자가 수락하면 연결됩니다.",
     "drift.computers.linked": "연결된 컴퓨터",
     "drift.computers.openFailed": "컴퓨터를 전환할 수 없습니다",
+    "drift.computers.tabs": "사이드바에 탭으로 표시",
+    "drift.computers.offline": "응답하지 않음",
     "drift.connect.nearby": "근처",
     "drift.connect.looking": "컴퓨터 찾는 중...",
     "drift.connect.none":
@@ -1383,6 +1385,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "확대",
     "drift.shortcuts.zoomOut": "축소",
     "drift.shortcuts.zoomReset": "확대/축소 초기화",
+    "drift.shortcuts.nextComputer": "다음 컴퓨터",
+    "drift.shortcuts.previousComputer": "이전 컴퓨터",
     "drift.sidebar.addWorkspace": "작업 공간 추가",
     "drift.sidebar.archived": "보관된 항목",
     "drift.sidebar.empty": "작업 공간을 추가하여 시작하세요.",

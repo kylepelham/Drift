@@ -406,6 +406,8 @@ export const drift = {
         "Na drugom računaru uključite Udaljeni pristup u Postavkama. Pojavljuje se ovdje, a vi se povežete kada njegov korisnik prihvati.",
     "drift.computers.linked": "Povezani računari",
     "drift.computers.openFailed": "Nije moguće promijeniti računar",
+    "drift.computers.tabs": "Prikaži kao kartice u bočnoj traci",
+    "drift.computers.offline": "Nema odgovora",
     "drift.connect.nearby": "Blizu",
     "drift.connect.looking": "Pretraživanje računara...",
     "drift.connect.none":
@@ -1399,6 +1401,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Uvećaj",
     "drift.shortcuts.zoomOut": "Umanji",
     "drift.shortcuts.zoomReset": "Vrati zumiranje",
+    "drift.shortcuts.nextComputer": "Sljedeći računar",
+    "drift.shortcuts.previousComputer": "Prethodni računar",
     "drift.sidebar.addWorkspace": "Dodaj radni prostor",
     "drift.sidebar.archived": "Arhivirane stavke",
     "drift.sidebar.empty": "Dodajte radni prostor za početak.",

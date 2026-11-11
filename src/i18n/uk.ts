@@ -407,6 +407,8 @@ export const drift = {
         "На іншому комп'ютері ввімкніть у Параметрах опцію «Віддалений доступ». Він з'явиться тут, а ви підключитеся, коли його користувач прийме запит.",
     "drift.computers.linked": "Прив'язані комп'ютери",
     "drift.computers.openFailed": "Не вдалося змінити комп'ютер",
+    "drift.computers.tabs": "Показати як вкладки в бічній панелі",
+    "drift.computers.offline": "Не відповідає",
     "drift.connect.nearby": "Поруч",
     "drift.connect.looking": "Пошук комп'ютерів...",
     "drift.connect.none":
@@ -1402,6 +1404,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Збільшити масштаб",
     "drift.shortcuts.zoomOut": "Зменшити масштаб",
     "drift.shortcuts.zoomReset": "Скинути масштаб",
+    "drift.shortcuts.nextComputer": "Наступний комп'ютер",
+    "drift.shortcuts.previousComputer": "Попередній комп'ютер",
     "drift.sidebar.addWorkspace": "Додати робочий простір",
     "drift.sidebar.archived": "Архівовані елементи",
     "drift.sidebar.empty": "Додайте робочий простір, щоб почати.",

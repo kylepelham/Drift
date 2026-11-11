@@ -412,6 +412,8 @@ export const drift = {
         "On the other computer, turn on Remote Access in Settings. It appears here, and you connect once its user accepts.",
     "drift.computers.linked": "Linked computers",
     "drift.computers.openFailed": "Could not switch computer",
+    "drift.computers.tabs": "Show as tabs in the sidebar",
+    "drift.computers.offline": "Not answering",
     "drift.connect.nearby": "Nearby",
     "drift.connect.looking": "Looking for computers...",
     "drift.connect.none":
@@ -1410,6 +1412,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Zoom in",
     "drift.shortcuts.zoomOut": "Zoom out",
     "drift.shortcuts.zoomReset": "Reset zoom",
+    "drift.shortcuts.nextComputer": "Next computer",
+    "drift.shortcuts.previousComputer": "Previous computer",
     "drift.sidebar.addWorkspace": "Add workspace",
     "drift.sidebar.archived": "Archived items",
     "drift.sidebar.empty": "Add a workspace to get started.",

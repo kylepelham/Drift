@@ -1,12 +1,12 @@
 import { closeMobileDrawer, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
 import { actionFailed, archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
 import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js";
+import { ComputerBrand, ComputerTabs, createSwitching } from "./computer-switcher";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
 import { pickBackup, saveBackup } from "./session-backup";
-import { ComputerBrand } from "./computer-switcher";
 import { openSettings } from "../state/settings";
 import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
@@ -53,6 +53,7 @@ export function sidebarWidthFromDrag(startWidth: number, deltaX: number, scale: 
 
 export function Sidebar() {
     const engine = useEngine();
+    const switching = createSwitching();
     const narrow = createMediaQuery(smallScreenQuery);
     createEffect(() => {
         if (!narrow() && mobileDrawerOpen()) closeMobileDrawer();
@@ -211,7 +212,7 @@ export function Sidebar() {
                         </span>
                     }
                 >
-                    <ComputerBrand />
+                    <ComputerBrand switching={switching()} />
                 </Show>
                 <div class="flex items-center gap-0.5">
                     <button
@@ -242,6 +243,9 @@ export function Sidebar() {
                     </button>
                 </div>
             </div>
+            <Show when={nativeFrame()}>
+                <ComputerTabs switching={switching()} />
+            </Show>
             <Show when={sessionSearchOpen()}>
                 <SessionSearchBar />
             </Show>

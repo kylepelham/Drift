@@ -408,6 +408,8 @@ export const drift = {
         "На другом компьютере включите «Удалённый доступ» в параметрах. Он появится здесь, и вы подключитесь, когда его пользователь согласится.",
     "drift.computers.linked": "Привязанные компьютеры",
     "drift.computers.openFailed": "Не удалось сменить компьютер",
+    "drift.computers.tabs": "Показывать вкладками в боковой панели",
+    "drift.computers.offline": "Не отвечает",
     "drift.connect.nearby": "Рядом",
     "drift.connect.looking": "Поиск компьютеров...",
     "drift.connect.none":
@@ -1407,6 +1409,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Увеличить масштаб",
     "drift.shortcuts.zoomOut": "Уменьшить масштаб",
     "drift.shortcuts.zoomReset": "Сбросить масштаб",
+    "drift.shortcuts.nextComputer": "Следующий компьютер",
+    "drift.shortcuts.previousComputer": "Предыдущий компьютер",
     "drift.sidebar.addWorkspace": "Добавить рабочее пространство",
     "drift.sidebar.archived": "Архивные элементы",
     "drift.sidebar.empty": "Добавьте рабочее пространство, чтобы начать.",

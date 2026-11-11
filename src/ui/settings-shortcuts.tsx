@@ -13,6 +13,8 @@ export const keybindLabels: Record<KeybindAction, string> = {
     zoomIn: "drift.shortcuts.zoomIn",
     zoomOut: "drift.shortcuts.zoomOut",
     zoomReset: "drift.shortcuts.zoomReset",
+    nextComputer: "drift.shortcuts.nextComputer",
+    previousComputer: "drift.shortcuts.previousComputer",
 };
 
 export function KeybindsSection() {

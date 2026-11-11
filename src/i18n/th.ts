@@ -401,6 +401,8 @@ export const drift = {
         "บนคอมพิวเตอร์เครื่องอื่น เปิด Remote Access ในการตั้งค่า มันจะปรากฏที่นี่ และคุณเชื่อมต่อเมื่อผู้ใช้ยอมรับ",
     "drift.computers.linked": "คอมพิวเตอร์ที่เชื่อมต่อ",
     "drift.computers.openFailed": "ไม่สามารถเปลี่ยนคอมพิวเตอร์ได้",
+    "drift.computers.tabs": "แสดงเป็นแท็บในแถบด้านข้าง",
+    "drift.computers.offline": "ไม่ตอบสนอง",
     "drift.connect.nearby": "ใกล้เคียง",
     "drift.connect.looking": "กำลังค้นหาคอมพิวเตอร์...",
     "drift.connect.none":
@@ -1373,6 +1375,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "ซูมเข้า",
     "drift.shortcuts.zoomOut": "ซูมออก",
     "drift.shortcuts.zoomReset": "รีเซ็ตการซูม",
+    "drift.shortcuts.nextComputer": "คอมพิวเตอร์ถัดไป",
+    "drift.shortcuts.previousComputer": "คอมพิวเตอร์ก่อนหน้า",
     "drift.sidebar.addWorkspace": "เพิ่มพื้นที่ทำงาน",
     "drift.sidebar.archived": "รายการที่เก็บถาวร",
     "drift.sidebar.empty": "เพิ่มพื้นที่ทำงานเพื่อเริ่มต้น",

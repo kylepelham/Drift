@@ -402,6 +402,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [x] The desktop drives another computer too: the phone's proxy shared as `crates/drift-remote-client`, a computer menu in the sidebar that switches the main window, window controls only for the other computer's page
 - [x] Linking simplified in every direction: the device finds computers nearby (UDP `41718`) or takes an address, asks, and the computer's user accepts or declines after comparing a six-digit code both screens show; requests only from its own networks; the QR code, pairing link, one-time ticket and Android code scanner are gone
+- [x] Quick computer switching: optional one-click tabs under the sidebar's top row with offline computers dimmed, Ctrl+Alt+1 to 9 by place in the menu, and rebindable next and previous computer shortcuts
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [x] The composer is pinned (`position: sticky`) inside the transcript's scroller, so the browser scrolls the conversation from over it natively; no forwarded wheel; frosted under a background picture
 - [x] Settings and folded workspaces survive relaunch (the app keeps the page's storage across the proxy's changing port), microphone permission for dictation, word-boundary wrapping in settings, gutter comments in the review panel

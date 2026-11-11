@@ -406,6 +406,8 @@ export const drift = {
         "På den andre datamaskinen aktiverer du Fjerntilgang i Innstillinger. Den vises her, og du kobler til når brukeren godtar det.",
     "drift.computers.linked": "Koblede datamaskiner",
     "drift.computers.openFailed": "Kunne ikke bytte datamaskin",
+    "drift.computers.tabs": "Vis som faner i sidefeltet",
+    "drift.computers.offline": "Svarer ikke",
     "drift.connect.nearby": "Nærby",
     "drift.connect.looking": "Leter etter datamaskiner...",
     "drift.connect.none":
@@ -1400,6 +1402,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Zoom inn",
     "drift.shortcuts.zoomOut": "Zoom ut",
     "drift.shortcuts.zoomReset": "Tilbakestill zoom",
+    "drift.shortcuts.nextComputer": "Neste datamaskin",
+    "drift.shortcuts.previousComputer": "Forrige datamaskin",
     "drift.sidebar.addWorkspace": "Legg til arbeidsområde",
     "drift.sidebar.archived": "Arkiverte elementer",
     "drift.sidebar.empty": "Legg til et arbeidsområde for å komme i gang.",

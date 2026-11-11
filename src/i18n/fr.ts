@@ -413,6 +413,8 @@ export const drift = {
         "Sur l'autre ordinateur, activez Accès à distance dans Paramètres. Il apparaît ici, et vous vous connectez une fois que son utilisateur l'accepte.",
     "drift.computers.linked": "Ordinateurs associés",
     "drift.computers.openFailed": "Impossible de changer d'ordinateur",
+    "drift.computers.tabs": "Afficher sous forme d'onglets dans la barre latérale",
+    "drift.computers.offline": "Ne répond pas",
     "drift.connect.nearby": "Proximité",
     "drift.connect.looking": "Recherche d'ordinateurs...",
     "drift.connect.none":
@@ -1425,6 +1427,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Zoom avant",
     "drift.shortcuts.zoomOut": "Zoom arrière",
     "drift.shortcuts.zoomReset": "Réinitialiser le zoom",
+    "drift.shortcuts.nextComputer": "Ordinateur suivant",
+    "drift.shortcuts.previousComputer": "Ordinateur précédent",
     "drift.sidebar.addWorkspace": "Ajouter un espace de travail",
     "drift.sidebar.archived": "Éléments archivés",
     "drift.sidebar.empty": "Ajoutez un espace de travail pour commencer.",

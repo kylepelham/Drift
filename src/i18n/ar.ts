@@ -399,6 +399,8 @@ export const drift = {
         "على الحاسوب الآخر، فعّل الوصول البعيد في الإعدادات. يظهر هنا، وتتصل بعد قبول مستخدمه.",
     "drift.computers.linked": "الحواسيب المرتبطة",
     "drift.computers.openFailed": "تعذر تبديل الحاسوب",
+    "drift.computers.tabs": "عرض كعلامات تبويب في الشريط الجانبي",
+    "drift.computers.offline": "لا يستجيب",
     "drift.connect.nearby": "القريب منك",
     "drift.connect.looking": "البحث عن الحواسيب...",
     "drift.connect.none":
@@ -1371,6 +1373,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "تكبير",
     "drift.shortcuts.zoomOut": "تصغير",
     "drift.shortcuts.zoomReset": "إعادة تعيين التكبير",
+    "drift.shortcuts.nextComputer": "الحاسوب التالي",
+    "drift.shortcuts.previousComputer": "الحاسوب السابق",
     "drift.sidebar.addWorkspace": "إضافة مساحة عمل",
     "drift.sidebar.archived": "العناصر المؤرشفة",
     "drift.sidebar.empty": "أضف مساحة عمل للبدء.",

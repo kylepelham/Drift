@@ -25,6 +25,8 @@ use crate::computers::{Computer, Computers};
 use crate::pc::{self, Asking, Pc, PcError};
 
 const COOKIE: &str = "drift_app";
+/// How long a linked computer has to answer before it is shown as offline.
+const ONLINE_CHECK: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// The PC requests go to now, and the session they carry.
 #[derive(Clone)]
@@ -156,6 +158,21 @@ impl Shared {
                 address: found.address.to_string(),
             })
             .collect())
+    }
+
+    /// The linked computers that answer within a few seconds, by id.
+    pub async fn online(&self) -> Vec<String> {
+        let computers = self.computers.lock().unwrap().list().to_vec();
+        let checks = computers.into_iter().map(|computer| async move {
+            let answered = tokio::time::timeout(ONLINE_CHECK, pc::reach(&computer)).await;
+            matches!(answered, Ok(Ok(_))).then_some(computer.id)
+        });
+
+        futures_util::future::join_all(checks)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
     }
 
     /// Asks the computer at a found or typed address to accept this device; the code to show while it decides.

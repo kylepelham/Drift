@@ -175,6 +175,8 @@ fn commands() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         remote::access_commands::remote_access_revoke,
         remote::access_commands::remote_access_set_password,
         computers::computers_list,
+        computers::computers_set_tabs,
+        computers::computers_online,
         computers::computers_nearby,
         computers::computers_ask,
         computers::computers_answer,

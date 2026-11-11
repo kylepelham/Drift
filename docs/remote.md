@@ -58,7 +58,12 @@ computer shown), choose **Link or manage computers...**, and pick it under **Nea
 other computer's user accepts, it opens. The other computer lists this PC by its name, as a **Drift app** device, and
 neither ever lists itself.
 
-The menu switches the window between **This PC** and each linked computer. The other computer's Drift is served by
+The menu switches the window between **This PC** and each linked computer. For quicker switching, **Show as tabs in
+the sidebar** in the menu puts them in a row of tabs under it, one click each, with a computer that does not answer
+dimmed (checked every minute). The choice is kept in `computers.json`, so it holds whichever computer the window shows.
+**Ctrl+Alt+1** to **9** open the computer at that place in the menu, This PC being 1, and **Ctrl+Alt+Right** and
+**Ctrl+Alt+Left** step to the next or previous one, rebindable under **Shortcuts**. The arrows are the default because
+AltGr is Ctrl+Alt on Windows, and many layouts type brackets with it. The other computer's Drift is served by
 `src-tauri/src/computers.rs` through the same proxy as the phone's (`crates/drift-remote-client`): a server on
 127.0.0.1, started on first use, that serves this build's UI and passes `/engine`, `/api` and `/auth` to the computer
 over TLS that trusts only its authority or tunnel key, adding this PC's session. The window keeps the page it left and

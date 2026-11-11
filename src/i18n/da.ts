@@ -407,6 +407,8 @@ export const drift = {
         "Slå Fjernacces til i Indstillinger på den anden computer. Den vises her, og du forbinder, når dens bruger accepterer det.",
     "drift.computers.linked": "Forbundne computere",
     "drift.computers.openFailed": "Kunne ikke skifte computer",
+    "drift.computers.tabs": "Vis som faner i sidestjælken",
+    "drift.computers.offline": "Svarer ikke",
     "drift.connect.nearby": "Tæt på",
     "drift.connect.looking": "Søger efter computere...",
     "drift.connect.none":
@@ -1403,6 +1405,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Zoom ind",
     "drift.shortcuts.zoomOut": "Zoom ud",
     "drift.shortcuts.zoomReset": "Nulstil zoom",
+    "drift.shortcuts.nextComputer": "Næste computer",
+    "drift.shortcuts.previousComputer": "Forrige computer",
     "drift.sidebar.addWorkspace": "Tilføj arbejdsområde",
     "drift.sidebar.archived": "Arkiverede elementer",
     "drift.sidebar.empty": "Tilføj et arbejdsområde for at komme i gang.",

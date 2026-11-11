@@ -30,6 +30,13 @@ pub(crate) struct LinkedComputer {
     anywhere: bool,
 }
 
+/// The linked computers, and whether the sidebar shows them as tabs.
+#[derive(Serialize)]
+pub(crate) struct LinkedComputers {
+    computers: Vec<LinkedComputer>,
+    tabs: bool,
+}
+
 /// A computer that accepted this PC.
 #[derive(Serialize)]
 pub(crate) struct Accepted {
@@ -123,11 +130,10 @@ fn secret() -> [u8; 32] {
 pub(crate) async fn computers_list(
     app: AppHandle,
     linked: tauri::State<'_, Linked>,
-) -> Result<Vec<LinkedComputer>, String> {
+) -> Result<LinkedComputers, String> {
     let proxy = linked.proxy(&app).await?;
     let computers = proxy.computers.lock().unwrap();
-
-    Ok(computers
+    let list = computers
         .list()
         .iter()
         .map(|computer| LinkedComputer {
@@ -136,7 +142,31 @@ pub(crate) async fn computers_list(
             address: computer.addresses.first().map(ToString::to_string),
             anywhere: computer.tunnel.is_some(),
         })
-        .collect())
+        .collect();
+
+    Ok(LinkedComputers {
+        computers: list,
+        tabs: computers.tabs(),
+    })
+}
+
+/// Shows each computer as a tab at the top of the sidebar, or stops.
+#[tauri::command]
+pub(crate) async fn computers_set_tabs(
+    app: AppHandle,
+    linked: tauri::State<'_, Linked>,
+    on: bool,
+) -> Result<(), String> {
+    let proxy = linked.proxy(&app).await?;
+    let saved = proxy.computers.lock().unwrap().set_tabs(on);
+
+    saved.map_err(|error| error.to_string())
+}
+
+/// The linked computers that answer now, by id.
+#[tauri::command]
+pub(crate) async fn computers_online(app: AppHandle, linked: tauri::State<'_, Linked>) -> Result<Vec<String>, String> {
+    Ok(linked.proxy(&app).await?.online().await)
 }
 
 /// The computers with Remote Access on that answer on this PC's networks.

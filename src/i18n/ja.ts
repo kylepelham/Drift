@@ -405,6 +405,8 @@ export const drift = {
         "他のコンピューターで、設定で「リモートアクセス」をオンにします。ここに表示され、そのユーザーが承認すると接続できます。",
     "drift.computers.linked": "リンク済みコンピューター",
     "drift.computers.openFailed": "コンピューターを切り替えられませんでした",
+    "drift.computers.tabs": "サイドバーにタブとして表示",
+    "drift.computers.offline": "応答なし",
     "drift.connect.nearby": "近い",
     "drift.connect.looking": "コンピューターを探しています...",
     "drift.connect.none":
@@ -1402,6 +1404,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "拡大",
     "drift.shortcuts.zoomOut": "縮小",
     "drift.shortcuts.zoomReset": "ズームをリセット",
+    "drift.shortcuts.nextComputer": "次のコンピューター",
+    "drift.shortcuts.previousComputer": "前のコンピューター",
     "drift.sidebar.addWorkspace": "ワークスペースを追加",
     "drift.sidebar.archived": "アーカイブ済み",
     "drift.sidebar.empty": "ワークスペースを追加して始めましょう。",

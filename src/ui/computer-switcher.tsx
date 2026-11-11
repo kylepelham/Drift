@@ -1,5 +1,6 @@
+import { createResource, createSignal, For, onCleanup, onMount, Show, type Accessor } from "solid-js";
 import { computerSwitcher, type ComputerSwitcher, type LinkedComputer } from "../state/computers";
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { computerDigit, formatCombo, onKeybind } from "../state/keybinds";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { ConnectComputer } from "./connect-computer";
 import { fixedMenuPosition } from "../state/zoom";
@@ -10,13 +11,102 @@ import { IconCheck } from "./icons";
 import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
 
-/** The sidebar's brand: on the desktop, the computer this window shows, and a menu to show another. */
-export function ComputerBrand() {
-    const [switcher] = createResource(computerSwitcher);
+/** How often the tabs ask which linked computers answer. */
+const ONLINE_EVERY_MS = 60_000;
 
+/** One computer switching state for the sidebar's brand menu, its tabs and the shortcuts. Undefined where there is no
+ * PC to switch from: a browser, or the phone app. */
+export type Switching = {
+    switcher: ComputerSwitcher;
+    computers: () => LinkedComputer[];
+    tabs: () => boolean;
+    /** The id being opened, "home" while going back to this PC, or empty. */
+    switching: () => string;
+    refetch: () => void;
+    /** Shows a linked computer, or this PC for undefined. */
+    show(id: string | undefined): Promise<void>;
+    setTabs(on: boolean): Promise<void>;
+};
+
+export function createSwitching(): Accessor<Switching | undefined> {
+    const engine = useEngine();
+    const [switcher] = createResource(computerSwitcher);
+    const [listed, { refetch, mutate }] = createResource(switcher, (switcher) => switcher.list());
+    const [switching, setSwitching] = createSignal("");
+    const failed = (cause: unknown) =>
+        engine.actions.notice({
+            title: t("drift.computers.openFailed"),
+            message: cause instanceof Error ? cause.message : String(cause),
+            variant: "error",
+        });
+
+    const state = (switcher: ComputerSwitcher): Switching => ({
+        switcher,
+        computers: () => listed()?.computers ?? [],
+        tabs: () => listed()?.tabs ?? false,
+        switching,
+        refetch: () => void refetch(),
+        async show(id) {
+            if (id === switcher.current || switching()) return;
+            setSwitching(id ?? "home");
+            try {
+                await (id ? switcher.open(id) : switcher.home());
+            } catch (cause) {
+                failed(cause);
+            } finally {
+                setSwitching("");
+            }
+        },
+        async setTabs(on) {
+            const before = listed();
+            if (before) mutate({ ...before, tabs: on });
+            await switcher.setTabs(on).catch((cause: unknown) => {
+                if (before) mutate(before);
+                failed(cause);
+            });
+        },
+    });
+    const current = () => {
+        const found = switcher();
+        return found ? state(found) : undefined;
+    };
+
+    // This PC, then the linked computers in the menu's order.
+    const order = (switching: Switching) => [undefined, ...switching.computers().map((computer) => computer.id)];
+    const step = (by: number) => {
+        const switching = current();
+        if (!switching) return;
+        const ids = order(switching);
+        const at = ids.indexOf(switching.switcher.current);
+        void switching.show(ids[(at + by + ids.length) % ids.length]);
+    };
+    onKeybind("nextComputer", () => step(1));
+    onKeybind("previousComputer", () => step(-1));
+    const byDigit = (event: KeyboardEvent) => {
+        const digit = computerDigit(event);
+        const switching = current();
+        if (!digit || !switching) return;
+        const ids = order(switching);
+        if (digit > ids.length) return;
+        event.preventDefault();
+        void switching.show(ids[digit - 1]);
+    };
+    document.addEventListener("keydown", byDigit);
+    onCleanup(() => document.removeEventListener("keydown", byDigit));
+
+    return current;
+}
+
+/** The shortcut that opens the computer at `place` in the menu, This PC being 1; none past 9. */
+function placeShortcut(place: number) {
+    return place <= 9 ? formatCombo(`ctrl+alt+${place}`) : undefined;
+}
+
+/** The sidebar's brand: on the desktop, the computer this window shows, and a menu to show another. */
+export function ComputerBrand(props: { switching: Switching | undefined }) {
     return (
-        <Show when={switcher()} fallback={<Brand />}>
-            {(switcher) => <Switcher switcher={switcher()} />}
+        <Show when={props.switching} fallback={<Brand />}>
+            {(switching) => <Switcher switching={switching()} />}
         </Show>
     );
 }
@@ -30,32 +120,18 @@ function Brand() {
     );
 }
 
-function Switcher(props: { switcher: ComputerSwitcher }) {
-    const engine = useEngine();
-    const [computers, { refetch }] = createResource(() => props.switcher.list());
+function Switcher(props: { switching: Switching }) {
     const [menu, setMenu] = createSignal<{ x: number; y: number }>();
     const [managing, setManaging] = createSignal(false);
-    const [switching, setSwitching] = createSignal("");
+    const switcher = () => props.switching.switcher;
+    const computers = () => props.switching.computers();
 
     const shown = () =>
-        computers()?.find((computer) => computer.id === props.switcher.current)?.name ?? t("drift.computers.thisPc");
-
-    async function show(id: string | undefined) {
+        computers().find((computer) => computer.id === switcher().current)?.name ?? t("drift.computers.thisPc");
+    const choose = (id: string | undefined) => {
         setMenu(undefined);
-        if (id === props.switcher.current) return;
-        setSwitching(id ?? "home");
-        try {
-            await (id ? props.switcher.open(id) : props.switcher.home());
-        } catch (cause) {
-            engine.actions.notice({
-                title: t("drift.computers.openFailed"),
-                message: cause instanceof Error ? cause.message : String(cause),
-                variant: "error",
-            });
-        } finally {
-            setSwitching("");
-        }
-    }
+        void props.switching.show(id);
+    };
 
     return (
         <>
@@ -65,12 +141,14 @@ function Switcher(props: { switcher: ComputerSwitcher }) {
                 aria-haspopup="menu"
                 onClick={(event) => {
                     const box = event.currentTarget.getBoundingClientRect();
-                    void refetch();
+                    props.switching.refetch();
                     setMenu({ x: box.left, y: box.bottom + 4 });
                 }}
             >
                 <DriftLogo class="size-4 shrink-0" />
-                <span class="truncate text-xs font-medium">{switching() ? t("drift.app.connecting") : shown()}</span>
+                <span class="truncate text-xs font-medium">
+                    {props.switching.switching() ? t("drift.app.connecting") : shown()}
+                </span>
                 <svg class="size-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="m6 9 6 6 6-6" />
                 </svg>
@@ -78,24 +156,37 @@ function Switcher(props: { switcher: ComputerSwitcher }) {
             <Show when={menu()}>
                 {(at) => (
                     <MenuSurface
-                        position={fixedMenuPosition(at().x, at().y, 212, 120 + (computers()?.length ?? 0) * 32)}
+                        position={fixedMenuPosition(at().x, at().y, 240, 152 + computers().length * 32)}
                         onClose={() => setMenu(undefined)}
                     >
                         <Choice
                             label={t("drift.computers.thisPc")}
-                            chosen={!props.switcher.current}
-                            onClick={() => void show(undefined)}
+                            shortcut={placeShortcut(1)}
+                            chosen={!switcher().current}
+                            onClick={() => choose(undefined)}
                         />
-                        <For each={computers() ?? []}>
-                            {(computer) => (
+                        <For each={computers()}>
+                            {(computer, index) => (
                                 <Choice
                                     label={computer.name}
-                                    chosen={computer.id === props.switcher.current}
-                                    onClick={() => void show(computer.id)}
+                                    shortcut={placeShortcut(index() + 2)}
+                                    chosen={computer.id === switcher().current}
+                                    onClick={() => choose(computer.id)}
                                 />
                             )}
                         </For>
                         <div class="my-1 border-t border-edge" />
+                        <button
+                            role="menuitemcheckbox"
+                            aria-checked={props.switching.tabs()}
+                            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                            onClick={() => void props.switching.setTabs(!props.switching.tabs())}
+                        >
+                            <span class="min-w-0 flex-1 truncate">{t("drift.computers.tabs")}</span>
+                            <Show when={props.switching.tabs()}>
+                                <IconCheck class="size-3.5 shrink-0" />
+                            </Show>
+                        </button>
                         <button
                             class="w-full rounded-md px-2 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
                             onClick={() => {
@@ -110,9 +201,9 @@ function Switcher(props: { switcher: ComputerSwitcher }) {
             </Show>
             <Show when={managing()}>
                 <ComputersModal
-                    switcher={props.switcher}
-                    computers={computers() ?? []}
-                    onChanged={() => void refetch()}
+                    switcher={switcher()}
+                    computers={computers()}
+                    onChanged={props.switching.refetch}
                     onClose={() => setManaging(false)}
                 />
             </Show>
@@ -120,7 +211,7 @@ function Switcher(props: { switcher: ComputerSwitcher }) {
     );
 }
 
-function Choice(props: { label: string; chosen: boolean; onClick: () => void }) {
+function Choice(props: { label: string; shortcut?: string; chosen: boolean; onClick: () => void }) {
     return (
         <button
             role="menuitemradio"
@@ -130,10 +221,79 @@ function Choice(props: { label: string; chosen: boolean; onClick: () => void }) 
             onClick={() => props.onClick()}
         >
             <span class="min-w-0 flex-1 truncate">{props.label}</span>
-            <Show when={props.chosen}>
-                <IconCheck class="size-3.5 shrink-0" />
+            <Show when={props.shortcut}>
+                <span class="shrink-0 text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
+                    {props.shortcut}
+                </span>
             </Show>
+            <span class="flex size-3.5 shrink-0 items-center">
+                <Show when={props.chosen}>
+                    <IconCheck class="size-3.5" />
+                </Show>
+            </span>
         </button>
+    );
+}
+
+/** This PC and each linked computer as one-click tabs under the sidebar's top row, once turned on in the menu. A
+ * computer that does not answer is dimmed; opening it still tries, and says why when it cannot. */
+export function ComputerTabs(props: { switching: Switching | undefined }) {
+    return (
+        <Show when={props.switching?.tabs() && props.switching}>{(switching) => <Tabs switching={switching()} />}</Show>
+    );
+}
+
+function Tabs(props: { switching: Switching }) {
+    const [online, setOnline] = createSignal<string[]>();
+    const check = () => void props.switching.switcher.online().then(setOnline, () => setOnline(undefined));
+    onMount(() => {
+        check();
+        const timer = setInterval(check, ONLINE_EVERY_MS);
+        onCleanup(() => clearInterval(timer));
+    });
+
+    const current = () => props.switching.switcher.current;
+    const tab = "max-w-36 shrink-0 truncate rounded-md px-2 py-1 text-xs transition-colors disabled:cursor-default";
+
+    return (
+        <div class="computer-tabs flex shrink-0 gap-1 overflow-x-auto px-3 pb-2" role="tablist">
+            <button
+                role="tab"
+                aria-selected={!current()}
+                class={tab}
+                classList={{
+                    "bg-raised text-ink": !current(),
+                    "text-ink-muted hover:bg-raised/60 hover:text-ink": !!current(),
+                }}
+                title={placeShortcut(1)}
+                onClick={() => void props.switching.show(undefined)}
+            >
+                {t("drift.computers.thisPc")}
+            </button>
+            <For each={props.switching.computers()}>
+                {(computer, index) => {
+                    const offline = () => !!online() && !online()!.includes(computer.id);
+                    return (
+                        <button
+                            role="tab"
+                            aria-selected={computer.id === current()}
+                            class={tab}
+                            classList={{
+                                "bg-raised text-ink": computer.id === current(),
+                                "text-ink-muted hover:bg-raised/60 hover:text-ink": computer.id !== current(),
+                                "opacity-45": offline() && computer.id !== current(),
+                            }}
+                            title={[offline() ? t("drift.computers.offline") : "", placeShortcut(index() + 2) ?? ""]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            onClick={() => void props.switching.show(computer.id)}
+                        >
+                            {props.switching.switching() === computer.id ? t("drift.app.connecting") : computer.name}
+                        </button>
+                    );
+                }}
+            </For>
+        </div>
     );
 }
 

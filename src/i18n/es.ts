@@ -409,6 +409,8 @@ export const drift = {
         "En el otro equipo, activa acceso remoto en Configuración. Aparece aquí y te conectas cuando su usuario lo acepta.",
     "drift.computers.linked": "Equipos vinculados",
     "drift.computers.openFailed": "No se pudo cambiar de equipo",
+    "drift.computers.tabs": "Mostrar como pestañas en la barra lateral",
+    "drift.computers.offline": "No responde",
     "drift.connect.nearby": "Cercanos",
     "drift.connect.looking": "Buscando equipos...",
     "drift.connect.none":
@@ -1413,6 +1415,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Acercar",
     "drift.shortcuts.zoomOut": "Alejar",
     "drift.shortcuts.zoomReset": "Restablecer zoom",
+    "drift.shortcuts.nextComputer": "Equipo siguiente",
+    "drift.shortcuts.previousComputer": "Equipo anterior",
     "drift.sidebar.addWorkspace": "Añadir espacio de trabajo",
     "drift.sidebar.archived": "Elementos archivados",
     "drift.sidebar.empty": "Añade un espacio de trabajo para empezar.",

@@ -30,10 +30,16 @@ export type Connector = {
     cancel(request: string): Promise<unknown>;
 };
 
+/** The linked computers, and whether the sidebar shows them as tabs for one-click switching. */
+type LinkedComputers = { computers: LinkedComputer[]; tabs: boolean };
+
 export type ComputerSwitcher = {
     /** The linked computer this window shows; undefined while it shows this PC. */
     current?: string;
-    list(): Promise<LinkedComputer[]>;
+    list(): Promise<LinkedComputers>;
+    setTabs(on: boolean): Promise<unknown>;
+    /** The linked computers that answer now, by id. */
+    online(): Promise<string[]>;
     /** Shows a linked computer's Drift in this window. */
     open(id: string): Promise<void>;
     /** Shows this PC's own Drift again. */
@@ -44,7 +50,11 @@ export type ComputerSwitcher = {
     forget(id: string): Promise<void>;
 };
 
-type ProxyComputers = { computers: (LinkedComputer & { active: boolean })[]; local?: string | null };
+type ProxyComputers = {
+    computers: (LinkedComputer & { active: boolean })[];
+    tabs: boolean;
+    local?: string | null;
+};
 
 async function proxyCall<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/app/api${path}`, {
@@ -61,7 +71,9 @@ async function proxyCall<T>(method: "GET" | "POST", path: string, body?: unknown
 
 function shellSwitcher(invoke: NonNullable<ReturnType<typeof shellInvoke>>): ComputerSwitcher {
     return {
-        list: () => invoke<LinkedComputer[]>("computers_list"),
+        list: () => invoke<LinkedComputers>("computers_list"),
+        setTabs: (on) => invoke("computers_set_tabs", { on }),
+        online: () => invoke<string[]>("computers_online"),
         open: (id) => invoke("computers_open", { id }),
         home: async () => {},
         connector: {
@@ -78,7 +90,9 @@ function proxySwitcher(current: string | undefined): ComputerSwitcher {
     const showChosen = () => window.location.replace("/app");
     return {
         current,
-        list: () => proxyCall<ProxyComputers>("GET", "/computers").then((value) => value.computers),
+        list: () => proxyCall<ProxyComputers>("GET", "/computers"),
+        setTabs: (on) => proxyCall("POST", "/tabs", { on }),
+        online: () => proxyCall<{ online: string[] }>("GET", "/online").then((value) => value.online),
         open: async (id) => {
             await proxyCall("POST", "/use", { id });
             showChosen();

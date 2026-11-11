@@ -407,6 +407,8 @@ export const drift = {
         "Diğer bilgisayarda Ayarlar'da Uzaktan Erişim'i açın. Burada görünür ve kullanıcısı kabul ettikten sonra bağlanırsınız.",
     "drift.computers.linked": "Bağlı bilgisayarlar",
     "drift.computers.openFailed": "Bilgisayar değiştirilemedi",
+    "drift.computers.tabs": "Kenar çubuğunda sekmeler olarak göster",
+    "drift.computers.offline": "Yanıt vermiyor",
     "drift.connect.nearby": "Yakında",
     "drift.connect.looking": "Bilgisayarlar aranıyor...",
     "drift.connect.none":
@@ -1405,6 +1407,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Yakınlaştır",
     "drift.shortcuts.zoomOut": "Uzaklaştır",
     "drift.shortcuts.zoomReset": "Yakınlaştırmayı sıfırla",
+    "drift.shortcuts.nextComputer": "Sonraki bilgisayar",
+    "drift.shortcuts.previousComputer": "Önceki bilgisayar",
     "drift.sidebar.addWorkspace": "Çalışma alanı ekle",
     "drift.sidebar.archived": "Arşivlenenler",
     "drift.sidebar.empty": "Başlamak için bir çalışma alanı ekleyin.",

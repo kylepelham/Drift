@@ -15,6 +15,8 @@ pub(super) fn routes() -> Router<Proxy> {
     Router::new()
         .route("/computers", get(computers))
         .route("/nearby", get(nearby))
+        .route("/online", get(online))
+        .route("/tabs", post(set_tabs))
         .route("/ask", post(ask))
         .route("/answer", post(answer))
         .route("/cancel", post(cancel))
@@ -26,6 +28,11 @@ pub(super) fn routes() -> Router<Proxy> {
 #[derive(Deserialize)]
 struct Address {
     address: String,
+}
+
+#[derive(Deserialize)]
+struct Switch {
+    on: bool,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +60,7 @@ async fn computers(State(proxy): State<Proxy>) -> Response {
     Json(json!({
         "computers": list,
         "local": proxy.host.this_computer(),
+        "tabs": computers.tabs(),
     }))
     .into_response()
 }
@@ -61,6 +69,18 @@ async fn nearby(State(proxy): State<Proxy>) -> Response {
     match proxy.nearby().await {
         Ok(found) => Json(json!({ "nearby": found })).into_response(),
         Err(error) => refuse(&error),
+    }
+}
+
+async fn online(State(proxy): State<Proxy>) -> Response {
+    Json(json!({ "online": proxy.online().await })).into_response()
+}
+
+/// Shows each computer as a tab at the top of a desktop's sidebar, or stops.
+async fn set_tabs(State(proxy): State<Proxy>, Json(body): Json<Switch>) -> Response {
+    match proxy.computers.lock().unwrap().set_tabs(body.on) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(error) => refuse(&error.to_string()),
     }
 }
 

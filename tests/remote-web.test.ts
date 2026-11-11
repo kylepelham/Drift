@@ -366,3 +366,45 @@ test("the app's computers page asks a computer to connect through its proxy and 
     );
     await expect(appConnector.answer("r1")).rejects.toThrow("Studio declined the connection");
 });
+
+test("Ctrl+Alt and a digit picks a computer by its place in the menu, and the arrows step through them", async () => {
+    const { comboFor, computerDigit, formatCombo } = await import("../src/state/keybinds");
+    const key = (key: string, modifiers: Partial<KeyboardEvent> = { ctrlKey: true, altKey: true }) =>
+        ({ key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...modifiers }) as KeyboardEvent;
+
+    expect(computerDigit(key("1"))).toBe(1);
+    expect(computerDigit(key("9"))).toBe(9);
+    expect(computerDigit(key("0"))).toBeUndefined();
+    expect(computerDigit(key("²")), "AltGr+2 typing a character on a German layout").toBeUndefined();
+    expect(computerDigit(key("2", { ctrlKey: true }))).toBeUndefined();
+    expect(formatCombo(comboFor("nextComputer"))).toBe("Ctrl+Alt+Right");
+    expect(formatCombo(comboFor("previousComputer"))).toBe("Ctrl+Alt+Left");
+});
+
+test("the sidebar tabs and their online marks come from the proxy while another computer is shown", async () => {
+    const { computerSwitcher } = await import("../src/state/computers");
+    const location = { pathname: "/app", origin: "http://127.0.0.1:52011", replace: replaceMock };
+    setGlobal("location", location);
+    setGlobal("window", { location });
+    const replies: Record<string, unknown> = {
+        "/app/api/computers": {
+            computers: [{ id: "pc", name: "Studio", anywhere: false, active: true }],
+            local: "Desk",
+            tabs: true,
+        },
+        "/app/api/tabs": { ok: true },
+        "/app/api/online": { online: ["pc"] },
+    };
+    fetchMock.mockImplementation(async (url: string) => Response.json(replies[url]));
+
+    const switcher = (await computerSwitcher())!;
+    expect((await switcher.list()).tabs).toBeTrue();
+    await switcher.setTabs(false);
+    expect(await switcher.online()).toEqual(["pc"]);
+    const calls = fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).body]);
+    expect(calls.slice(-3)).toEqual([
+        ["/app/api/computers", undefined],
+        ["/app/api/tabs", JSON.stringify({ on: false })],
+        ["/app/api/online", undefined],
+    ]);
+});

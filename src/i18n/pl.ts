@@ -409,6 +409,8 @@ export const drift = {
         "Na innym komputerze włącz Dostęp zdalny w Ustawieniach. Pojawi się tutaj, a ty się połączysz po zaakceptowaniu przez jego użytkownika.",
     "drift.computers.linked": "Połączone komputery",
     "drift.computers.openFailed": "Nie można zmienić komputera",
+    "drift.computers.tabs": "Wyświetl jako karty na pasku bocznym",
+    "drift.computers.offline": "Nie odpowiada",
     "drift.connect.nearby": "Pobliskie",
     "drift.connect.looking": "Szukanie komputerów...",
     "drift.connect.none":
@@ -1408,6 +1410,8 @@ export const drift = {
     "drift.shortcuts.zoomIn": "Powiększ",
     "drift.shortcuts.zoomOut": "Pomniejsz",
     "drift.shortcuts.zoomReset": "Resetuj powiększenie",
+    "drift.shortcuts.nextComputer": "Następny komputer",
+    "drift.shortcuts.previousComputer": "Poprzedni komputer",
     "drift.sidebar.addWorkspace": "Dodaj obszar roboczy",
     "drift.sidebar.archived": "Zarchiwizowane elementy",
     "drift.sidebar.empty": "Dodaj obszar roboczy, aby rozpocząć.",

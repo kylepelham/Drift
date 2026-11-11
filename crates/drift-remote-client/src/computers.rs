@@ -74,6 +74,9 @@ impl Computer {
 struct Saved {
     computers: Vec<Computer>,
     active: Option<String>,
+    /// Whether a desktop shows each computer as a tab at the top of its sidebar, for one-click switching.
+    #[serde(default)]
+    tabs: bool,
 }
 
 pub struct Computers {
@@ -106,6 +109,15 @@ impl Computers {
 
     pub fn set_active(&mut self, id: Option<&str>) -> std::io::Result<()> {
         self.saved.active = id.map(str::to_string);
+        self.save()
+    }
+
+    pub fn tabs(&self) -> bool {
+        self.saved.tabs
+    }
+
+    pub fn set_tabs(&mut self, on: bool) -> std::io::Result<()> {
+        self.saved.tabs = on;
         self.save()
     }
 
@@ -208,6 +220,8 @@ mod tests {
         computers.upsert(computer("aa", &["192.168.1.20"])).unwrap();
         computers.upsert(computer("bb", &["10.0.0.5"])).unwrap();
         computers.set_active(Some("aa")).unwrap();
+        assert!(!computers.tabs(), "the sidebar shows no tabs until they are turned on");
+        computers.set_tabs(true).unwrap();
 
         let mut relinked = computer("aa", &["100.101.2.3"]);
         relinked.token = "fresh".into();
@@ -215,6 +229,7 @@ mod tests {
         computers.upsert(relinked).unwrap();
 
         let reloaded = Computers::load(path.clone());
+        assert!(reloaded.tabs());
         let active = reloaded.active().unwrap();
         assert_eq!(active.token, "fresh");
         assert_eq!(active.tunnel, Some(tunnel()));
