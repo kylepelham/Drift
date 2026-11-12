@@ -46,6 +46,10 @@ pub(super) struct EngineSettings {
     /// its subagents may too, in the foreground. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation_depth: Option<u8>,
+    /// How many subagents with each tag `task` gives run at once, 1 to 64 by tag, such as `gpu`; past it, more wait
+    /// for one to finish. A PUT replaces the whole map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_tag_limits: Option<BTreeMap<String, usize>>,
     /// Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_processes: Option<bool>,
@@ -94,6 +98,8 @@ pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub delegation_depth: Option<u8>,
     #[serde(default)]
+    pub task_tag_limits: Option<BTreeMap<String, usize>>,
+    #[serde(default)]
     pub background_processes: Option<bool>,
     #[serde(default)]
     pub shell_handoff: Option<bool>,
@@ -120,6 +126,7 @@ fn current(engine: &Engine) -> EngineSettings {
         background_tasks: Some(engine.background_enabled()),
         background_task_limit: Some(engine.background_limit()),
         delegation_depth: Some(engine.delegation_depth()),
+        task_tag_limits: Some(engine.task_tag_limits()),
         background_processes: Some(engine.background_processes()),
         // The stored choice, so turning background processes back on restores it.
         shell_handoff: Some(engine.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)),
@@ -153,20 +160,7 @@ pub(super) async fn put(
     if let Some(on) = body.tool_search {
         engine.store.set_setting(crate::tool::tool_search::SETTINGS_KEY, &on)?;
     }
-    if let Some(enabled) = body.background_tasks {
-        engine.store.set_setting(BACKGROUND_TASKS_KEY, &enabled)?;
-    }
-    if let Some(limit) = body.background_task_limit {
-        engine.set_background_limit(limit).map_err(|error| match error {
-            LimitError::OutOfRange => {
-                ApiError::new(StatusCode::BAD_REQUEST, "background_task_limit", error.to_string())
-            }
-            LimitError::Store(error) => error.into(),
-        })?;
-    }
-    if let Some(depth) = body.delegation_depth {
-        engine.store.set_setting(DELEGATION_DEPTH_KEY, &depth)?;
-    }
+    put_tasks(&engine, &body)?;
     if let Some(browser) = &body.browser {
         engine.set_browser_settings(browser)?;
     }
@@ -207,8 +201,41 @@ fn refusal(body: &EngineSettingsInput) -> Result<(), ApiError> {
         let why = format!("the subagent depth is 1 to {MAX_DELEGATION_DEPTH}");
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "delegation_depth", why));
     }
+    if body
+        .task_tag_limits
+        .as_ref()
+        .is_some_and(|limits| !crate::session::tasks::valid_tag_limits(limits))
+    {
+        let why = LimitError::TagOutOfRange.to_string();
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "task_tag_limits", why));
+    }
     if let Some(problem) = body.prompt_cache.as_ref().and_then(PromptCache::problem) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
+    }
+
+    Ok(())
+}
+
+fn put_tasks(engine: &Engine, body: &EngineSettingsInput) -> Result<(), ApiError> {
+    let refused = |field: &'static str| {
+        move |error: LimitError| match error {
+            LimitError::Store(error) => error.into(),
+            _ => ApiError::new(StatusCode::BAD_REQUEST, field, error.to_string()),
+        }
+    };
+    if let Some(enabled) = body.background_tasks {
+        engine.store.set_setting(BACKGROUND_TASKS_KEY, &enabled)?;
+    }
+    if let Some(limit) = body.background_task_limit {
+        engine
+            .set_background_limit(limit)
+            .map_err(refused("background_task_limit"))?;
+    }
+    if let Some(depth) = body.delegation_depth {
+        engine.store.set_setting(DELEGATION_DEPTH_KEY, &depth)?;
+    }
+    if let Some(limits) = &body.task_tag_limits {
+        engine.set_task_tag_limits(limits).map_err(refused("task_tag_limits"))?;
     }
 
     Ok(())

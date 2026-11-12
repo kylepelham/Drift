@@ -618,6 +618,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Subagent depth",
     "drift.settings.delegationDepth.description":
         "How many levels of subagents a conversation may have. At 1 only the conversation delegates; at 2 or 3 its subagents may hand jobs on too, waiting for each. Explore agents never delegate.",
+    "drift.settings.tagLimits.title": "Subagents per tag",
+    "drift.settings.tagLimits.description":
+        "How many subagents given a tag, such as gpu, run at once; others wait for a slot. Agents tag them when they hand work on, and the tags here are named to them.",
+    "drift.settings.tagLimits.tag": "Tag",
+    "drift.settings.tagLimits.limit": "At once",
     "drift.ultra.label": "Ultra",
     "drift.ultra.on":
         "Ultra is on: this chat orchestrates subagents on every substantive task and checks their work, cost no object. Click to turn it off.",

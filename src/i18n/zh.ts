@@ -591,6 +591,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "子代理层级",
     "drift.settings.delegationDepth.description":
         "一个对话最多可以有几层子代理。为 1 时只有对话本身委派；为 2 或 3 时，它的子代理也可以把工作再委派出去，并逐个等待结果。探索代理从不委派。",
+    "drift.settings.tagLimits.title": "每个标签的子代理",
+    "drift.settings.tagLimits.description":
+        "带有某个标签（如 gpu）的子代理同时运行多少个；其余的排队等待空位。代理在分派工作时打上标签，这里设置的标签会告知它们。",
+    "drift.settings.tagLimits.tag": "标签",
+    "drift.settings.tagLimits.limit": "同时运行",
     "drift.ultra.on": "Ultra 已开启：此对话会在每项实质任务中编排子代理并核查其工作，不计成本。点击关闭。",
     "drift.ultra.off": "Ultra：在每项实质任务中编排子代理并核查其工作。更加彻底，令牌用量会成倍增加。",
     "drift.task.queued": "排队中",

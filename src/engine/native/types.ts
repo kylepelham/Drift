@@ -2031,6 +2031,13 @@ export interface components {
              */
             shellHandoff?: boolean | null;
             /**
+             * @description How many subagents with each tag `task` gives run at once, 1 to 64 by tag, such as `gpu`; past it, more wait
+             *     for one to finish. A PUT replaces the whole map.
+             */
+            taskTagLimits?: {
+                [key: string]: number;
+            } | null;
+            /**
              * @description Load the tools of large MCP servers on request with `tool_search`, on models that take deferred tools. Left out of
              *     a PUT, it stays as it is.
              */
@@ -2057,6 +2064,9 @@ export interface components {
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
+            taskTagLimits?: {
+                [key: string]: number;
+            } | null;
             toolSearch?: boolean | null;
         };
         /** @description Whether an engine can run here, and what it would take if not. */
@@ -3537,6 +3547,8 @@ export interface components {
             /** @description The worker's own transcript. */
             sessionId: string;
             state: components["schemas"]["TaskState"];
+            /** @description What it uses that Settings may cap, such as `gpu`; it waits while a tag's subagents are at its limit. */
+            tags?: string[];
         };
         /** @enum {string} */
         TaskState: "queued" | "running" | "replied" | "failed" | "stopped" | "interrupted";

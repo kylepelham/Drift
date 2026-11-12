@@ -299,3 +299,123 @@ async fn a_queued_worker_runs_as_it_was_admitted_not_as_settings_changed_since()
     drop(requests);
     h.engine.abort(&h.session.id);
 }
+
+fn tagged(description: &str, child_prompt: &str, background: bool) -> serde_json::Value {
+    json!({ "description": description, "prompt": child_prompt, "run_in_background": background, "tags": ["GPU", " gpu "] })
+}
+
+fn state_of(h: &Harness, description: &str) -> TaskState {
+    tasks(h)
+        .into_iter()
+        .find(|task| task.description == description)
+        .map_or(TaskState::Failed, |task| task.state)
+}
+
+#[tokio::test]
+async fn a_tags_limit_queues_its_workers_until_one_finishes_or_the_limit_rises() {
+    let h = harness().await;
+    h.engine
+        .set_task_tag_limits(&BTreeMap::from([(" GPU ".to_owned(), 1)]))
+        .unwrap();
+    assert_eq!(h.engine.task_tag_limits(), BTreeMap::from([("gpu".to_owned(), 1)]));
+    let spec = crate::tool::Tool::spec_for(&crate::tool::task::Task, &h.engine);
+    assert!(
+        spec.input_schema["properties"]["tags"]["description"]
+            .as_str()
+            .unwrap()
+            .ends_with("Limits now: gpu 1.")
+    );
+    let launched = vec![
+        tagged("Gpu 0", "CHILD 0 wait", true),
+        tagged("Gpu 1", "CHILD 1 wait", true),
+        tagged("Gpu 2", "CHILD 2 wait", true),
+        background("Plain", "CHILD plain wait"),
+    ];
+    h.provider
+        .push_for("PARENT", launches(&launched))
+        .push_for("PARENT", text("carrying on"));
+    for child in ["CHILD 0 wait", "CHILD 1 wait", "CHILD 2 wait", "CHILD plain wait"] {
+        h.provider.push_stall_for(child);
+    }
+
+    h.engine.submit(&h.session.id, prompt("PARENT gpus")).await.unwrap();
+    until("one gpu worker and the plain one run", || {
+        let all = tasks(&h);
+        let running = |tagged: bool| {
+            all.iter()
+                .filter(|task| task.state == TaskState::Running && task.tags.is_empty() != tagged)
+                .count()
+        };
+        running(true) == 1 && running(false) == 1 && all.len() == 4
+    })
+    .await;
+    let all = tasks(&h);
+    assert_eq!(all.iter().filter(|task| task.state == TaskState::Queued).count(), 2);
+    assert!(
+        all.iter()
+            .filter(|task| task.description.starts_with("Gpu"))
+            .all(|task| task.tags == ["gpu"])
+    );
+
+    let running = all
+        .into_iter()
+        .find(|task| task.state == TaskState::Running && !task.tags.is_empty())
+        .unwrap();
+    h.engine.stop_task(&running.id).unwrap();
+    until("the next gpu worker starts", || {
+        tasks(&h)
+            .iter()
+            .filter(|task| task.state == TaskState::Running && !task.tags.is_empty())
+            .count()
+            == 1
+            && h.engine.store.task(&running.id).unwrap().unwrap().state == TaskState::Stopped
+    })
+    .await;
+
+    h.engine
+        .set_task_tag_limits(&BTreeMap::from([("gpu".to_owned(), 2)]))
+        .unwrap();
+    until("the last starts without anything finishing", || {
+        tasks(&h)
+            .iter()
+            .filter(|task| task.state == TaskState::Running && !task.tags.is_empty())
+            .count()
+            == 2
+    })
+    .await;
+    assert!(matches!(
+        h.engine.set_task_tag_limits(&BTreeMap::from([("gpu".to_owned(), 0)])),
+        Err(LimitError::TagOutOfRange)
+    ));
+    h.engine.abort(&h.session.id);
+}
+
+#[tokio::test]
+async fn a_tagged_worker_in_front_waits_queued_for_its_slot_and_then_replies() {
+    let h = harness().await;
+    h.engine
+        .set_task_tag_limits(&BTreeMap::from([("gpu".to_owned(), 1)]))
+        .unwrap();
+    h.provider
+        .push_for("PARENT", launches(&[tagged("Hold", "CHILD hold", true)]))
+        // Late enough that the one in the background holds the slot first.
+        .push_slow_for(
+            "PARENT",
+            Duration::from_millis(500),
+            launches(&[tagged("Front", "CHILD front", false)]),
+        )
+        .push_for("CHILD front", text("bench done"))
+        .push_for("PARENT", text("all done"))
+        .push_stall_for("CHILD hold");
+
+    h.engine.submit(&h.session.id, prompt("PARENT bench")).await.unwrap();
+    until("the one in front waits", || {
+        state_of(&h, "Hold") == TaskState::Running && state_of(&h, "Front") == TaskState::Queued
+    })
+    .await;
+
+    let holder = tasks(&h).into_iter().find(|task| task.description == "Hold").unwrap();
+    h.engine.stop_task(&holder.id).unwrap();
+    until("it replies", || state_of(&h, "Front") == TaskState::Replied).await;
+    h.engine.abort(&h.session.id);
+}

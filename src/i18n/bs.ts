@@ -614,6 +614,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Dubina podagenata",
     "drift.settings.delegationDepth.description":
         "Koliko nivoa podagenata razgovor može imati. Na 1 delegira samo razgovor; na 2 ili 3 i njegovi podagenti mogu prosljeđivati poslove, čekajući svaki. Agenti za istraživanje nikad ne delegiraju.",
+    "drift.settings.tagLimits.title": "Podagenti po oznaci",
+    "drift.settings.tagLimits.description":
+        "Koliko podagenata s oznakom, poput gpu, radi istovremeno; ostali čekaju slobodno mjesto. Agenti ih označavaju kad predaju posao, a oznake odavde im se navode.",
+    "drift.settings.tagLimits.tag": "Oznaka",
+    "drift.settings.tagLimits.limit": "Istovremeno",
     "drift.ultra.on":
         "Ultra je uključen: ovaj razgovor orkestrira podagente na svakom ozbiljnom zadatku i provjerava njihov rad, bez obzira na cijenu. Kliknite da ga isključite.",
     "drift.ultra.off":

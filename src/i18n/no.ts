@@ -615,6 +615,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Underagentdybde",
     "drift.settings.delegationDepth.description":
         "Hvor mange nivåer av underagenter en samtale kan ha. På 1 delegerer bare samtalen; på 2 eller 3 kan underagentene også gi oppgaver videre og vente på hver. Utforskningsagenter delegerer aldri.",
+    "drift.settings.tagLimits.title": "Underagenter per merke",
+    "drift.settings.tagLimits.description":
+        "Hvor mange underagenter med et merke, for eksempel gpu, som kjører samtidig; resten venter på en plass. Agenter merker dem når de gir bort arbeid, og merkene her blir nevnt for dem.",
+    "drift.settings.tagLimits.tag": "Merke",
+    "drift.settings.tagLimits.limit": "Samtidig",
     "drift.ultra.on":
         "Ultra er på: denne samtalen orkestrerer underagenter på hver vesentlig oppgave og sjekker arbeidet deres, uansett kostnad. Klikk for å slå av.",
     "drift.ultra.off":

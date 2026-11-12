@@ -614,6 +614,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "サブエージェントの深さ",
     "drift.settings.delegationDepth.description":
         "会話が持てるサブエージェントの階層数。1 では会話だけが委任し、2 または 3 ではサブエージェントもそれぞれの完了を待ちながら仕事を委任できます。探索エージェントは委任しません。",
+    "drift.settings.tagLimits.title": "タグごとのサブエージェント",
+    "drift.settings.tagLimits.description":
+        "gpu などのタグが付いたサブエージェントを同時にいくつ実行するか。残りは空きを待ちます。エージェントは仕事を任せるときにタグを付け、ここで設定したタグはエージェントに伝えられます。",
+    "drift.settings.tagLimits.tag": "タグ",
+    "drift.settings.tagLimits.limit": "同時実行数",
     "drift.ultra.on":
         "Ultra がオン: この会話は重要なタスクごとにサブエージェントを組織し、その結果を検証します。コストは問いません。クリックでオフ。",
     "drift.ultra.off":

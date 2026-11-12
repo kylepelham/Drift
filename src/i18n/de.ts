@@ -625,6 +625,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Subagenten-Tiefe",
     "drift.settings.delegationDepth.description":
         "Wie viele Ebenen von Subagenten eine Unterhaltung haben darf. Bei 1 delegiert nur die Unterhaltung; bei 2 oder 3 dürfen auch ihre Subagenten Aufgaben weitergeben und warten jeweils darauf. Explore-Agenten delegieren nie.",
+    "drift.settings.tagLimits.title": "Subagenten pro Tag",
+    "drift.settings.tagLimits.description":
+        "Wie viele Subagenten mit einem Tag, etwa gpu, gleichzeitig laufen; weitere warten auf einen Platz. Agenten vergeben die Tags beim Delegieren, und die hier gesetzten werden ihnen genannt.",
+    "drift.settings.tagLimits.tag": "Tag",
+    "drift.settings.tagLimits.limit": "Gleichzeitig",
     "drift.ultra.on":
         "Ultra ist an: Diese Unterhaltung orchestriert bei jeder ernsthaften Aufgabe Subagenten und prüft deren Arbeit, ohne auf die Kosten zu achten. Klicken zum Ausschalten.",
     "drift.ultra.off":

@@ -501,6 +501,7 @@ From the Ona project's wishlist (#22): its GPU job limit and merge and bench loc
 
 - [x] Plugins add tools: the `tooling` world's `tools()` and `call-tool`, offered after the built-ins; a `wait` answer is asked again without spending a turn, up to ten minutes (an hour in a subagent)
 - [x] `plugins/locks`: a `lock` tool to acquire, release and list named locks; acquiring waits for the holder, and a lock frees at its ttl, when its holder is deleted, or when a subagent holding it finishes
+- [x] Subagents per tag: `task` takes `tags` and Settings > Execution caps each tag (`taskTagLimits`, such as gpu 3); past the cap a worker waits queued, in the background or in front, and starts when one with the tag ends or the cap rises
 
 ## Readability and tooling pass
 

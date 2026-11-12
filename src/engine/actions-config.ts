@@ -47,6 +47,11 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ delegationDepth });
     }
 
+    /** How many subagents with each tag run at once, by tag; the whole map is replaced. */
+    async function setTaskTagLimits(taskTagLimits: Record<string, number>) {
+        return requireClient().putSettings({ taskTagLimits });
+    }
+
     /** Ultra: on every substantive task the chat orchestrates subagents, cost no object. */
     async function setUltra(id: string, ultra: boolean) {
         const updated = await requireClient().updateSession(id, { ultra });
@@ -283,6 +288,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         engineSettings,
         setBackgroundTaskLimit,
         setDelegationDepth,
+        setTaskTagLimits,
         setUltra,
         setBackgroundProcesses,
         setShellHandoff,

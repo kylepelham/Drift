@@ -628,6 +628,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Profondeur des sous-agents",
     "drift.settings.delegationDepth.description":
         "Combien de niveaux de sous-agents une conversation peut avoir. À 1, seule la conversation délègue ; à 2 ou 3, ses sous-agents peuvent aussi confier des tâches, en attendant chacune. Les agents d'exploration ne délèguent jamais.",
+    "drift.settings.tagLimits.title": "Sous-agents par étiquette",
+    "drift.settings.tagLimits.description":
+        "Combien de sous-agents portant une étiquette, comme gpu, tournent en même temps ; les autres attendent une place. Les agents les étiquettent en déléguant, et les étiquettes définies ici leur sont indiquées.",
+    "drift.settings.tagLimits.tag": "Étiquette",
+    "drift.settings.tagLimits.limit": "En même temps",
     "drift.ultra.on":
         "Ultra est activé : cette conversation orchestre des sous-agents sur chaque tâche importante et vérifie leur travail, quel qu'en soit le coût. Cliquez pour le désactiver.",
     "drift.ultra.off":

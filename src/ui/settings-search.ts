@@ -141,6 +141,7 @@ const settingsSearchDefinitions = {
         { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
         { title: "drift.settings.backgroundLimit.title", description: "drift.settings.backgroundLimit.description" },
         { title: "drift.settings.delegationDepth.title", description: "drift.settings.delegationDepth.description" },
+        { title: "drift.settings.tagLimits.title", description: "drift.settings.tagLimits.description" },
         {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",

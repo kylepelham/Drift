@@ -607,6 +607,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "하위 에이전트 깊이",
     "drift.settings.delegationDepth.description":
         "대화가 가질 수 있는 하위 에이전트 단계 수입니다. 1이면 대화만 위임하고, 2나 3이면 하위 에이전트도 각 작업을 기다리며 일을 넘길 수 있습니다. 탐색 에이전트는 위임하지 않습니다.",
+    "drift.settings.tagLimits.title": "태그별 하위 에이전트",
+    "drift.settings.tagLimits.description":
+        "gpu 같은 태그가 붙은 하위 에이전트를 동시에 몇 개 실행할지 정합니다. 나머지는 자리가 날 때까지 기다립니다. 에이전트는 작업을 맡길 때 태그를 붙이며, 여기서 정한 태그를 안내받습니다.",
+    "drift.settings.tagLimits.tag": "태그",
+    "drift.settings.tagLimits.limit": "동시 실행",
     "drift.ultra.on":
         "Ultra 켜짐: 이 대화는 중요한 작업마다 하위 에이전트를 조율하고 결과를 검증합니다. 비용은 따지지 않습니다. 클릭하면 끕니다.",
     "drift.ultra.off":

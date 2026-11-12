@@ -616,6 +616,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Alt ajan derinliği",
     "drift.settings.delegationDepth.description":
         "Bir konuşmanın kaç alt ajan katmanı olabileceği. 1'de yalnızca konuşma görev devreder; 2 veya 3'te alt ajanları da her birini bekleyerek iş devredebilir. Keşif ajanları asla görev devretmez.",
+    "drift.settings.tagLimits.title": "Etiket başına alt ajan",
+    "drift.settings.tagLimits.description":
+        "gpu gibi bir etiket taşıyan kaç alt ajanın aynı anda çalışacağı; diğerleri yer açılmasını bekler. Ajanlar işi devrederken etiketler, buradaki etiketler de onlara bildirilir.",
+    "drift.settings.tagLimits.tag": "Etiket",
+    "drift.settings.tagLimits.limit": "Aynı anda",
     "drift.ultra.on":
         "Ultra açık: bu konuşma her önemli görevde alt ajanları yönetir ve işlerini doğrular, maliyete bakmadan. Kapatmak için tıklayın.",
     "drift.ultra.off":

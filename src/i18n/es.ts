@@ -621,6 +621,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Profundidad de subagentes",
     "drift.settings.delegationDepth.description":
         "Cuántos niveles de subagentes puede tener una conversación. Con 1 solo delega la conversación; con 2 o 3 sus subagentes también pueden pasar tareas, esperando cada una. Los agentes de exploración nunca delegan.",
+    "drift.settings.tagLimits.title": "Subagentes por etiqueta",
+    "drift.settings.tagLimits.description":
+        "Cuántos subagentes con una etiqueta, como gpu, se ejecutan a la vez; los demás esperan un hueco. Los agentes los etiquetan al delegar, y las etiquetas de aquí se les indican.",
+    "drift.settings.tagLimits.tag": "Etiqueta",
+    "drift.settings.tagLimits.limit": "A la vez",
     "drift.ultra.on":
         "Ultra está activado: esta conversación orquesta subagentes en cada tarea importante y verifica su trabajo, sin reparar en el coste. Haz clic para desactivarlo.",
     "drift.ultra.off":

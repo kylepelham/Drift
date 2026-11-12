@@ -619,6 +619,11 @@ export const drift = {
     "drift.settings.delegationDepth.title": "Głębokość podagentów",
     "drift.settings.delegationDepth.description":
         "Ile poziomów podagentów może mieć rozmowa. Przy 1 deleguje tylko rozmowa; przy 2 lub 3 jej podagenci też mogą przekazywać zadania, czekając na każde. Agenci eksploracji nigdy nie delegują.",
+    "drift.settings.tagLimits.title": "Podagenci na tag",
+    "drift.settings.tagLimits.description":
+        "Ilu podagentów z danym tagiem, np. gpu, działa jednocześnie; pozostali czekają na miejsce. Agenci nadają tagi, przekazując pracę, a tagi ustawione tutaj są im podawane.",
+    "drift.settings.tagLimits.tag": "Tag",
+    "drift.settings.tagLimits.limit": "Jednocześnie",
     "drift.ultra.on":
         "Ultra jest włączone: ta rozmowa koordynuje podagentów przy każdym istotnym zadaniu i sprawdza ich pracę, bez względu na koszt. Kliknij, aby wyłączyć.",
     "drift.ultra.off":

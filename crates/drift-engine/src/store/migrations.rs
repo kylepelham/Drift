@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 56] = [
+pub(super) const MIGRATIONS: [&str; 57] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -256,6 +256,7 @@ pub(super) const MIGRATIONS: [&str; 56] = [
      WHERE generation_ms < 50 AND json_extract(usage_json, '$.output') >= 200;",
     // Ultra: the conversation orchestrates subagents on every substantive task.
     "ALTER TABLE session ADD COLUMN ultra INTEGER NOT NULL DEFAULT 0 CHECK(ultra IN (0, 1));",
+    "ALTER TABLE task ADD COLUMN tags TEXT;",
 ];
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 //! Results are delivered once, when the parent can accept them.
 //! Permissions follow the parent link; cancellation follows the owner rather than the launching turn.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,8 @@ pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How many levels of subagents a conversation may have: 1, its own only, up to [`MAX_DELEGATION_DEPTH`].
 pub const DELEGATION_DEPTH_KEY: &str = "delegationDepth";
 pub const MAX_DELEGATION_DEPTH: u8 = 3;
+/// How many subagents with each tag run at once, by tag; a tag not named has no limit of its own.
+pub const TAG_LIMITS_KEY: &str = "taskTagLimits";
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
 
@@ -126,6 +128,9 @@ pub struct TaskRecord {
     /// The owner's Stop count when it was launched.
     #[serde(skip)]
     pub generation: i64,
+    /// What it uses that Settings may cap, such as `gpu`; it waits while a tag's subagents are at its limit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -168,6 +173,31 @@ pub struct Workers {
     owners: Mutex<HashMap<String, Owner>>,
     tokens: Mutex<HashMap<String, CancellationToken>>,
     claims: Mutex<HashMap<String, Claim>>,
+    /// How many workers hold each tag, and the wake for those waiting when one lets go or the limits change.
+    tagged: Mutex<HashMap<String, usize>>,
+    tag_freed: tokio::sync::Notify,
+}
+
+/// A worker's hold on its tags, given back when it is dropped.
+pub(crate) struct TagSlots<'a> {
+    workers: &'a Workers,
+    tags: Vec<String>,
+}
+
+impl Drop for TagSlots<'_> {
+    fn drop(&mut self) {
+        let mut tagged = self.workers.tagged.lock().unwrap();
+        for tag in &self.tags {
+            if let Some(count) = tagged.get_mut(tag) {
+                *count -= 1;
+                if *count == 0 {
+                    tagged.remove(tag);
+                }
+            }
+        }
+        drop(tagged);
+        self.workers.tag_freed.notify_waiters();
+    }
 }
 
 /// What an owner's background workers run under: a token its Stop cancels, and its durable Stop count.
@@ -189,6 +219,8 @@ struct SlotLimit {
 pub enum LimitError {
     #[error("the background task limit must be from 1 to {MAX_BACKGROUND_LIMIT}")]
     OutOfRange,
+    #[error("each tag needs a name and a limit from 1 to {MAX_BACKGROUND_LIMIT}")]
+    TagOutOfRange,
     #[error(transparent)]
     Store(#[from] rusqlite::Error),
 }
@@ -220,7 +252,49 @@ impl Workers {
             owners: Mutex::default(),
             tokens: Mutex::default(),
             claims: Mutex::default(),
+            tagged: Mutex::default(),
+            tag_freed: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Waits until each of `tags` is under its limit, then holds them all; `None` if `token` stops it first.
+    pub(crate) async fn take_tags(
+        &self,
+        tags: &[String],
+        limits: impl Fn() -> BTreeMap<String, usize>,
+        token: &CancellationToken,
+    ) -> Option<TagSlots<'_>> {
+        loop {
+            // Made before the check, so a slot freed between the check and the wait still wakes it.
+            let freed = self.tag_freed.notified();
+            if self.try_tags(tags, &limits()) {
+                return Some(TagSlots {
+                    workers: self,
+                    tags: tags.to_vec(),
+                });
+            }
+            tokio::select! {
+                () = freed => {}
+                () = token.cancelled() => return None,
+            }
+        }
+    }
+
+    fn try_tags(&self, tags: &[String], limits: &BTreeMap<String, usize>) -> bool {
+        let mut tagged = self.tagged.lock().unwrap();
+        let full = |tag: &String| {
+            limits
+                .get(tag)
+                .is_some_and(|limit| tagged.get(tag).copied().unwrap_or(0) >= *limit)
+        };
+        if tags.iter().any(full) {
+            return false;
+        }
+        for tag in tags {
+            *tagged.entry(tag.clone()).or_default() += 1;
+        }
+
+        true
     }
 
     /// Changes how many workers run at once. Running workers are never stopped: a smaller limit takes
@@ -353,6 +427,18 @@ fn owner_entry<'a>(owners: &'a mut Owners, store: &crate::store::Store, owner: &
     })
 }
 
+/// Whether every tag has a name and a limit Settings allows.
+pub(crate) fn valid_tag_limits(limits: &BTreeMap<String, usize>) -> bool {
+    limits
+        .iter()
+        .all(|(tag, limit)| !tag.trim().is_empty() && (1..=MAX_BACKGROUND_LIMIT).contains(limit))
+}
+
+/// A tag as it is kept and compared: trimmed and lowercased.
+pub(crate) fn task_tag(tag: &str) -> String {
+    tag.trim().to_lowercase()
+}
+
 /// The background limit saved in Settings, or the default when none is saved or it is out of range.
 pub(crate) fn stored_background_limit(store: &crate::store::Store) -> usize {
     let saved: Option<usize> = store.setting(BACKGROUND_LIMIT_KEY).ok().flatten();
@@ -399,6 +485,23 @@ impl Engine {
         }
 
         depth
+    }
+
+    /// How many subagents with each tag run at once, by tag.
+    pub fn task_tag_limits(&self) -> BTreeMap<String, usize> {
+        self.store.setting(TAG_LIMITS_KEY).ok().flatten().unwrap_or_default()
+    }
+
+    /// Saves the per-tag limits, tags trimmed and lowercased, and starts any worker they now let through.
+    pub fn set_task_tag_limits(&self, limits: &BTreeMap<String, usize>) -> Result<(), LimitError> {
+        if !valid_tag_limits(limits) {
+            return Err(LimitError::TagOutOfRange);
+        }
+        let limits: BTreeMap<String, usize> = limits.iter().map(|(tag, limit)| (task_tag(tag), *limit)).collect();
+
+        self.store.set_setting(TAG_LIMITS_KEY, &limits)?;
+        self.workers.tag_freed.notify_waiters();
+        Ok(())
     }
 
     /// Saves a new background limit and applies it to the slots straight away.
@@ -457,6 +560,18 @@ impl Engine {
         };
 
         if task.mode == Mode::Foreground {
+            let Some(_tags) = self
+                .workers
+                .take_tags(&task.tags, || self.task_tag_limits(), &token)
+                .await
+            else {
+                self.end_task(&task.id, TaskState::Stopped, STOPPED);
+                self.workers.forget(&task.id);
+                return Ok(Some("stopped"));
+            };
+            if self.store.start_task(&task.id).unwrap_or(false) {
+                self.publish_task(&task.id);
+            }
             return Ok(Some(self.run_worker(task, prompt, plan, &token).await));
         }
 
@@ -466,7 +581,8 @@ impl Engine {
         Ok(None)
     }
 
-    /// A queued worker: waits for a slot, then runs unless it was stopped meanwhile, however the wait ended.
+    /// A queued worker: waits for its tags' slots and then a shared one, then runs unless it was stopped meanwhile,
+    /// however the wait ended.
     async fn work(
         self: Arc<Self>,
         task: TaskRecord,
@@ -474,9 +590,17 @@ impl Engine {
         plan: super::turn::Plan,
         token: CancellationToken,
     ) {
-        let permit = tokio::select! {
-            permit = self.workers.slots.acquire() => permit.ok(),
-            () = token.cancelled() => None,
+        // Tags first, so a worker waiting on its tag never sits on a shared slot another could use.
+        let tags = self
+            .workers
+            .take_tags(&task.tags, || self.task_tag_limits(), &token)
+            .await;
+        let permit = match tags {
+            Some(_) => tokio::select! {
+                permit = self.workers.slots.acquire() => permit.ok(),
+                () = token.cancelled() => None,
+            },
+            None => None,
         };
         let dispatch = permit.is_some() && !token.is_cancelled() && self.store.start_task(&task.id).unwrap_or(false);
         if dispatch {
@@ -490,6 +614,7 @@ impl Engine {
         if let Some(permit) = permit {
             self.workers.release(permit);
         }
+        drop(tags);
         self.deliver(&task.id).await;
     }
 

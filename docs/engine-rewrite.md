@@ -934,6 +934,15 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   running one, and its slots are taken back as running workers finish. Its turn's abort token descends from the
   worker's, so Stop reaches it while queued, starting (before its turn claims the session),
   planning and running.
+- Tags: `task` takes `tags` (trimmed, lowercased, each once), kept in the task row's `tags` column
+  (migration 57) and on `TaskRecord`. Settings > Execution > Subagents per tag sets a cap per tag
+  (`taskTagLimits`, 1 to 64 each; a PUT replaces the map, and a tag without one is unlimited).
+  `Workers::take_tags` waits until every tag of the worker is under its cap and then counts it in
+  until the worker ends (`TagSlots` lets go on drop and wakes the waiters through a `Notify`, as
+  does saving new caps). A background worker takes its tags before a shared slot, so one waiting on
+  its tag never holds a slot; a tagged worker in front is recorded `queued` and waits the same way
+  before it is marked running, and Stop reaches it while it waits. `task`'s description of `tags`
+  names the caps set, so the model knows which tags matter.
 - Handing a result over is claimed and transactional. A claim (`Workers::claim`, in memory: the
   engine, or one call of the parent's) gives one path at a time the right to attach the result.
   `delivered` is set only in the same SQLite write that saves what carries it: the prompt
