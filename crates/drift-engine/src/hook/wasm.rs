@@ -12,8 +12,8 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use super::settings::{Choice, Pair, Setting, SettingKind};
 use super::{
     AfterTool, BeforeTool, Compacting, CompactionEvent, Grammar, Hook, LanguageServer, PermissionAsk,
-    PermissionDecision, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult,
-    TurnEnd,
+    PermissionDecision, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolAnswer, ToolCall,
+    ToolRequest, ToolResult, TurnEnd,
 };
 use crate::websearch::{Hit, SearchError};
 
@@ -146,11 +146,15 @@ impl Runtime {
         let replacements = replacements(&mut store, &instance).await;
         let (search_providers, search) = searching(&mut store, &instance).await;
         let (language_servers, grammars) = languages(&mut store, &instance).await;
-        // Drift runs these programs for it, so Settings says so beside the host calls it makes.
+        let (tools, call_tool) = tooling(&mut store, &instance).await;
+        // Drift runs these programs for it and offers these tools, so Settings says so beside the host calls it makes.
         if !language_servers.is_empty() {
             capabilities.push("lsp".to_owned());
-            capabilities.sort();
         }
+        if !tools.is_empty() {
+            capabilities.push("tools".to_owned());
+        }
+        capabilities.sort();
 
         Ok(WasmPlugin {
             name,
@@ -162,6 +166,8 @@ impl Runtime {
             search,
             language_servers,
             grammars,
+            tools,
+            call_tool,
             store: Mutex::new(store),
             bindings,
         })
@@ -322,6 +328,49 @@ async fn languages(
     (servers, grammars)
 }
 
+type CallToolFunc = TypedFunc<(wit::ToolRequest,), (wit::ToolAnswer,)>;
+
+/// The `tooling` world's tools and its call export, a tool whose parameters are not JSON logged and left out;
+/// none from a plugin built without it.
+async fn tooling(
+    store: &mut Store<State>,
+    instance: &wasmtime::component::Instance,
+) -> (Vec<crate::llm::ToolSpec>, Option<CallToolFunc>) {
+    let (Ok(list), Ok(call)) = (
+        instance.get_typed_func::<(), (Vec<wit::ToolSpec>,)>(&mut *store, "tools"),
+        instance.get_typed_func::<(wit::ToolRequest,), (wit::ToolAnswer,)>(&mut *store, "call-tool"),
+    ) else {
+        return (Vec::new(), None);
+    };
+    let name = store.data().name.clone();
+    let declared = match list.call_async(&mut *store, ()).await {
+        Ok((declared,)) => declared,
+        Err(error) => {
+            eprintln!("drift: plugin {name} failed in tools: {error}");
+            return (Vec::new(), None);
+        }
+    };
+    let tools = declared
+        .into_iter()
+        .filter_map(|tool| match serde_json::from_str(&tool.parameters) {
+            Ok(input_schema) => Some(crate::llm::ToolSpec {
+                name: tool.name,
+                description: tool.description,
+                input_schema,
+            }),
+            Err(error) => {
+                eprintln!(
+                    "drift: plugin {name}'s tool {} has parameters that are not JSON: {error}",
+                    tool.name
+                );
+                None
+            }
+        })
+        .collect();
+
+    (tools, Some(call))
+}
+
 impl From<wit::LanguageServer> for LanguageServer {
     fn from(server: wit::LanguageServer) -> Self {
         Self {
@@ -366,6 +415,9 @@ pub struct WasmPlugin {
     /// Language servers and grammars from the `languages` world, read once at load.
     language_servers: Vec<LanguageServer>,
     grammars: Vec<Grammar>,
+    /// Tools from the `tooling` world, read once at load, and its call export.
+    tools: Vec<crate::llm::ToolSpec>,
+    call_tool: Option<CallToolFunc>,
     store: Mutex<Store<State>>,
     bindings: Plugin,
 }
@@ -439,6 +491,39 @@ impl Hook for WasmPlugin {
             Err(error) => {
                 self.failed("search", &error);
                 Err(SearchError::Failed(error.to_string()))
+            }
+        }
+    }
+
+    fn tools(&self) -> Vec<crate::llm::ToolSpec> {
+        self.tools.clone()
+    }
+
+    async fn call_tool(&self, request: &ToolRequest) -> ToolAnswer {
+        let Some(call_tool) = self.call_tool else {
+            return ToolAnswer::Failed(format!("{} has no tools", self.name));
+        };
+        let input = wit::ToolRequest {
+            session_id: request.session_id.clone(),
+            workspace: request.workspace.clone(),
+            agent: request.agent.clone(),
+            tool: request.tool.clone(),
+            input: request.input.to_string(),
+            waited_ms: request.waited_ms,
+            worker: request.worker,
+        };
+        let mut store = self.enter(&request.workspace).await;
+
+        match call_tool.call_async(&mut *store, (input,)).await {
+            Ok((wit::ToolAnswer::Done(text),)) => ToolAnswer::Done(text),
+            Ok((wit::ToolAnswer::Failed(why),)) => ToolAnswer::Failed(why),
+            Ok((wit::ToolAnswer::Wait(pending),)) => ToolAnswer::Wait {
+                retry_ms: pending.retry_ms,
+                status: pending.status,
+            },
+            Err(error) => {
+                self.failed("call-tool", &error);
+                ToolAnswer::Failed(format!("the {} plugin failed: {error}", self.name))
             }
         }
     }
@@ -862,6 +947,128 @@ pub(crate) mod tests {
 
         let _ = std::fs::remove_dir_all(&cache);
         let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    /// The locks plugin loaded on the sandbox's engine, which keeps its store, and its plugin cache.
+    async fn locks(sandbox: &crate::tool::tests::Sandbox) -> Option<(std::sync::Arc<WasmPlugin>, PathBuf)> {
+        let path = built("locks")?;
+        let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let site = Site {
+            entry: "plugins/locks.wasm".into(),
+            config: serde_json::json!({}),
+            engine: std::sync::Arc::downgrade(&sandbox.ctx.engine),
+        };
+        let plugin = Runtime::new(&cache).unwrap().load(&path, site).await.unwrap();
+
+        Some((std::sync::Arc::new(plugin), cache))
+    }
+
+    #[tokio::test]
+    async fn the_locks_plugin_makes_a_second_session_wait_until_the_first_releases() {
+        let sandbox = crate::tool::tests::Sandbox::new("locks-plugin");
+        let Some((plugin, cache)) = locks(&sandbox).await else {
+            return;
+        };
+        assert_eq!(plugin.capabilities, ["store", "tools"]);
+        sandbox.ctx.engine.hooks.set(vec![plugin], vec![]);
+        let lock = sandbox.ctx.engine.plugin_tools().remove(0);
+        let first = sandbox.ctx_clone();
+        let mut second = sandbox.ctx_clone();
+        second.session_id = "ses_second".into();
+        let run = |ctx: &'static str, input: serde_json::Value| {
+            let ctx = if ctx == "first" { &first } else { &second };
+            lock.run(ctx, input)
+        };
+
+        let taken = run(
+            "first",
+            serde_json::json!({ "action": "acquire", "name": "merge", "reason": "gates" }),
+        );
+        assert!(taken.await.unwrap().output.starts_with("Acquired merge"));
+        let refused = run(
+            "second",
+            serde_json::json!({ "action": "acquire", "name": "merge", "wait_seconds": 0 }),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            refused.0.contains("held by build (session ses_test)") && refused.0.contains("for gates"),
+            "{}",
+            refused.0
+        );
+        let mistaken = run("second", serde_json::json!({ "action": "release", "name": "merge" })).await;
+        assert!(mistaken.is_err(), "only the holder releases without force");
+
+        let waiting = run("second", serde_json::json!({ "action": "acquire", "name": "merge" }));
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            run("first", serde_json::json!({ "action": "release", "name": "merge" })).await
+        };
+        let (acquired, released) = tokio::join!(waiting, release);
+        assert_eq!(released.unwrap().output, "Released merge.");
+        assert!(acquired.unwrap().output.starts_with("Acquired merge"));
+        let listed = run("first", serde_json::json!({ "action": "list" })).await.unwrap();
+        assert!(
+            listed.output.starts_with("merge: held by build (session ses_second)"),
+            "{}",
+            listed.output
+        );
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[tokio::test]
+    async fn a_finished_subagents_locks_free_and_a_conversations_stay_until_it_is_deleted() {
+        let sandbox = crate::tool::tests::Sandbox::new("locks-plugin-ends");
+        let Some((plugin, cache)) = locks(&sandbox).await else {
+            return;
+        };
+        let ask = |session: &str, worker: bool, input: serde_json::Value| crate::hook::ToolRequest {
+            session_id: session.into(),
+            workspace: String::new(),
+            agent: "general".into(),
+            tool: "lock".into(),
+            input,
+            waited_ms: 0,
+            worker,
+        };
+        let take = |session, worker, name| {
+            ask(
+                session,
+                worker,
+                serde_json::json!({ "action": "acquire", "name": name }),
+            )
+        };
+        let ended = |id: &str, kind| SessionEvent {
+            id: id.into(),
+            workspace: String::new(),
+            title: String::new(),
+            agent: String::new(),
+            kind,
+        };
+        let list = || async {
+            match plugin
+                .call_tool(&ask("ses_any", false, serde_json::json!({ "action": "list" })))
+                .await
+            {
+                crate::hook::ToolAnswer::Done(text) => text,
+                other => panic!("{other:?}"),
+            }
+        };
+
+        for request in [take("ses_worker", true, "bench"), take("ses_chat", false, "merge")] {
+            assert!(matches!(
+                plugin.call_tool(&request).await,
+                crate::hook::ToolAnswer::Done(_)
+            ));
+        }
+        plugin.session(&ended("ses_worker", SessionKind::Idle)).await;
+        plugin.session(&ended("ses_chat", SessionKind::Idle)).await;
+        let listed = list().await;
+        assert!(listed.starts_with("merge:") && !listed.contains("bench"), "{listed}");
+
+        plugin.session(&ended("ses_chat", SessionKind::Deleted)).await;
+        assert_eq!(list().await, "No locks are held.");
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[tokio::test]

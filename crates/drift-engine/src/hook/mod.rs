@@ -13,6 +13,7 @@ mod error;
 mod events;
 mod languages;
 pub mod settings;
+mod tools;
 #[cfg(feature = "wasm-plugins")]
 pub mod wasm;
 
@@ -181,6 +182,31 @@ pub struct SessionEvent {
     pub kind: SessionKind,
 }
 
+/// One call of a plugin's tool, asked again after each `wait` answer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolRequest {
+    pub session_id: String,
+    pub workspace: String,
+    pub agent: String,
+    pub tool: String,
+    pub input: Value,
+    /// How long this call has waited so far.
+    pub waited_ms: u64,
+    /// The caller is a subagent.
+    pub worker: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolAnswer {
+    Done(String),
+    Failed(String),
+    /// Not yet: ask again after `retry_ms`, showing `status` meanwhile.
+    Wait {
+        retry_ms: u32,
+        status: String,
+    },
+}
+
 /// One plugin. Every method has a do-nothing default so a hook answers only what it cares about.
 #[async_trait]
 pub trait Hook: Send + Sync {
@@ -243,6 +269,15 @@ pub trait Hook: Send + Sync {
             self.name()
         )))
     }
+
+    /// Tools it adds for the model.
+    fn tools(&self) -> Vec<crate::llm::ToolSpec> {
+        Vec::new()
+    }
+
+    async fn call_tool(&self, request: &ToolRequest) -> ToolAnswer {
+        ToolAnswer::Failed(format!("{} has no tool named {}", self.name(), request.tool))
+    }
 }
 
 /// One `plugins` entry of drift.json: a path, or a path with the plugin's own config.
@@ -290,7 +325,7 @@ pub struct PluginInfo {
     /// Its config object from drift.json, so Settings can show and edit it.
     #[serde(default)]
     pub config: Value,
-    /// The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers.
+    /// The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), `lsp` when Drift starts its language servers, and `tools` when it adds tools.
     #[serde(default)]
     pub capabilities: Vec<String>,
     /// What it declares through the `configurable` world; Settings shows a form for them.
@@ -307,6 +342,8 @@ pub struct Hooks {
     loaded: RwLock<Vec<PluginInfo>>,
     /// Every plugin's secrets together, rebuilt when the plugins change.
     masks: RwLock<Arc<crate::llm::mask::Masks>>,
+    /// Every plugin's tools together, rebuilt when the plugins change.
+    tools: RwLock<Vec<Arc<dyn crate::tool::Tool>>>,
     #[cfg(feature = "wasm-plugins")]
     runtime: std::sync::OnceLock<Result<wasm::Runtime, Error>>,
 }
@@ -328,6 +365,7 @@ impl Hooks {
         }
 
         *self.masks.write().unwrap() = Arc::new(masks);
+        *self.tools.write().unwrap() = tools::of(&hooks);
         *self.hooks.write().unwrap() = hooks;
         *self.loaded.write().unwrap() = loaded;
     }
@@ -335,6 +373,11 @@ impl Hooks {
     /// The secrets to hide from every request and reveal in every tool call.
     pub fn masks(&self) -> Arc<crate::llm::mask::Masks> {
         self.masks.read().unwrap().clone()
+    }
+
+    /// Every plugin's tools, in plugin order; a name an earlier plugin took is left out.
+    pub fn tools(&self) -> Vec<Arc<dyn crate::tool::Tool>> {
+        self.tools.read().unwrap().clone()
     }
 
     /// Every plugin's web search providers, in plugin order; a repeated id keeps its first plugin.

@@ -848,6 +848,7 @@ export const drift = {
     "drift.plugins.capability.http": "ağ",
     "drift.plugins.capability.notify": "bildirimler",
     "drift.plugins.capability.lsp": "dil sunucuları başlatır",
+    "drift.plugins.capability.tools": "araç ekler",
     "drift.registry.sources": "Kaynaklar",
     "drift.registry.sources.editTitle": "Kaynağı düzenle",
     "drift.registry.sources.kindLabel": "Nerede",

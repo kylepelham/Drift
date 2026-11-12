@@ -495,6 +495,13 @@ Found in 30 days of `drift.db` (322,000 tool calls).
 - [x] Hex dumps, disassembly listings, checksums, `cmp`, `diff` and `command -v` count as read-only
 - [x] An edit with identical strings says how to insert; the Windows shell note warns that Python writes CRLF
 
+## 2.7.0: what Ona asked for
+
+From the Ona project's wishlist (#22): its GPU job limit and merge and bench locks were kept by hand and by sleep loops.
+
+- [x] Plugins add tools: the `tooling` world's `tools()` and `call-tool`, offered after the built-ins; a `wait` answer is asked again without spending a turn, up to ten minutes (an hour in a subagent)
+- [x] `plugins/locks`: a `lock` tool to acquire, release and list named locks; acquiring waits for the holder, and a lock frees at its ttl, when its holder is deleted, or when a subagent holding it finishes
+
 ## Readability and tooling pass
 
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`

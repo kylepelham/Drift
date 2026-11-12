@@ -1373,6 +1373,13 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   draws a field per setting with rows and `+ Add` for lists and pairs (`settings-plugin-form.tsx`,
   drafts in `state/plugin-settings.ts`), before the registry's fields and raw JSON. The package stays
   `@0.2.0`, since a new version would break the imports of components already built.
+- Tools (`hook::tools`): a plugin built for the `tooling` world exports `tools()`, read once at load
+  into `ToolSpec`s, and `call-tool`. `Hooks::tools` wraps each in a `PluginTool`, the first plugin
+  keeping a name two declare; `Engine::plugin_tools` drops any a built-in names, and `offer` puts
+  the rest between the built-ins and MCP tools (also in `offered_tools` and `GET /tools`).
+  `PluginTool::run` loops while the plugin answers `wait`: it shows the status as running
+  `metadata.output`, sleeps the retry delay clamped to 100 ms to 60 s, and asks again with
+  `waited-ms`, failing once `Context::wait_cap` has passed. The capability list gains `tools`.
 - Bundles (`config::bundles`): a Claude Code plugin folder unpacked from an archive pinned to a
   commit under the config directory's `bundles/<id>/` (`config::archive` does the fetching and
   unpacking for skill packs too). `Layout::read` finds its skills, commands, agents, `.mcp.json`

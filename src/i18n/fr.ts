@@ -861,6 +861,7 @@ export const drift = {
     "drift.plugins.capability.http": "réseau",
     "drift.plugins.capability.notify": "notifications",
     "drift.plugins.capability.lsp": "lance des serveurs de langage",
+    "drift.plugins.capability.tools": "ajoute des outils",
     "drift.registry.sources": "Sources",
     "drift.registry.sources.editTitle": "Modifier la source",
     "drift.registry.sources.kindLabel": "Où elle se trouve",

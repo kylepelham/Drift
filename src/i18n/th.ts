@@ -833,6 +833,7 @@ export const drift = {
     "drift.plugins.capability.http": "เครือข่าย",
     "drift.plugins.capability.notify": "การแจ้งเตือน",
     "drift.plugins.capability.lsp": "เริ่มเซิร์ฟเวอร์ภาษา",
+    "drift.plugins.capability.tools": "เพิ่มเครื่องมือ",
     "drift.registry.sources": "แหล่งที่มา",
     "drift.registry.sources.editTitle": "แก้ไขแหล่งที่มา",
     "drift.registry.sources.kindLabel": "อยู่ที่ไหน",

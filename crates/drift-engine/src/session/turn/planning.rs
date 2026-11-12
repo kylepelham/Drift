@@ -398,6 +398,7 @@ impl Engine {
             .into_iter()
             .map(|tool| (tool.spec_for(self), tool))
             .filter(|(spec, _)| self.built_in_available(&spec.name, repository))
+            .chain(self.plugin_tools().into_iter().map(|tool| (tool.spec(), tool)))
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !withheld(&spec.name))

@@ -855,6 +855,7 @@ export const drift = {
     "drift.plugins.capability.http": "red",
     "drift.plugins.capability.notify": "avisos",
     "drift.plugins.capability.lsp": "inicia servidores de lenguaje",
+    "drift.plugins.capability.tools": "añade herramientas",
     "drift.registry.sources": "Fuentes",
     "drift.registry.sources.editTitle": "Editar fuente",
     "drift.registry.sources.kindLabel": "Dónde está",

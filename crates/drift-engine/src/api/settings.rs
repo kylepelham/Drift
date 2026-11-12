@@ -263,7 +263,8 @@ pub(super) async fn tools(
         .tools
         .offered(ToolProfile::Edit)
         .into_iter()
-        .chain(engine.tools.offered(ToolProfile::ApplyPatch));
+        .chain(engine.tools.offered(ToolProfile::ApplyPatch))
+        .chain(engine.plugin_tools());
     let mcp = engine.mcp.tools(&engine.store, workspace.as_deref());
     let mut names: Vec<ToolName> = Vec::new();
     for tool in builtin.chain(mcp) {

@@ -849,6 +849,7 @@ export const drift = {
     "drift.plugins.capability.http": "netværk",
     "drift.plugins.capability.notify": "beskeder",
     "drift.plugins.capability.lsp": "starter sprogservere",
+    "drift.plugins.capability.tools": "tilføjer værktøjer",
     "drift.registry.sources": "Kilder",
     "drift.registry.sources.editTitle": "Rediger kilde",
     "drift.registry.sources.kindLabel": "Hvor den er",

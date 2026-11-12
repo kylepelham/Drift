@@ -2911,7 +2911,7 @@ export interface components {
         };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
-            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers. */
+            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), `lsp` when Drift starts its language servers, and `tools` when it adds tools. */
             capabilities?: string[];
             /** @description Its config object from drift.json, so Settings can show and edit it. */
             config?: unknown;

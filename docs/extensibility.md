@@ -6,7 +6,7 @@
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
    servers (see [mcp.md](mcp.md)), per-family base prompts in Settings > Prompts, and engine
-   plugins: WebAssembly components that see tool calls and session events and can add languages (below). The engine runs
+   plugins: WebAssembly components that see tool calls and session events and can add languages and tools (below). The engine runs
    no JavaScript. Plugins written for opencode are named in the import summary and not run.
 2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
@@ -243,6 +243,36 @@ Drift does not know. Both exports are asked once, when the plugin loads.
 registry's `slang` does the same for the Slang shading language, with Khronos' grammar and `slangd`.
 The app copies each grammar out of the engine store into plain data, since the syntax worker that
 tokenizes off the main thread is posted it and a store proxy cannot be posted.
+
+### Adding tools
+
+A plugin built for the `tooling` world (the `configurable` world plus two exports) adds tools the
+model can call. `tools()` names them, asked once at load, each with a name, a description and its
+parameters as JSON Schema text (a tool whose parameters are not JSON is logged and left out). Every
+turn offers them after the built-in tools and before MCP tools; a built-in tool of the same name
+wins, and when two plugins name one tool the first listed keeps it, both logged. Settings lists
+"adds tools" among what the plugin can reach.
+
+`call-tool(request)` gets the session, workspace, agent, tool name and the model's input as JSON,
+and answers `done` with the result, `failed` with why, or `wait` with a retry delay and a status. On
+`wait` the engine asks again after that delay (kept from 100 ms to a minute), with `waited-ms` set to
+how long the call has waited, while the tool card shows the status. The model spends no turn
+meanwhile, and Stop ends the wait. After ten minutes of waiting (an hour in a subagent, which
+`worker` says the caller is) the call fails with the last status. Each ask is one plugin call with
+the usual five second budget, so a plugin waits by answering `wait`, never by blocking.
+
+Plugin tools are allowed without asking unless the user's permission rules name them, as built-in
+tools are, under the tool's own name. Their calls pass through every plugin's `before-tool` and
+`after-tool` like any other. A read-only agent never calls one, since a plugin may write files or run
+programs.
+
+`plugins/locks` is that plugin: one `lock` tool to `acquire`, `release` or `list` named locks shared
+by every conversation and subagent, such as a merge or benchmark lock. Acquiring waits through
+`wait` answers until the lock is free (or `wait_seconds` runs out; 0 tries once), and acquiring a lock
+the session already holds starts its time over. A lock frees itself after `ttl_minutes` (60 by
+default), when its holder is deleted, and when a subagent holding it finishes; a conversation keeps
+its locks between turns. Releasing another session's lock needs `force`, for a holder that is gone,
+such as one Drift stopped by restarting. Locks live in the plugin's store, so a restart keeps them.
 
 ## Skills
 

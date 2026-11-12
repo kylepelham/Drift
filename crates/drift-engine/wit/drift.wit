@@ -212,6 +212,46 @@ interface types {
         /// The grammar as `.tmLanguage.json` text, with its `scopeName` and `patterns`.
         json: string,
     }
+
+    /// A tool the plugin adds for the model.
+    record tool-spec {
+        /// Its name as the model calls it; a built-in tool or an earlier plugin's of the same name wins.
+        name: string,
+        /// What the model reads to decide when and how to call it.
+        description: string,
+        /// Its input as a JSON Schema object, as text.
+        parameters: string,
+    }
+
+    /// One call of the plugin's tool, asked again after each `wait` answer until it is done or fails.
+    record tool-request {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        tool: string,
+        /// The model's input as JSON.
+        input: string,
+        /// How long this call has waited so far; 0 the first time it is asked.
+        waited-ms: u64,
+        /// The caller is a subagent, not a conversation.
+        worker: bool,
+    }
+
+    variant tool-answer {
+        /// The result the model reads.
+        done(string),
+        /// The call failed; the model reads why.
+        failed(string),
+        /// Not yet: Drift asks again after a while, costing the model no turn.
+        wait(pending),
+    }
+
+    record pending {
+        /// When to ask again; Drift keeps it from 100 ms to a minute.
+        retry-ms: u32,
+        /// What the call is waiting for, shown to the user meanwhile and to the model if Drift gives up.
+        status: string,
+    }
 }
 
 interface host {
@@ -311,4 +351,14 @@ world languages {
     use types.{language-server, grammar};
     export language-servers: func() -> list<language-server>;
     export grammars: func() -> list<grammar>;
+}
+
+/// A plugin that adds tools the model can call, allowed without asking unless the user's rules say otherwise.
+/// `tools` is asked once when the plugin loads. A call that answers `wait` is asked again until it is done,
+/// fails, or has waited ten minutes (an hour in a subagent); the model spends no turn meanwhile.
+world tooling {
+    include configurable;
+    use types.{tool-spec, tool-request, tool-answer};
+    export tools: func() -> list<tool-spec>;
+    export call-tool: func(request: tool-request) -> tool-answer;
 }

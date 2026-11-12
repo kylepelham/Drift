@@ -846,6 +846,7 @@ export const drift = {
     "drift.plugins.capability.http": "mreža",
     "drift.plugins.capability.notify": "obavijesti",
     "drift.plugins.capability.lsp": "pokreće jezičke servere",
+    "drift.plugins.capability.tools": "dodaje alate",
     "drift.registry.sources": "Izvori",
     "drift.registry.sources.editTitle": "Uredi izvor",
     "drift.registry.sources.kindLabel": "Gdje se nalazi",

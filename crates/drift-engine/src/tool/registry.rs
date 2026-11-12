@@ -69,13 +69,23 @@ impl Registry {
 }
 
 impl crate::Engine {
-    /// Every tool a turn starting now in `workspace` could be offered: the built-ins for the profile, then every server's connected there.
+    /// Every tool a turn starting now in `workspace` could be offered: the built-ins for the profile, the plugins',
+    /// then every server's connected there.
     pub fn offered_tools(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<Arc<dyn Tool>> {
         self.tools
             .offered(profile)
             .into_iter()
+            .chain(self.plugin_tools())
             .chain(self.mcp.tools(&self.store, workspace))
             .collect()
+    }
+
+    /// The plugins' tools but those named as a built-in is, which always wins.
+    pub fn plugin_tools(&self) -> Vec<Arc<dyn Tool>> {
+        let mut tools = self.hooks.tools();
+        tools.retain(|tool| self.tools.get(&tool.spec().name).is_none());
+
+        tools
     }
 
     pub fn tool_specs(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<ToolSpec> {
