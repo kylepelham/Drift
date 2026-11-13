@@ -15,6 +15,7 @@ export const sections = [
     "Skills",
     "MCP",
     "Plugins",
+    "Language Servers",
     "Prompts",
     "Permissions",
     "Storage",

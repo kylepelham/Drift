@@ -46,9 +46,10 @@ or JSON) with the registry's defaults, its size and a link to its source. Instal
 component over https, checks it against the registry's SHA-256, writes it to
 `~/.config/drift/plugins/<id>.wasm`, adds the entry with its config to `drift.json` (the file is
 rewritten as JSON, so a comment in it does not survive) and reloads (`POST /plugins/install`).
-Remove on the Installed tab takes the entry and the file away (`DELETE /plugins`); Edit opens the
-same fields prefilled with what drift.json holds, or the raw object for a plugin no registry
-describes, and saves with `PUT /plugins/config`. Installed rows show the same picture, looked up in the registries by the
+Remove on the Installed tab takes the entry and the file away (`DELETE /plugins`). Edit appears only
+for a plugin that declares its settings (below): it opens that form prefilled with what drift.json
+holds and saves with `PUT /plugins/config`. A plugin that declares none has no Edit and no JSON box;
+its config, if it takes any, is set in drift.json by hand. Installed rows show the same picture, looked up in the registries by the
 plugin's path; installed MCP servers show the logo they were installed with (`drift.mcp.logos`,
 backfilled from the GitHub catalog for servers installed earlier), so both pages share one tile
 (`LogoTile`): the image, or the name's initial.
@@ -200,8 +201,8 @@ Drift reads them once, when the plugin loads. `host.config()` returns the stored
 declared key you left unset filled in with its default, so the plugin need not repeat its defaults.
 Saving refuses a value that does not fit its kind ("Limit is a whole number") and writes nothing;
 keys the plugin does not declare are kept as they are. Empty rows are dropped when you save. A
-plugin built for `plugin` alone has no form: its registry entry's fields are shown if it has them,
-its raw JSON otherwise.
+plugin that declares no settings (built for `plugin` alone, or answering an empty list) has no Edit
+button, so a plugin that wants settings changed from the app must declare them.
 
 ### Answering web searches
 
@@ -238,9 +239,12 @@ Drift does not know. Both exports are asked once, when the plugin loads.
   plugin load changes them, and views shown before they arrived highlight again. Highlighting keeps a grammar it
   has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
 
-`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and starts
-`roc_language_server` unless `config.server` names another command (empty turns it off). The
-registry's `slang` does the same for the Slang shading language, with Khronos' grammar and `slangd`.
+`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and declares
+`roc_language_server`, which Drift starts only when it is on PATH and Settings > Language servers
+lists beside the built-in ones (under "From roc") with its switch. A language plugin has no setting
+for its server: a missing server does nothing, and the switch turns it off. The registry's `slang`
+adds Khronos' grammar for the Slang shading language; `slangd` itself is one of Drift's built-in
+servers.
 The app copies each grammar out of the engine store into plain data, since the syntax worker that
 tokenizes off the main thread is posted it and a store proxy cannot be posted.
 

@@ -775,7 +775,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn the_roc_plugin_adds_its_grammar_and_a_server_that_settings_names_and_config_can_turn_off() {
+    async fn the_roc_plugin_adds_its_grammar_and_its_server_and_has_no_settings() {
         let Some(roc) = built("roc") else { return };
         let cache = crate::platform::temp::test_run().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let runtime = Runtime::new(&cache).unwrap();
@@ -804,12 +804,10 @@ pub(crate) mod tests {
         assert_eq!((grammars[0].name.as_str(), grammars[0].plugin.as_str()), ("roc", "roc"));
         assert_eq!(grammars[0].grammar["scopeName"], "source.roc");
 
-        let off = runtime
-            .load(&roc, site(serde_json::json!({ "server": "" })))
-            .await
-            .unwrap();
-        assert!(off.language_servers().is_empty() && off.capabilities.is_empty());
-        assert_eq!(off.grammars().len(), 1);
+        assert!(
+            plugin.settings.is_empty(),
+            "Settings > Language servers turns its server off, not a setting"
+        );
         let _ = std::fs::remove_dir_all(&cache);
     }
 

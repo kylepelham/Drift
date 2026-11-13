@@ -235,6 +235,13 @@ pub(super) const BUILTIN: &[Builtin] = &[
         &["dockerfile"],
         Root::Nearest(&[]),
     ),
+    // A shader tree is often a vendored repository, so slangd roots at its own.
+    server(
+        "slang",
+        &[&["slangd"]],
+        &[".slang", ".slangh"],
+        Root::Nearest(&[&[".git"]]),
+    ),
 ];
 
 /// Where the server for `file` roots, or `None` when it is not used for that file.

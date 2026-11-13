@@ -224,3 +224,25 @@ async fn local_ollama_is_listed_before_it_answers_and_its_address_must_be_a_web_
         assert_eq!(response_status(put).await, 400, "{typed}");
     }
 }
+
+#[tokio::test]
+async fn language_servers_are_listed_with_how_each_stands_and_an_unknown_one_is_not_installed() {
+    let harness = harness().await;
+    let servers = json_response(harness.get("/lsp")).await;
+    let slang = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|server| server["name"] == "slang")
+        .unwrap();
+    assert_eq!(
+        (slang["source"].as_str(), slang["command"].as_str()),
+        (Some("builtin"), Some("slangd"))
+    );
+    assert!(slang["guide"].as_str().unwrap().starts_with("https://"));
+
+    let refused = harness
+        .post("/lsp/install")
+        .json(&json!({ "name": "nothing-like-this" }));
+    assert_eq!(response_status(refused).await, 422);
+}

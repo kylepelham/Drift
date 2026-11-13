@@ -61,12 +61,25 @@ impl Grammar {
 impl Hooks {
     /// Every plugin's language servers, in plugin order; a repeated id keeps its first plugin.
     pub fn language_servers(&self) -> Vec<LanguageServer> {
+        self.language_servers_by_plugin()
+            .into_iter()
+            .map(|(_, server)| server)
+            .collect()
+    }
+
+    /// As [`Self::language_servers`], each with the name of the plugin that declares it.
+    pub fn language_servers_by_plugin(&self) -> Vec<(String, LanguageServer)> {
         let mut seen = HashSet::new();
 
         self.list()
             .iter()
-            .flat_map(|hook| hook.language_servers())
-            .filter(|server| seen.insert(server.id.clone()))
+            .flat_map(|hook| {
+                let plugin = hook.name().to_owned();
+                hook.language_servers()
+                    .into_iter()
+                    .map(move |server| (plugin.clone(), server))
+            })
+            .filter(|(_, server)| seen.insert(server.id.clone()))
             .collect()
     }
 

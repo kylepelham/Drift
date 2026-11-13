@@ -11,6 +11,7 @@ export type Target = { url: string; token: string };
  */
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
+export type LspStatus = components["schemas"]["LspStatus"];
 export type Grammar = components["schemas"]["Grammar"];
 export type SkillPack = components["schemas"]["Pack"];
 export type Bundle = components["schemas"]["Bundle"];
@@ -195,6 +196,17 @@ export function createClient(target: Target) {
             request<Json<"setBundlePart", 200>>("PUT", "/bundles/parts", { id, kind, name, enabled }),
         configurePlugin: (path: string, config: unknown) =>
             request<Json<"configurePlugin", 200>>("PUT", "/plugins/config", { path, config }),
+        languageServers: (workspaceId?: string) =>
+            request<Json<"listLanguageServers", 200>>(
+                "GET",
+                `/lsp${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`,
+            ),
+        checkLanguageServer: (name: string, workspace?: string) =>
+            request<Json<"checkLanguageServer", 200>>("POST", "/lsp/check", { name, workspace }),
+        installLanguageServer: (name: string, workspace?: string) =>
+            request<Json<"installLanguageServer", 200>>("POST", "/lsp/install", { name, workspace }),
+        setLanguageServerEnabled: (name: string, enabled: boolean, workspace?: string) =>
+            request<Json<"setLanguageServerEnabled", 200>>("PUT", "/lsp/enabled", { name, enabled, workspace }),
         tools: (workspaceId?: string) =>
             request<Json<"listTools", 200>>(
                 "GET",

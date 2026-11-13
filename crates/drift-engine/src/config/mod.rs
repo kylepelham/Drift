@@ -33,7 +33,7 @@ pub use file::{
     WorktreeFile,
 };
 pub use overrides::{AgentOverride, ModelPin};
-pub use user::{set_local_server, user_plugins, user_providers};
+pub use user::{set_local_server, set_lsp_enabled, user_lsp, user_plugins, user_providers};
 
 use crate::permission::{Decision, Policy, Rule};
 use crate::session::types::ModelRef;

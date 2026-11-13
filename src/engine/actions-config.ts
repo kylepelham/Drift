@@ -340,6 +340,15 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             requireClient().installPlugin(body),
         removePlugin: (path: string) => requireClient().removePlugin(path),
         configurePlugin: (path: string, config: unknown) => requireClient().configurePlugin(path, config),
+        /** Every language server and how it stands; with a folder, its drift.json and node_modules count too. */
+        languageServers: (directory?: string) =>
+            requireClient().languageServers(directory ? workspaces().id(directory) : undefined),
+        checkLanguageServer: (name: string, directory?: string) =>
+            requireClient().checkLanguageServer(name, directory ? workspaces().id(directory) : undefined),
+        installLanguageServer: (name: string, directory?: string) =>
+            requireClient().installLanguageServer(name, directory ? workspaces().id(directory) : undefined),
+        setLanguageServerEnabled: (name: string, enabled: boolean, directory?: string) =>
+            requireClient().setLanguageServerEnabled(name, enabled, directory ? workspaces().id(directory) : undefined),
         skills: (directory?: string) => requireClient().skills(directory ? workspaces().id(directory) : undefined),
         setSkillEnabled: (path: string, enabled: boolean, directory?: string) =>
             requireClient().setSkillEnabled(path, enabled, directory ? workspaces().id(directory) : undefined),

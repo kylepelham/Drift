@@ -1,6 +1,6 @@
-import { buildConfig, fieldText } from "../state/plugin-registry";
 import { configFrom, draftFrom } from "../state/plugin-settings";
 import { PluginSettingsForm } from "./settings-plugin-form";
+import { fieldText } from "../state/plugin-registry";
 import { createSignal, For, Show } from "solid-js";
 import { LogoTile } from "./logo-tile";
 import { IconArrowUp } from "./icons";
@@ -91,7 +91,7 @@ export function ConfigFields(props: {
     );
 }
 
-/** Edits an installed plugin's settings: the form it declares, else registry fields, else its raw JSON. */
+/** Edits an installed plugin's settings with the form it declares; a plugin that declares none has no editor. */
 export function EditSheet(props: {
     plugin: PluginInfo;
     registry?: RegistryPlugin;
@@ -103,39 +103,8 @@ export function EditSheet(props: {
         props.plugin.config && typeof props.plugin.config === "object"
             ? (props.plugin.config as Record<string, unknown>)
             : {};
-    const [typed, setTyped] = createSignal<Record<string, string>>({});
-    const [raw, setRaw] = createSignal(JSON.stringify(stored(), null, 2));
     const declared = () => props.plugin.settings ?? [];
     const [draft, setDraft] = createSignal(draftFrom(declared(), stored()));
-    const form = () => {
-        if (declared().length) return "declared";
-        return props.registry?.config.length ? "registry" : "raw";
-    };
-
-    const rawValid = () => {
-        try {
-            const parsed: unknown = JSON.parse(raw());
-
-            return !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
-        } catch {
-            return false;
-        }
-    };
-    const config = () => {
-        if (form() === "declared") return configFrom(declared(), draft(), stored());
-        const registry = props.registry;
-        if (!registry) return JSON.parse(raw());
-
-        const values = stored();
-        const initial = Object.fromEntries(
-            registry.config.map((field) => [
-                field.key,
-                fieldText(field, field.key in values ? values[field.key] : field.default),
-            ]),
-        );
-
-        return buildConfig(registry.config, { ...initial, ...typed() });
-    };
 
     return (
         <div class="space-y-4">
@@ -158,25 +127,7 @@ export function EditSheet(props: {
                     </Show>
                 </div>
             </div>
-            <Show when={form() === "declared"}>
-                <PluginSettingsForm settings={declared()} draft={draft()} onDraft={setDraft} />
-            </Show>
-            <Show when={form() === "raw"}>
-                <div class="space-y-2 rounded-lg border border-edge bg-surface p-3">
-                    <div class="text-xs text-ink-muted">{t("drift.plugins.configRaw")}</div>
-                    <textarea
-                        spellcheck={false}
-                        aria-label={t("drift.plugins.configRaw")}
-                        class="h-48 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
-                        classList={{ "border-danger/60": !rawValid() }}
-                        value={raw()}
-                        onInput={(event) => setRaw(event.currentTarget.value)}
-                    />
-                </div>
-            </Show>
-            <Show when={form() === "registry"}>
-                <ConfigFields fields={props.registry!.config} typed={typed()} onTyped={setTyped} values={stored()} />
-            </Show>
+            <PluginSettingsForm settings={declared()} draft={draft()} onDraft={setDraft} />
             <div class="flex items-center justify-end gap-2">
                 <button
                     class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
@@ -186,8 +137,8 @@ export function EditSheet(props: {
                 </button>
                 <button
                     class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={props.busy || (form() === "raw" && !rawValid())}
-                    onClick={() => void props.onSave(config())}
+                    disabled={props.busy}
+                    onClick={() => void props.onSave(configFrom(declared(), draft(), stored()))}
                 >
                     {t(props.busy ? "drift.plugins.saving" : "common.save")}
                 </button>

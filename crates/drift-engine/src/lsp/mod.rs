@@ -4,6 +4,8 @@
 //! just carries no diagnostics.
 
 mod client;
+mod setup;
+mod status;
 mod table;
 
 use std::collections::{BTreeMap, HashMap};
@@ -16,6 +18,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 
 use client::Client;
 pub use client::Diagnostic;
+pub use status::{LspSource, LspState, LspStatus};
 
 use crate::config::LspConfig;
 
@@ -126,6 +129,7 @@ fn language(spec: &Spec, file: &Path) -> String {
         "tex" => "latex",
         "bib" => "bibtex",
         "typ" | "typc" => "typst",
+        "slangh" => "slang",
         "" if file
             .file_name()
             .is_some_and(|name| name.eq_ignore_ascii_case("dockerfile")) =>
@@ -157,6 +161,8 @@ pub struct Servers {
     starting: Mutex<HashMap<Slot, Arc<tokio::sync::Mutex<()>>>>,
     /// A start that failed, by root and server: a server missing at one root may be installed in another's `node_modules`.
     failed: Mutex<HashMap<Slot, Instant>>,
+    /// What the last check of each server from Settings found, by its name: `Err` says why it did not answer.
+    checked: Mutex<HashMap<String, Result<(), String>>>,
     reaping: std::sync::atomic::AtomicBool,
 }
 

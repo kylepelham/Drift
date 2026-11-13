@@ -20,6 +20,7 @@ export const sectionLabels: Record<Section, string> = {
     Skills: "drift.settings.skills",
     MCP: "dialog.mcp.title",
     Plugins: "drift.settings.plugins",
+    "Language Servers": "drift.lsp.title",
     Prompts: "drift.settings.prompts",
     Permissions: "drift.settings.permissions",
     Storage: "drift.storage",
@@ -33,7 +34,18 @@ export const sectionGroups: { label: string; items: Section[] }[] = [
     },
     {
         label: "settings.section.server",
-        items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
+        items: [
+            "Tools",
+            "Browser",
+            "Providers",
+            "Usage",
+            "Skills",
+            "MCP",
+            "Plugins",
+            "Language Servers",
+            "Prompts",
+            "Permissions",
+        ],
     },
     { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ];
@@ -234,6 +246,7 @@ const settingsSearchDefinitions = {
         { title: "drift.plugins.tab.registry", description: "drift.skills.registrySource" },
         { title: "drift.registry.sources", description: "drift.registry.sources.pluginsDescription" },
     ],
+    "Language Servers": [{ title: "drift.lsp.title" }],
     Plugins: [
         { title: "drift.settings.plugins", description: "drift.plugins.empty" },
         { title: "drift.plugins.tab.registry", description: "drift.plugins.registrySource" },

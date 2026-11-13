@@ -1,4 +1,4 @@
-use super::{FILE, File, ProviderConfig, home, jsonc};
+use super::{FILE, File, LspConfig, ProviderConfig, home, jsonc};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -62,6 +62,73 @@ fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, PluginPathError> {
     }
 
     Ok(root.join(relative))
+}
+
+/// The language servers the user's own drift.json turns off or adds.
+pub fn user_lsp() -> BTreeMap<String, LspConfig> {
+    home()
+        .and_then(|home| user_file(&home))
+        .map(|file| file.lsp)
+        .unwrap_or_default()
+}
+
+/// Turns a language server off in the user's drift.json (`false`), or takes that away so it is on again; a server
+/// the file adds itself stays as it is.
+pub fn set_lsp_enabled(name: &str, enabled: bool) -> Result<(), super::plugins::PluginError> {
+    set_lsp_enabled_in(&super::plugins::config_dir()?, name, enabled)
+}
+
+fn set_lsp_enabled_in(dir: &Path, name: &str, enabled: bool) -> Result<(), super::plugins::PluginError> {
+    super::plugins::edit_file(dir, |_, file| {
+        let lsp = file.entry("lsp").or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(lsp) = lsp else {
+            return Ok(());
+        };
+        let off = lsp.get(name) == Some(&Value::Bool(false));
+        match (enabled, lsp.contains_key(name)) {
+            (true, _) if off => {
+                lsp.remove(name);
+            }
+            (false, false) => {
+                lsp.insert(name.to_owned(), Value::Bool(false));
+            }
+            _ => {}
+        }
+
+        if lsp.is_empty() {
+            file.remove("lsp");
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod lsp_tests {
+    use super::*;
+
+    #[test]
+    fn a_server_turned_off_is_false_in_drift_json_and_on_again_takes_that_away_keeping_the_users_own() {
+        let dir = crate::platform::temp::test_run().join(format!("drift-lsp-enabled-{}", crate::random_hex(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let own = r#"{ "model": "m", "lsp": { "mine": { "command": ["mine"], "extensions": [".x"] } } }"#;
+        std::fs::write(dir.join(FILE), own).unwrap();
+        let read = || serde_json::from_str::<Value>(&std::fs::read_to_string(dir.join(FILE)).unwrap()).unwrap();
+
+        set_lsp_enabled_in(&dir, "gopls", false).unwrap();
+        set_lsp_enabled_in(&dir, "mine", false).unwrap();
+        assert_eq!(read()["lsp"]["gopls"], false);
+        assert_eq!(
+            read()["lsp"]["mine"]["command"][0],
+            "mine",
+            "the user's own server is never overwritten"
+        );
+
+        set_lsp_enabled_in(&dir, "gopls", true).unwrap();
+        set_lsp_enabled_in(&dir, "mine", true).unwrap();
+        assert!(read()["lsp"].get("gopls").is_none());
+        assert_eq!(read()["model"], "m");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// Saves where a local server listens and the largest window its models run with in the user's drift.json;

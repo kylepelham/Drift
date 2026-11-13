@@ -157,7 +157,7 @@ export function PluginsSection() {
 
     const installedPaths = createMemo(() => new Set(plugins().map((plugin) => plugin.path)));
     const installedBundles = createMemo(() => new Set(bundles().map((bundle) => bundle.id)));
-    // Registry metadata supplies images and editable config fields for installed plugins.
+    // Registry metadata supplies images and descriptions for installed plugins.
     const [known, setKnown] = createSignal<Record<string, RegistryPlugin>>({});
     onMount(() => {
         void loadRegistrySources({
@@ -339,16 +339,18 @@ function PluginRow(props: {
                 >
                     {props.confirming ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
                 </button>
-                <button
-                    type="button"
-                    disabled={props.disabled}
-                    title={t("common.edit")}
-                    aria-label={t("common.edit")}
-                    class="flex items-center rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-40"
-                    onClick={() => props.onEdit()}
-                >
-                    <IconSquarePen class="size-3.5" />
-                </button>
+                <Show when={props.plugin.settings?.length}>
+                    <button
+                        type="button"
+                        disabled={props.disabled}
+                        title={t("common.edit")}
+                        aria-label={t("common.edit")}
+                        class="flex items-center rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-40"
+                        onClick={() => props.onEdit()}
+                    >
+                        <IconSquarePen class="size-3.5" />
+                    </button>
+                </Show>
                 <Toggle
                     label={props.plugin.name}
                     checked={props.plugin.enabled}

@@ -10,6 +10,7 @@ pub use events::Lease;
 mod health;
 mod images;
 mod local_servers;
+mod lsp;
 mod mcp;
 mod permissions;
 mod processes;
@@ -133,6 +134,10 @@ fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::install_plugin))
         .routes(routes!(settings::remove_plugin))
         .routes(routes!(settings::configure_plugin))
+        .routes(routes!(lsp::list))
+        .routes(routes!(lsp::check))
+        .routes(routes!(lsp::install))
+        .routes(routes!(lsp::set_enabled))
 }
 
 fn skill_routes() -> OpenApiRouter<Arc<Engine>> {

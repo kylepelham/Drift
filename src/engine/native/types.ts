@@ -220,6 +220,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/lsp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every language server Drift could use, where it comes from, and whether it is installed and answers. */
+        get: operations["listLanguageServers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts a server, waits up to 30 seconds for it to answer and stops it; the list says what it found. */
+        post: operations["checkLanguageServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Turns a server off in the user's drift.json, or on again. */
+        put: operations["setLanguageServerEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Installs a missing built-in server with the package manager the list offered; only Drift's own commands run. */
+        post: operations["installLanguageServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mcp": {
         parameters: {
             query?: never;
@@ -2559,6 +2627,42 @@ export interface components {
             extensions: string[];
             language?: string | null;
         };
+        LspEnabled: {
+            enabled: boolean;
+            name: string;
+            workspace?: string | null;
+        };
+        LspServer: {
+            name: string;
+            workspace?: string | null;
+        };
+        /** @enum {string} */
+        LspSource: "builtin" | "plugin" | "config";
+        /** @enum {string} */
+        LspState: "off" | "missing" | "found" | "running" | "works" | "failed";
+        LspStatus: {
+            /** @description The command it starts with, the first of those tried when it has several. */
+            command: string;
+            /** @description Why it did not start or answer. */
+            error?: string | null;
+            extensions: string[];
+            /** @description Where its install guide is. */
+            guide?: string | null;
+            /** @description The command Install runs, for a missing server whose package manager is here. */
+            install?: string | null;
+            /** @description The language it serves, as people name it. */
+            label: string;
+            /** @description Its name in drift.json's `lsp`. */
+            name: string;
+            /** @description The programs an install needs, when none of them is here. */
+            needs?: string[];
+            /** @description The program that runs, when one is installed. */
+            path?: string | null;
+            /** @description The plugin that declares it. */
+            plugin?: string | null;
+            source: components["schemas"]["LspSource"];
+            state: components["schemas"]["LspState"];
+        };
         Message: {
             /** @description The stored account that sent the request, whose reasoning signatures only it can send back. */
             account?: string | null;
@@ -4244,6 +4348,103 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listLanguageServers: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose drift.json and `node_modules/.bin` count too. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    checkLanguageServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspServer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    setLanguageServerEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    installLanguageServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspServer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
