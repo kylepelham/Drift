@@ -20,7 +20,7 @@ pub mod wasm;
 pub use error::Error;
 pub use events::relay_session_events;
 pub(crate) use events::session_event;
-pub use languages::{Grammar, LanguageServer};
+pub use languages::{Grammar, LanguageServer, ServerSetup};
 pub use settings::Setting;
 
 /// Where a plugin lives and what it may reach: its drift.json entry, its config, and the engine for host calls.

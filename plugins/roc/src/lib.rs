@@ -1,10 +1,12 @@
 //! Adds the Roc language: a grammar that highlights `.roc` files and `roc` code fences, and Roc's language
 //! server, `roc_language_server`, so an edit to a `.roc` file comes back with the errors it left. Drift starts it
-//! only when it is on PATH, and Settings > Language servers turns it off.
+//! only when it is on PATH; Settings > Language servers lists it with a link to Roc's install guide.
 
 wit_bindgen::generate!({ world: "languages", path: "../../crates/drift-engine/wit" });
 
 const SERVER: &str = "roc_language_server";
+
+use drift::plugin::types::ServerSetup;
 
 struct Roc;
 
@@ -23,6 +25,9 @@ impl Guest for Roc {
             command: vec![SERVER.into()],
             extensions: vec![".roc".into()],
             language: Some("roc".into()),
+            label: "Roc".into(),
+            // roc_language_server ships in Roc's own release archives, which no package manager installs.
+            setup: ServerSetup::Guide("https://www.roc-lang.org/install".into()),
         }]
     }
 

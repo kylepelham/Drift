@@ -186,6 +186,13 @@ function ServerRow(props: {
                         {t("drift.lsp.needs", { programs: (props.server.needs ?? []).join(" / ") })}
                     </span>
                 </Show>
+                <Show when={props.server.state === "missing" && props.server.note}>
+                    {(note) => (
+                        <span class="max-w-56 truncate text-xs text-ink-faint" title={note()}>
+                            {note()}
+                        </span>
+                    )}
+                </Show>
                 <Show when={props.server.state === "missing" && props.server.guide}>
                     {(guide) => (
                         <button

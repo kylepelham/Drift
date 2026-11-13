@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use crate::hook::ServerSetup;
+
 /// How long an install may take before it is stopped.
 const INSTALL_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// How much of a failed install's output is kept to show.
@@ -178,8 +180,8 @@ pub(super) fn of(name: &str) -> Option<&'static Setup> {
 }
 
 impl Setup {
-    /// Every command that installs it, in the order they are tried.
-    pub(super) fn recipes(&self) -> Vec<Vec<String>> {
+    /// How it is installed: Drift's commands for it with its guide, or the guide alone.
+    pub(super) fn server_setup(&self) -> ServerSetup {
         let npm = (!self.npm.is_empty()).then(|| {
             let global = |manager: &[&str]| manager.iter().chain(self.npm).map(ToString::to_string).collect();
             [
@@ -187,39 +189,50 @@ impl Setup {
                 global(&["bun", "add", "--global"]),
             ]
         });
-
-        npm.into_iter()
+        let commands: Vec<Vec<String>> = npm
+            .into_iter()
             .flatten()
             .chain(
                 self.other
                     .iter()
                     .map(|command| command.iter().map(ToString::to_string).collect()),
             )
-            .collect()
-    }
-
-    /// The first install command whose program `found` finds, with that program's path.
-    pub(super) fn recipe(
-        &self,
-        found: impl Fn(&str) -> Option<std::path::PathBuf>,
-    ) -> Option<(std::path::PathBuf, Vec<String>)> {
-        self.recipes().into_iter().find_map(|recipe| {
-            let (program, args) = recipe.split_first()?;
-            found(program).map(|path| (path, args.to_vec()))
-        })
-    }
-
-    /// The programs an install needs, one of which is missing when there is no recipe to run.
-    pub(super) fn needs(&self) -> Vec<String> {
-        let mut needs: Vec<String> = self
-            .recipes()
-            .into_iter()
-            .filter_map(|recipe| recipe.first().cloned())
             .collect();
-        needs.dedup();
 
-        needs
+        if commands.is_empty() {
+            return ServerSetup::Guide(self.guide.to_owned());
+        }
+        ServerSetup::Install {
+            commands,
+            guide: self.guide.to_owned(),
+        }
     }
+}
+
+/// The first install command whose program `found` finds, with that program's path.
+pub(super) fn recipe(
+    setup: &ServerSetup,
+    found: impl Fn(&str) -> Option<std::path::PathBuf>,
+) -> Option<(std::path::PathBuf, Vec<String>)> {
+    let ServerSetup::Install { commands, .. } = setup else {
+        return None;
+    };
+
+    commands.iter().find_map(|command| {
+        let (program, args) = command.split_first()?;
+        found(program).map(|path| (path, args.to_vec()))
+    })
+}
+
+/// The programs an install needs, one of which is missing when there is no recipe to run.
+pub(super) fn needs(setup: &ServerSetup) -> Vec<String> {
+    let ServerSetup::Install { commands, .. } = setup else {
+        return Vec::new();
+    };
+    let mut needs: Vec<String> = commands.iter().filter_map(|command| command.first().cloned()).collect();
+    needs.dedup();
+
+    needs
 }
 
 /// Runs `program` with `args` to install a server, with the current PATH; its output's tail when it fails.

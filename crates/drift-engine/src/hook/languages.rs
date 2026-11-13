@@ -16,6 +16,20 @@ pub struct LanguageServer {
     pub command: Vec<String>,
     pub extensions: Vec<String>,
     pub language: Option<String>,
+    /// The language as people name it.
+    pub label: String,
+    pub setup: ServerSetup,
+}
+
+/// How a language server is installed, as Settings > Language servers offers it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ServerSetup {
+    /// Commands tried in order, the first whose program is on PATH run on Install, and a guide.
+    Install { commands: Vec<Vec<String>>, guide: String },
+    /// A page that says how to get it.
+    Guide(String),
+    /// Neither applies; where it comes from instead.
+    None(String),
 }
 
 /// A TextMate grammar a plugin adds, as the app loads it into its highlighter.
@@ -29,7 +43,7 @@ pub struct Grammar {
     /// The `.tmLanguage.json` object.
     #[schema(value_type = Object)]
     pub grammar: Value,
-    /// The plugin that added it.
+    /// The plugin that added it, or `drift` for one Drift ships.
     pub plugin: String,
 }
 
@@ -58,6 +72,19 @@ impl Grammar {
     }
 }
 
+/// Grammars Drift ships for languages the highlighter does not bundle: Slang, Khronos' grammar from its VS Code extension.
+static BUILT_IN: std::sync::LazyLock<Vec<Grammar>> = std::sync::LazyLock::new(|| {
+    let slang = Grammar::parse(
+        "drift",
+        "slang".into(),
+        Vec::new(),
+        vec![".slang".into(), ".slangh".into()],
+        include_str!("../../data/grammars/slang.tmLanguage.json"),
+    );
+
+    slang.into_iter().collect()
+});
+
 impl Hooks {
     /// Every plugin's language servers, in plugin order; a repeated id keeps its first plugin.
     pub fn language_servers(&self) -> Vec<LanguageServer> {
@@ -83,13 +110,14 @@ impl Hooks {
             .collect()
     }
 
-    /// Every plugin's grammars, in plugin order; a repeated name keeps its first plugin.
+    /// Every plugin's grammars in plugin order, then Drift's own; a repeated name keeps the first.
     pub fn grammars(&self) -> Vec<Grammar> {
         let mut seen = HashSet::new();
 
         self.list()
             .iter()
             .flat_map(|hook| hook.grammars())
+            .chain(BUILT_IN.iter().cloned())
             .filter(|grammar| seen.insert(grammar.name.to_lowercase()))
             .collect()
     }
@@ -144,6 +172,8 @@ mod tests {
             command: vec![command.into()],
             extensions: vec![".roc".into()],
             language: None,
+            label: id.into(),
+            setup: ServerSetup::Guide("https://example.com".into()),
         }
     }
 
@@ -177,7 +207,14 @@ mod tests {
         assert!(matches!(&servers["roc"], LspConfig::Custom { command, .. } if command == &["roc_ls"]));
 
         let names: Vec<_> = hooks.grammars().into_iter().map(|g| (g.plugin, g.name)).collect();
-        assert_eq!(names, [("a".into(), "Roc".into()), ("b".into(), "hare".into())]);
+        assert_eq!(
+            names,
+            [
+                ("a".into(), "Roc".into()),
+                ("b".into(), "hare".into()),
+                ("drift".into(), "slang".into())
+            ]
+        );
     }
 
     #[test]

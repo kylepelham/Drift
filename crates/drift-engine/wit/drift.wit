@@ -199,6 +199,28 @@ interface types {
         extensions: list<string>,
         /// The LSP language id it is told; by the file's extension when none.
         language: option<string>,
+        /// The language as people name it, as Settings > Language servers lists it.
+        label: string,
+        /// How someone without it gets it, offered beside it in Settings.
+        setup: server-setup,
+    }
+
+    /// How a language server is installed. Every server says: commands Install runs when it can, else a guide,
+    /// else why neither applies.
+    variant server-setup {
+        /// One-click install: commands tried in order, the first whose program is on PATH run when the user asks,
+        /// and a guide for when none is.
+        install(server-install),
+        /// Only a page that says how to get it.
+        guide(string),
+        /// Neither applies, such as a private or bundled server; says where it comes from instead.
+        none(string),
+    }
+
+    record server-install {
+        /// Each a program and its arguments, such as ["npm", "install", "--global", "roc-ls"].
+        commands: list<list<string>>,
+        guide: string,
     }
 
     /// A TextMate grammar that highlights code, in files and in Markdown code fences.

@@ -83,15 +83,16 @@ pub(super) async fn check(State(engine): State<Arc<Engine>>, Json(body): Json<Ls
     statuses(&engine, body.workspace.as_deref())
 }
 
-/// Installs a missing built-in server with the package manager the list offered; only Drift's own commands run.
+/// Installs a missing server with the command the list offered: Drift's own for a built-in, its plugin's otherwise.
 #[utoipa::path(post, path = "/lsp/install", operation_id = "installLanguageServer", request_body = LspServer, responses((status = 200, body = Vec<LspStatus>), (status = 422)))]
 pub(super) async fn install(
     State(engine): State<Arc<Engine>>,
     Json(body): Json<LspServer>,
 ) -> Result<Json<Vec<LspStatus>>, ApiError> {
+    let scope = scope(&engine, body.workspace.as_deref());
     engine
         .lsp
-        .install(&body.name)
+        .install(&body.name, &scope.config, &scope.plugins)
         .await
         .map_err(|why| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "install", why))?;
 

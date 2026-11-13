@@ -378,6 +378,15 @@ impl From<wit::LanguageServer> for LanguageServer {
             command: server.command,
             extensions: server.extensions,
             language: server.language,
+            label: server.label,
+            setup: match server.setup {
+                wit::ServerSetup::Install(install) => crate::hook::ServerSetup::Install {
+                    commands: install.commands,
+                    guide: install.guide,
+                },
+                wit::ServerSetup::Guide(guide) => crate::hook::ServerSetup::Guide(guide),
+                wit::ServerSetup::None(why) => crate::hook::ServerSetup::None(why),
+            },
         }
     }
 }
@@ -798,6 +807,8 @@ pub(crate) mod tests {
                 command: vec!["roc_language_server".into()],
                 extensions: vec![".roc".into()],
                 language: Some("roc".into()),
+                label: "Roc".into(),
+                setup: crate::hook::ServerSetup::Guide("https://www.roc-lang.org/install".into()),
             }]
         );
         let grammars = plugin.grammars();

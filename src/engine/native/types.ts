@@ -280,7 +280,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Installs a missing built-in server with the package manager the list offered; only Drift's own commands run. */
+        /** Installs a missing server with the command the list offered: Drift's own for a built-in, its plugin's otherwise. */
         post: operations["installLanguageServer"];
         delete?: never;
         options?: never;
@@ -2345,7 +2345,7 @@ export interface components {
             grammar: Record<string, never>;
             /** @description The language's name, which a code fence uses; it replaces a bundled language of the same name. */
             name: string;
-            /** @description The plugin that added it. */
+            /** @description The plugin that added it, or `drift` for one Drift ships. */
             plugin: string;
         };
         /** @description What the user approved with "always": kept for the workspace, across sessions and restarts. */
@@ -2656,6 +2656,8 @@ export interface components {
             name: string;
             /** @description The programs an install needs, when none of them is here. */
             needs?: string[];
+            /** @description Where it comes from, for a plugin's server with neither an install nor a guide. */
+            note?: string | null;
             /** @description The program that runs, when one is installed. */
             path?: string | null;
             /** @description The plugin that declares it. */

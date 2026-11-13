@@ -1,0 +1,2332 @@
+{
+  "name": "Slang",
+  "scopeName": "source.slang",
+  "patterns": [
+    {
+      "include": "#preprocessor"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#hover-kind-prefix"
+    },
+    {
+      "include": "#attributes"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#compile-time"
+    },
+    {
+      "include": "#spirv-asm-blocks"
+    },
+    {
+      "include": "#enum-definitions"
+    },
+    {
+      "include": "#buffer-definitions"
+    },
+    {
+      "include": "#type-declaration-headers"
+    },
+    {
+      "include": "#extension-base-type"
+    },
+    {
+      "include": "#type-declarations"
+    },
+    {
+      "include": "#associatedtype-declarations"
+    },
+    {
+      "include": "#typealias-types"
+    },
+    {
+      "include": "#typedef-types"
+    },
+    {
+      "include": "#return-types"
+    },
+    {
+      "include": "#cast-types"
+    },
+    {
+      "include": "#generic-parameters"
+    },
+    {
+      "include": "#modern-type-annotations"
+    },
+    {
+      "include": "#traditional-declarations"
+    },
+    {
+      "include": "#where-clauses"
+    },
+    {
+      "include": "#semantics"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#function-calls"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+    "repository": {
+    "attribute-arguments": {
+      "patterns": [
+        {
+          "name": "meta.attribute.arguments.slang",
+          "begin": "\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.group.slang"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.group.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#attribute-arguments"
+            },
+            {
+              "include": "#types"
+            },
+            {
+              "include": "#constants"
+            },
+            {
+              "include": "#keywords"
+            },
+            {
+              "match": "::|\\.",
+              "name": "punctuation.accessor.attribute.slang"
+            },
+            {
+              "include": "#operators"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b",
+              "name": "variable.other.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.slang",
+          "begin": "(?<![\\w\\]\\)])(\\[\\[?)(?=[A-Za-z_])",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.attribute.begin.slang"
+            }
+          },
+          "end": "(\\]\\]?)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.attribute.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#attribute-arguments"
+            },
+            {
+              "match": "::|\\.",
+              "name": "punctuation.accessor.attribute.slang"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b",
+              "name": "entity.name.type.attribute.slang"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.attribute.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "array-extents": {
+      "patterns": [
+        {
+          "name": "meta.array.extent.slang",
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.slang"
+            }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": "\\b(?:each|expand|optional|nonempty|__first|__last|__trimFirst|__trimLast|__packBranch)\\b",
+              "name": "keyword.operator.expression.slang"
+            },
+            {
+              "match": "(?:::|\\.)",
+              "name": "punctuation.accessor.slang"
+            },
+            {
+              "match": "\\+\\+|--|<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|[+\\-*/%&|^~!=<>?:]",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "base-type-clause": {
+      "patterns": [
+        {
+          "name": "meta.inheritance.slang",
+          "begin": "(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.separator.type.annotation.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\bwhere\\b|\\{|;))",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#type-reference-list"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "associatedtype-declarations": {
+      "patterns": [
+        {
+          "name": "meta.declaration.associatedtype.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((associatedtype))\\b\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "3": {
+              "name": "keyword.declaration.slang"
+            },
+            "4": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*;)",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#declaration-generic-parameters"
+            },
+            {
+              "name": "meta.associatedtype.constraint.slang",
+              "begin": "(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:\\bwhere\\b|;))",
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "include": "#type-reference-list"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "include": "#where-clauses"
+            }
+          ]
+        }
+      ]
+    },
+    "buffer-definitions": {
+      "patterns": [
+        {
+          "name": "meta.declaration.buffer.slang",
+          "begin": "(?x)\\b(buffer)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=[^;]*\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*;)",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "meta.buffer.body.slang",
+              "begin": "\\{",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.section.group.slang"
+                }
+              },
+              "end": "\\}",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.section.group.slang"
+                }
+              },
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "include": "#attributes"
+                },
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#compile-time"
+                },
+                {
+                  "include": "#traditional-declarations"
+                },
+                {
+                  "include": "#modern-type-annotations"
+                },
+                {
+                  "include": "#semantics"
+                },
+                {
+                  "include": "#types"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#constants"
+                },
+                {
+                  "include": "#function-calls"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*;)",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "cast-types": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(as|is)\\b\\s+((?!if\\b|else\\b|switch\\b|case\\b|default\\b|return\\b|for\\b|while\\b|do\\b|break\\b|continue\\b|discard\\b|defer\\b)(?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?:[),;:\\]}]|\\?|$))",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.slang",
+          "begin": "/\\*[*!](?!/)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.slang"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#doc-tags"
+            }
+          ]
+        },
+        {
+          "name": "comment.line.documentation.slang",
+          "begin": "//[/!](?:<)?",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.slang"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#doc-tags"
+            }
+          ]
+        },
+        {
+          "name": "comment.block.slang",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.slang"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.slang"
+            }
+          }
+        },
+        {
+          "name": "comment.line.double-slash.slang",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "compile-time": {
+      "patterns": [
+        {
+          "match": "\\$for\\b",
+          "name": "keyword.control.compile-time.slang"
+        },
+        {
+          "match": "\\$[A-Za-z_][A-Za-z_0-9]*\\b",
+          "name": "variable.other.compile-time.slang"
+        },
+        {
+          "match": "\\bRange\\b(?=\\s*\\()",
+          "name": "support.function.compile-time.slang"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "match": "\\b(?:true|false|nullptr|none)\\b",
+          "name": "constant.language.slang"
+        }
+      ]
+    },
+    "declaration-generic-parameters": {
+      "patterns": [
+        {
+          "name": "meta.generic.parameters.slang",
+          "begin": "<",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.generic.begin.slang"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.generic.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "name": "meta.generic.value-parameter.slang",
+              "begin": "(?x)\\b(let)\\b(?:\\s+(each)\\b)?\\s+([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.declaration.slang"
+                },
+                "2": {
+                  "name": "keyword.operator.expression.slang"
+                },
+                "3": {
+                  "name": "variable.parameter.slang"
+                },
+                "4": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:=|,|>))",
+              "patterns": [
+                {
+                  "include": "#type-reference-list"
+                }
+              ]
+            },
+            {
+              "name": "meta.generic.constraint.slang",
+              "begin": "(?x)\\b(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.operator.expression.slang"
+                },
+                "2": {
+                  "name": "entity.name.type.slang"
+                },
+                "3": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:=|,|>))",
+              "patterns": [
+                {
+                  "include": "#type-reference-list"
+                }
+              ]
+            },
+            {
+              "match": "(?x)\\b(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:,|=|>))",
+              "captures": {
+                "1": {
+                  "name": "keyword.operator.expression.slang"
+                },
+                "2": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "match": "(?x)(?:(?<=<)|(?<=,))\\s*([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:,|=|>))",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "match": "(?x)\\b((?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b",
+              "captures": {
+                "1": {
+                  "name": "storage.type.numeric.slang"
+                },
+                "2": {
+                  "name": "variable.parameter.slang"
+                }
+              }
+            },
+            {
+              "match": "(?x)\\b((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype))\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b",
+              "captures": {
+                "1": {
+                  "name": "storage.type.builtin.slang"
+                },
+                "2": {
+                  "name": "variable.parameter.slang"
+                }
+              }
+            },
+            {
+              "match": "(?x)\\b((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure|(?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer)))\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                },
+                "2": {
+                  "name": "variable.parameter.slang"
+                }
+              }
+            },
+            {
+              "name": "meta.generic.constraint.slang",
+              "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                },
+                "2": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:,|=|>))",
+              "patterns": [
+                {
+                  "include": "#type-reference-list"
+                }
+              ]
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:,|=|>))",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "match": "\\blet\\b",
+              "name": "keyword.declaration.slang"
+            },
+            {
+              "match": "\\b(?:each|expand|optional|nonempty|__first|__last|__trimFirst|__trimLast|__packBranch)\\b",
+              "name": "keyword.operator.expression.slang"
+            },
+            {
+              "match": "=",
+              "name": "keyword.operator.assignment.slang"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "doc-tags": {
+      "patterns": [
+        {
+          "match": "//@\\s*(?:public|internal|hidden|private):",
+          "name": "keyword.other.documentation.visibility.slang"
+        },
+        {
+          "match": "([@\\\\]param)(?:\\s*\\[(?:in|out|inout|ref)\\])?\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.doxygen.slang"
+            },
+            "2": {
+              "name": "variable.parameter.slang"
+            }
+          }
+        },
+        {
+          "match": "[@\\\\](?:return|returns|remarks|remark|see|example|category|internal|experimental|deprecated|brief|details|note|warning|todo|tparam|sa|ref)\\b",
+          "name": "storage.type.class.doxygen.slang"
+        },
+        {
+          "match": "[@\\\\][A-Za-z_][A-Za-z_0-9]*\\b",
+          "name": "storage.type.class.doxygen.slang"
+        },
+        {
+          "match": "`[^`]+`",
+          "name": "markup.inline.raw.string.slang"
+        }
+      ]
+    },
+    "escape-sequences": {
+      "patterns": [
+        {
+          "match": "\\\\(?:['\"?\\\\abfnrtv]|x[0-9A-Fa-f]+|[0-7]{1,3})",
+          "name": "constant.character.escape.slang"
+        }
+      ]
+    },
+    "spirv-asm-blocks": {
+      "patterns": [
+        {
+          "name": "meta.embedded.block.spirv-asm.slang",
+          "begin": "\\b(spirv_asm)\\b\\s*(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.slang"
+            },
+            "2": {
+              "name": "punctuation.section.group.slang"
+            }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.group.slang"
+            }
+          }
+        }
+      ]
+    },
+    "enum-definitions": {
+      "patterns": [
+        {
+          "name": "meta.declaration.enum.slang",
+          "begin": "(?x)\\b(enum)\\b(?:\\s+(class))?\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=[^;\\n]*\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?://|/\\*|;|$))",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#base-type-clause"
+            },
+            {
+              "name": "meta.enum.body.slang",
+              "begin": "\\{",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.section.group.slang"
+                }
+              },
+              "end": "\\}",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.section.group.slang"
+                }
+              },
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#strings"
+                },
+                {
+                  "name": "meta.enum.member.slang",
+                  "begin": "(?x)(?:(?<=\\{)|(?<=,))\\s*([A-Za-z_][A-Za-z_0-9]*)\\b",
+                  "beginCaptures": {
+                    "1": {
+                      "name": "variable.other.enummember.slang"
+                    }
+                  },
+                  "end": "(?=\\s*(?:,|\\}))",
+                  "patterns": [
+                    {
+                      "include": "#comments"
+                    },
+                    {
+                      "include": "#numbers"
+                    },
+                    {
+                      "include": "#strings"
+                    },
+                    {
+                      "include": "#constants"
+                    },
+                    {
+                      "include": "#function-calls"
+                    },
+                    {
+                      "include": "#types"
+                    },
+                    {
+                      "include": "#keywords"
+                    },
+                    {
+                      "include": "#operators"
+                    }
+                  ]
+                },
+                {
+                  "include": "#constants"
+                },
+                {
+                  "include": "#function-calls"
+                },
+                {
+                  "include": "#types"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "function-calls": {
+      "patterns": [
+        {
+          "name": "meta.qualified.type.call.slang",
+          "begin": "(?x)\\b((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure|(?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer)|__[_A-Za-z0-9]*Type|[A-Z][A-Za-z_0-9]*))\\b(?=\\s*(?:<[^;\\n]*>)?\\s*(?:\\.|::)[^;\"'\\n]*\\b[A-Za-z_][A-Za-z_0-9]*\\b\\s*(?:<[^{};\\n]*>\\s*)?\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\b[A-Za-z_][A-Za-z_0-9]*\\b\\s*(?:<[^{};\\n]*>\\s*)?\\()",
+          "patterns": [
+            {
+              "include": "#types"
+            },
+            {
+              "match": "(?x)\\b((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure|(?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer)|__[_A-Za-z0-9]*Type|[A-Z][A-Za-z_0-9]*))\\b(?=\\s*(?:<|\\.|::|$))",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "(?:::|\\.)",
+              "name": "punctuation.accessor.slang"
+            }
+          ]
+        },
+        {
+          "match": "(?x)\\b((?!if\\b|else\\b|switch\\b|case\\b|default\\b|return\\b|try\\b|throw\\b|throws\\b|catch\\b|while\\b|for\\b|do\\b|break\\b|continue\\b|discard\\b|defer\\b|let\\b|var\\b|func\\b|typedef\\b|typealias\\b|property\\b|get\\b|set\\b|class\\b|struct\\b|interface\\b|enum\\b|extension\\b|associatedtype\\b|namespace\\b|using\\b|import\\b|module\\b|implementing\\b|cbuffer\\b|tbuffer\\b|where\\b|syntax\\b|attribute_syntax\\b|semantic\\b|type_param\\b|__generic\\b|__extension\\b|__init\\b|__subscript\\b|__import\\b|__include\\b|__ignored_block\\b|__transparent_block\\b|__file_decl\\b|__require_capability\\b|__generic_value_param\\b|typename\\b|static\\b|const\\b|extern\\b|inline\\b|public\\b|private\\b|internal\\b|protected\\b|uniform\\b|dynamic_uniform\\b|groupshared\\b|shared\\b|volatile\\b|coherent\\b|restrict\\b|readonly\\b|writeonly\\b|export\\b|override\\b|__extern_cpp\\b|param\\b|require\\b|row_major\\b|column_major\\b|nointerpolation\\b|noperspective\\b|linear\\b|sample\\b|centroid\\b|precise\\b|in\\b|out\\b|inout\\b|ref\\b|__ref\\b|__constref\\b|dyn\\b|some\\b|implicit\\b|noncopyable\\b|constexpr\\b|mutating\\b|highp\\b|lowp\\b|mediump\\b|__builtin\\b|__global\\b|point\\b|line\\b|triangle\\b|lineadj\\b|triangleadj\\b|vertices\\b|indices\\b|primitives\\b|payload\\b|__prefix\\b|__postfix\\b|__exported\\b|layout\\b|hitAttributeEXT\\b|__intrinsic_op\\b|__target_intrinsic\\b|__specialized_for_target\\b|__glsl_extension\\b|__glsl_version\\b|__spirv_version\\b|__wgsl_extension\\b|__cuda_sm_version\\b|__builtin_type\\b|__builtin_requirement\\b|__magic_type\\b|__magic_enum\\b|__intrinsic_type\\b|__implicit_conversion\\b|__attributeTarget\\b|as\\b|is\\b|this\\b|This\\b|sizeof\\b|alignof\\b|countof\\b|no_diff\\b|fwd_diff\\b|bwd_diff\\b|__fwd_diff\\b|__bwd_diff\\b|__dispatch_kernel\\b|each\\b|expand\\b|optional\\b|nonempty\\b|spirv_asm\\b|__return_val\\b|__first\\b|__last\\b|__trimFirst\\b|__trimLast\\b|__packBranch\\b|__getAddress\\b|__floatAsInt\\b|true\\b|false\\b|nullptr\\b|none\\b|Range\\b)[A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:<[^<>{}\\[\\];=()\\n&|!?+\\-/%]*(?<=[^\\s])>\\s*)?\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.slang"
+            }
+          }
+        }
+      ]
+    },
+    "extension-base-type": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(extension)\\b(?:\\s*<[^<>{};\\n]*>)?\\s+((?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];=\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?::|\\{|;|\\bwhere\\b))",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.extension.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "generic-parameters": {
+      "patterns": [
+        {
+          "name": "meta.generic.value-parameter.slang",
+          "begin": "(?x)(?:(?<=<)|(?<=,))\\s*(let)\\b(?:\\s+(each)\\b)?\\s+([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "3": {
+              "name": "variable.parameter.slang"
+            },
+            "4": {
+              "name": "punctuation.separator.type.annotation.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|>))",
+          "patterns": [
+            {
+              "include": "#type-reference-list"
+            }
+          ]
+        },
+        {
+          "name": "meta.generic.constraint.slang",
+          "begin": "(?x)(?:(?<=<)|(?<=,))\\s*(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            },
+            "3": {
+              "name": "punctuation.separator.type.annotation.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|>))",
+          "patterns": [
+            {
+              "include": "#type-reference-list"
+            }
+          ]
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*((?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "storage.type.numeric.slang"
+            },
+            "2": {
+              "name": "variable.parameter.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype)(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "storage.type.builtin.slang"
+            },
+            "2": {
+              "name": "variable.parameter.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure|(?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer))(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.slang"
+            },
+            "2": {
+              "name": "variable.parameter.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(:)\\s*((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype)(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.slang"
+            },
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "storage.type.builtin.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)(?:(?<=<)|(?<=,))\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(:)\\s*((?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?:,|=|>))",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.slang"
+            },
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "declarator-name-generic-parameters": {
+      "patterns": [
+        {
+          "name": "meta.declarator.generic.parameters.slang",
+          "begin": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*<[^{};\\n]*>\\s*\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.function.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "patterns": [
+            {
+              "include": "#declaration-generic-parameters"
+            }
+          ]
+        }
+      ]
+    },
+    "type-argument-list": {
+      "patterns": [
+        {
+          "begin": "<",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.generic.begin.slang"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.generic.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": "\\b(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b",
+              "captures": {
+                "1": {
+                  "name": "keyword.operator.expression.slang"
+                },
+                "2": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b(?:let|expand|each|optional|nonempty|__first|__last|__trimFirst|__trimLast|__packBranch|__getAddress|__floatAsInt)\\b",
+              "name": "keyword.operator.expression.slang"
+            },
+            {
+              "include": "#types"
+            },
+            {
+              "match": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)\\b(?=\\s*(?:<|\\[|\\*))",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[()]",
+              "name": "punctuation.section.group.slang"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.slang"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "(?:::|\\.)",
+              "name": "punctuation.accessor.slang"
+            },
+            {
+              "match": "\\+\\+|--|<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|[+\\-/%&|^~!=?:]",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "type-declaration-headers": {
+      "patterns": [
+        {
+          "name": "meta.declaration.type.slang",
+          "begin": "(?x)\\b(enum)\\b(?:\\s+(class))?\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?://|/\\*|\\{|;|$))",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#declaration-generic-parameters"
+            },
+            {
+              "include": "#base-type-clause"
+            },
+            {
+              "include": "#where-clauses"
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.type.slang",
+          "begin": "(?x)\\b(struct|class|interface)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?://|/\\*|\\{|;|$))",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#declaration-generic-parameters"
+            },
+            {
+              "include": "#base-type-clause"
+            },
+            {
+              "include": "#where-clauses"
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.type.slang",
+          "begin": "(?x)\\b(cbuffer|tbuffer)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?://|/\\*|\\{|;|$))",
+          "patterns": [
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "where-clauses": {
+      "patterns": [
+        {
+          "name": "meta.where-clause.slang",
+          "begin": "\\b(where)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.declaration.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\bwhere\\b|\\{|;))",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "name": "meta.where-constraint.slang",
+              "begin": "(?x)\\b(optional)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.operator.expression.slang"
+                },
+                "2": {
+                  "name": "entity.name.type.slang"
+                },
+                "3": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:\\bwhere\\b|\\{|;|$))",
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#type-reference-list"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "name": "meta.where-constraint.slang",
+              "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\b\\s*(:)",
+              "beginCaptures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                },
+                "2": {
+                  "name": "punctuation.separator.type.annotation.slang"
+                }
+              },
+              "end": "(?=\\s*(?:\\bwhere\\b|\\{|;|$))",
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#type-reference-list"
+                },
+                {
+                  "match": "\\b(?:optional|nonempty)\\b",
+                  "name": "keyword.operator.expression.slang"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "include": "#type-reference-list"
+            },
+            {
+              "match": "\\b(?:optional|nonempty)\\b",
+              "name": "keyword.operator.expression.slang"
+            },
+            {
+              "match": "\\b(?:expand|each|__first|__last|__trimFirst|__trimLast|__packBranch)\\b",
+              "name": "keyword.operator.expression.slang"
+            },
+            {
+              "match": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)\\b(?=\\s*(?:==|!=|&&|\\|\\||[+\\-*/%&|^~!=<>?:,()]))",
+              "captures": {
+                "1": {
+                  "name": "entity.name.type.slang"
+                }
+              }
+            },
+            {
+              "include": "#operators"
+            }
+          ]
+        }
+      ]
+    },
+    "hover-kind-prefix": {
+      "patterns": [
+        {
+          "match": "\\((?:parameter|generic type parameter|generic type pack parameter|generic value parameter|generic value pack parameter|associated constant|field|global value|global variable|local value|local variable)\\)(?=\\s+[A-Za-z_])",
+          "name": "meta.annotation.kind-prefix.slang"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "(?<!\\.)(?<!::)(?<!->)\\b(?:if|else|switch|case|default|return|try|throw|throws|catch|while|for|do|break|continue|discard|defer|spirv_asm|__target_switch|__stage_switch|__intrinsic_asm|__GPU_FOREACH)\\b",
+          "name": "keyword.control.slang"
+        },
+        {
+          "match": "(?<!\\.)(?<!::)(?<!->)\\b(?:let|var|func|typedef|typealias|property|get|set|class|struct|interface|enum|extension|associatedtype|namespace|using|import|module|implementing|cbuffer|tbuffer|where|syntax|attribute_syntax|semantic|type_param|__generic|__extension|__init|__subscript|__import|__include|__ignored_block|__transparent_block|__file_decl|__require_capability|__generic_value_param|typename)\\b",
+          "name": "keyword.declaration.slang"
+        },
+        {
+          "match": "(?<!\\.)(?<!::)(?<!->)\\b(?:static|const|extern|inline|public|private|internal|protected|uniform|dynamic_uniform|groupshared|shared|volatile|coherent|restrict|readonly|writeonly|export|override|__extern_cpp|param|require|row_major|column_major|nointerpolation|noperspective|linear|sample|centroid|precise|in|out|inout|ref|__ref|__constref|dyn|some|implicit|noncopyable|constexpr|mutating|highp|lowp|mediump|__builtin|__global|point|line|triangle|lineadj|triangleadj|vertices|indices|primitives|payload|__prefix|__postfix|__exported|layout|hitAttributeEXT|__intrinsic_op|__target_intrinsic|__specialized_for_target|__glsl_extension|__glsl_version|__spirv_version|__wgsl_extension|__cuda_sm_version|__builtin_type|__builtin_requirement|__magic_type|__magic_enum|__intrinsic_type|__implicit_conversion|__attributeTarget)\\b",
+          "name": "storage.modifier.slang"
+        },
+        {
+          "match": "(?<!\\.)(?<!::)(?<!->)\\b(?:as|is|this|This|sizeof|alignof|countof|no_diff|fwd_diff|bwd_diff|__fwd_diff|__bwd_diff|__dispatch_kernel|each|expand|optional|nonempty|__return_val|__first|__last|__trimFirst|__trimLast|__packBranch|__getAddress|__floatAsInt)\\b",
+          "name": "keyword.operator.expression.slang"
+        }
+      ]
+    },
+    "line-continuation": {
+      "patterns": [
+        {
+          "match": "\\\\$",
+          "name": "constant.character.escape.line-continuation.slang"
+        }
+      ]
+    },
+    "modern-type-annotations": {
+      "patterns": [
+        {
+          "name": "meta.type.annotation.slang",
+          "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(:)(?!\\s*(?:SV_[A-Za-z_0-9]+\\b|register\\b|packoffset\\b|read\\b|write\\b))\\s*((?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?)\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "storage.type.numeric.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|\\)|;|\\{|\\}|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.type.annotation.slang",
+          "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(:)(?!\\s*(?:SV_[A-Za-z_0-9]+\\b|register\\b|packoffset\\b|read\\b|write\\b))\\s*((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype))\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "storage.type.builtin.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|\\)|;|\\{|\\}|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.type.annotation.slang",
+          "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(:)(?!\\s*(?:SV_[A-Za-z_0-9]+\\b|register\\b|packoffset\\b|read\\b|write\\b))\\s*((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure))\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|\\)|;|\\{|\\}|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.type.annotation.slang",
+          "begin": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(:)(?!\\s*(?:SV_[A-Za-z_0-9]+\\b|register\\b|packoffset\\b|read\\b|write\\b))\\s*((?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer))\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:=|,|\\)|;|\\{|\\}|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "match": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(:)(?!\\s*(?:SV_[A-Za-z_0-9]+\\b|register\\b|packoffset\\b|read\\b|write\\b))\\s*((?!if\\b|else\\b|switch\\b|case\\b|default\\b|return\\b|for\\b|while\\b|do\\b|break\\b|continue\\b|discard\\b|defer\\b)(?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];=)\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?:=|,|\\)|;|\\{|\\}|\\]|\\bwhere\\b))",
+          "captures": {
+            "2": {
+              "name": "punctuation.separator.type.annotation.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b0[xX][0-9A-Fa-f](?:[0-9A-Fa-f_]*[0-9A-Fa-f])?(?:[uU](?:ll|LL|l|L)?|(?:ll|LL|l|L)[uU]?)?\\b",
+          "name": "constant.numeric.integer.hexadecimal.slang"
+        },
+        {
+          "match": "\\b0[bB][01](?:[01_]*[01])?(?:[uU](?:ll|LL|l|L)?|(?:ll|LL|l|L)[uU]?)?\\b",
+          "name": "constant.numeric.integer.binary.slang"
+        },
+        {
+          "match": "(?x)\\b(?:\\d(?:[\\d_]*\\d)?(?:\\.\\d*(?:[\\d_]*\\d)?)?|\\.\\d(?:[\\d_]*\\d)?)(?:[eE][+-]?\\d(?:[\\d_]*\\d)?)?(?:[fFhH]|lf|LF)?\\b",
+          "name": "constant.numeric.float.slang"
+        },
+        {
+          "match": "\\b\\d(?:[\\d_]*\\d)?(?:[uU](?:ll|LL|l|L)?|(?:ll|LL|l|L)[uU]?)?\\b",
+          "name": "constant.numeric.integer.decimal.slang"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "=>|->|::|\\.",
+          "name": "keyword.operator.access.slang"
+        },
+        {
+          "match": "\\+\\+|--|&&|\\|\\||<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|[+\\-*/%&|^~!=<>?:]",
+          "name": "keyword.operator.slang"
+        },
+        {
+          "match": "[{}()]",
+          "name": "punctuation.section.group.slang"
+        },
+        {
+          "match": "[\\[\\]]",
+          "name": "punctuation.section.brackets.slang"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.slang"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.terminator.statement.slang"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.include.slang",
+          "begin": "^(\\s*)(#)\\s*(include)\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.directive.slang"
+            },
+            "3": {
+              "name": "keyword.control.directive.slang"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#line-continuation"
+            },
+            {
+              "begin": "<",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.begin.slang"
+                }
+              },
+              "end": ">",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.end.slang"
+                }
+              },
+              "name": "string.quoted.other.include.slang"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comments"
+            }
+          ]
+        },
+        {
+          "name": "meta.preprocessor.define.slang",
+          "begin": "^(\\s*)(#)\\s*(define)\\b\\s*([A-Za-z_][A-Za-z_0-9]*)?",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.directive.slang"
+            },
+            "3": {
+              "name": "keyword.control.directive.slang"
+            },
+            "4": {
+              "name": "entity.name.function.preprocessor.slang"
+            }
+          },
+          "end": "(?<!\\\\)$",
+          "patterns": [
+            {
+              "include": "#line-continuation"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "match": "\\bdefined\\b",
+              "name": "keyword.control.directive.slang"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b(?=\\s*\\()",
+              "name": "entity.name.function.preprocessor.slang"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b",
+              "name": "entity.name.other.preprocessor.macro.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.preprocessor.language-version.slang",
+          "begin": "^(\\s*)(#)\\s*(language|lang|version)\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.directive.slang"
+            },
+            "3": {
+              "name": "keyword.control.directive.slang"
+            }
+          },
+          "end": "(?<!\\\\)$",
+          "patterns": [
+            {
+              "include": "#line-continuation"
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": "\\b(?:slang|latest|core|es|compatibility)\\b",
+              "name": "keyword.control.directive.slang"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b",
+              "name": "entity.name.other.preprocessor.macro.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.preprocessor.slang",
+          "begin": "^(\\s*)(#)\\s*(if|ifdef|ifndef|elif|else|endif|undef|pragma|line|error|warning)\\b",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.directive.slang"
+            },
+            "3": {
+              "name": "keyword.control.directive.slang"
+            }
+          },
+          "end": "(?<!\\\\)$",
+          "patterns": [
+            {
+              "include": "#line-continuation"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "match": "\\bdefined\\b",
+              "name": "keyword.control.directive.slang"
+            },
+            {
+              "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b",
+              "name": "entity.name.other.preprocessor.macro.slang"
+            }
+          ]
+        }
+      ]
+    },
+    "return-types": {
+      "patterns": [
+        {
+          "name": "meta.return.type.slang",
+          "begin": "(?x)(->)\\s*((?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.return-type.slang"
+            },
+            "2": {
+              "name": "storage.type.numeric.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\{|;|,|\\)|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.return.type.slang",
+          "begin": "(?x)(->)\\s*((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype))\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.return-type.slang"
+            },
+            "2": {
+              "name": "storage.type.builtin.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\{|;|,|\\)|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.return.type.slang",
+          "begin": "(?x)(->)\\s*((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure))\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.return-type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\{|;|,|\\)|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "name": "meta.return.type.slang",
+          "begin": "(?x)(->)\\s*((?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer))\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.return-type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\{|;|,|\\)|\\]|\\bwhere\\b))",
+          "patterns": [
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            }
+          ]
+        },
+        {
+          "match": "(?x)(->)\\s*((?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*(?:\\{|;|,|\\)|\\]|\\bwhere\\b))",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.return-type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "semantics": {
+      "patterns": [
+        {
+          "match": "(:)\\s*(SV_[A-Za-z_0-9]+)\\b",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.semantic.slang"
+            },
+            "2": {
+              "name": "variable.other.enummember.slang"
+            }
+          }
+        },
+        {
+          "match": "(:)\\s*(register|packoffset|read|write)\\b",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.semantic.slang"
+            },
+            "2": {
+              "name": "support.function.semantic.slang"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.slang",
+          "begin": "R\"([^\"\\r\\n()]*)\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.slang"
+            }
+          },
+          "end": "\\)\\1\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.slang"
+            }
+          }
+        },
+        {
+          "name": "string.quoted.double.slang",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.slang"
+            }
+          },
+          "end": "\"|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escape-sequences"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.slang",
+          "begin": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.slang"
+            }
+          },
+          "end": "'|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.slang"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escape-sequences"
+            }
+          ]
+        }
+      ]
+    },
+    "traditional-declarations": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(implementing)\\b\\s+([A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)\\b(?=\\s*;)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)(each)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "3": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "5": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)?((?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?)\\b(?=\\s*(?:<[^;\\n]*>\\s*)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "storage.type.numeric.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)?((?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype))\\b(?=\\s*(?:<[^;\\n]*>\\s*)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "storage.type.builtin.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)?((?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure))\\b(?=\\s*(?:<[^;\\n]*>\\s*)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)?((?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer))\\b(?=\\s*(?:<[^;\\n]*>\\s*)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "meta.declaration.traditional.slang",
+          "begin": "(?x)\\b((?:(?:static|const|extern|inline|nointerpolation|noperspective|linear|sample|centroid|precise|shared|groupshared|uniform|volatile|coherent|restrict|readonly|writeonly|export|dynamic_uniform|public|private|internal|protected|param|require|in|out|inout|ref|__ref|__constref|dyn|override|__extern_cpp)\\b\\s+)*)((expand)\\b\\s+)?((?!if\\b|else\\b|switch\\b|case\\b|default\\b|return\\b|for\\b|while\\b|do\\b|break\\b|continue\\b|discard\\b|defer\\b|let\\b|var\\b|func\\b|struct\\b|class\\b|interface\\b|enum\\b|extension\\b|associatedtype\\b|namespace\\b|using\\b|import\\b|module\\b|implementing\\b|typealias\\b|typedef\\b|cbuffer\\b|tbuffer\\b|where\\b|expand\\b|each\\b|optional\\b|nonempty\\b|spirv_asm\\b|__return_val\\b|__first\\b|__last\\b|__trimFirst\\b|__trimLast\\b|__packBranch\\b|__getAddress\\b|__floatAsInt\\b)(?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)\\b(?=\\s*(?:<[^;\\n]*>\\s*)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*\\s*[A-Za-z_][A-Za-z_0-9]*\\b(?:\\s*<[^{};\\n]*>\\s*)?\\s*(?:\\(|=|;|,|\\)|\\[|:))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.slang"
+            },
+            "2": {
+              "name": "keyword.operator.expression.slang"
+            },
+            "4": {
+              "name": "entity.name.type.slang"
+            }
+          },
+          "end": "(?=\\s*(?:\\(|=|;|,|\\)|:))",
+          "patterns": [
+            {
+              "include": "#declarator-name-generic-parameters"
+            },
+            {
+              "include": "#type-argument-list"
+            },
+            {
+              "include": "#array-extents"
+            },
+            {
+              "match": "[\\[\\]]",
+              "name": "punctuation.section.brackets.slang"
+            },
+            {
+              "match": "\\*",
+              "name": "keyword.operator.slang"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.slang"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*(?:=|;|,|\\)|\\[|:))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.slang"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "typealias-types": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(typealias)\\b[^=;\\n]*(=)\\s*((?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)(?=\\s*;)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.typealias.slang"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        }
+      ]
+    },
+    "type-declarations": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(namespace|module)\\b\\s+([A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)\\b(enum)\\b(?:\\s+(class))?\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "3": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)\\b(struct|class|interface)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)\\b(cbuffer|tbuffer)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)\\b(typealias)\\b\\s+([A-Za-z_][A-Za-z_0-9]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.typealias.slang"
+            },
+            "2": {
+              "name": "entity.name.type.alias.slang"
+            }
+          }
+        },
+        {
+          "match": "(?x)\\b(typedef)\\b\\s+[^;\\n=]+\\s+([A-Za-z_][A-Za-z_0-9]*)\\b(?=\\s*;)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.typedef.slang"
+            },
+            "2": {
+              "name": "entity.name.type.alias.slang"
+            }
+          }
+        }
+      ]
+    },
+    "type-reference-list": {
+      "patterns": [
+        {
+          "include": "#types"
+        },
+        {
+          "match": "(?x)\\b([A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*)\\b(?=\\s*(?:<|\\[|\\*|,|>|\\)|\\]|\\{|;|:|\\bwhere\\b|$))",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.slang"
+            }
+          }
+        },
+        {
+          "include": "#type-argument-list"
+        },
+        {
+          "match": "[\\[\\]]",
+          "name": "punctuation.section.brackets.slang"
+        },
+        {
+          "match": "\\*",
+          "name": "keyword.operator.slang"
+        }
+      ]
+    },
+    "typedef-types": {
+      "patterns": [
+        {
+          "match": "(?x)\\b(typedef)\\b\\s+((?:functype\\s*\\([^)]*\\)\\s*->\\s*)?[A-Za-z_][A-Za-z_0-9]*(?:(?:\\s*(?:::|\\.))\\s*[A-Za-z_][A-Za-z_0-9]*)*(?:\\s*<[^<>{}\\[\\];\\n]*>)?(?:\\s*(?:\\[[^\\]\\n]*\\]|\\*))*)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*;)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.typedef.slang"
+            },
+            "2": {
+              "name": "entity.name.type.slang"
+            },
+            "3": {
+              "name": "entity.name.type.alias.slang"
+            }
+          }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "\\b(?:void|bool|int8_t|int16_t|int32_t|int64_t|int|uint8_t|uint16_t|uint32_t|uint64_t|uint|half|float16_t|float32_t|float64_t|float|double|string|vector|matrix|functype)\\b",
+          "name": "storage.type.builtin.slang"
+        },
+        {
+          "match": "\\b(?:bool|int(?:8_t|16_t|32_t|64_t)?|uint(?:8_t|16_t|32_t|64_t)?|half|float(?:16_t|32_t|64_t)?|double)[1-4](?:x[1-4])?\\b",
+          "name": "storage.type.numeric.slang"
+        },
+        {
+          "match": "\\b(?:String|Array|Tuple|Optional|Conditional|Result|Ptr|ImmutablePtr|Atomic|DescriptorHandle|DifferentialPair|ParameterBlock|ConstantBuffer|TextureBuffer|SamplerState|SamplerComparisonState|SubpassInput|SubpassInputMS|RaytracingAccelerationStructure)\\b",
+          "name": "entity.name.type.slang"
+        },
+        {
+          "match": "\\b(?:(?:Depth|Feedback|RasterizerOrdered|RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:MS(?:Array)?)?|Sampler(?:1D|2D|3D|Cube)(?:Array)?(?:Shadow)?|(?:Append|Consume|RW)?StructuredBuffer|(?:RW)?Buffer|(?:RW|RasterizerOrdered)?ByteAddressBuffer)\\b",
+          "name": "entity.name.type.slang"
+        },
+        {
+          "match": "\\b__[_A-Za-z0-9]*Type\\b",
+          "name": "support.type.internal.slang"
+        }
+      ]
+    }
+  }
+}

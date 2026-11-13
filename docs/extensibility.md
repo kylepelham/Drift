@@ -39,7 +39,7 @@ Drift's data.
 Settings > Plugins > Registry lists the plugins at
 [Drift-Plugins](https://github.com/kylepelham/Drift-Plugins): guard, protect-files, auto-format,
 lint-check, test-gate, notify, git-autocommit, git-context and tool-log, the hooks most people run
-in Claude Code, built as components, and slang, a language plugin (category Languages). Cards show the plugin's picture (an SVG tile from the
+in Claude Code, built as components. Cards show the plugin's picture (an SVG tile from the
 repository, through jsDelivr, since raw GitHub serves SVG as text), category, hooks and a line of
 description; the install sheet shows its config fields (text, comma-separated list, switch, number
 or JSON) with the registry's defaults, its size and a link to its source. Install fetches the
@@ -224,8 +224,14 @@ A plugin built for the `languages` world (the `configurable` world plus two expo
 Drift does not know. Both exports are asked once, when the plugin loads.
 
 - `language-servers()`: servers Drift starts as it starts the built-in ones and those in drift.json
-  `lsp`. Each has an id, a command found on PATH, the file name endings it handles and optionally the
-  LSP language id it is told. The errors an edit leaves in those files come back with the edit. Your
+  `lsp`. Each has an id, a command found on PATH, the file name endings it handles, optionally the
+  LSP language id it is told, the language's name as Settings shows it, and its `setup`, which every
+  server must give: `install` (commands tried in order, the first whose program is on PATH run when the
+  user presses Install, plus a guide for when none is), `guide` (only a link), or `none` with a line
+  saying where it comes from, for a private or bundled server. A server is used as shipped: the plugin
+  offers no setting for it, and Settings > Language servers lists it beside the built-in ones (marked
+  with the plugin's name) with its state, Install or Guide, and a switch; the plugin's other settings
+  stay in Settings > Plugins. The errors an edit leaves in those files come back with the edit. Your
   drift.json `lsp` entry of the same id replaces a plugin's server or, set to `false`, turns it off;
   a project's file can turn it off too. Two plugins naming one id: the first listed wins. A plugin
   that declares a server lists "starts language servers" among what it can reach, since Drift runs
@@ -239,12 +245,13 @@ Drift does not know. Both exports are asked once, when the plugin loads.
   plugin load changes them, and views shown before they arrived highlight again. Highlighting keeps a grammar it
   has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
 
+Drift ships one grammar of its own the same way, served after the plugins' (a plugin's grammar of the same
+name replaces it): Slang, Khronos' grammar from the Slang VS Code extension (`data/grammars`, licence in
+`licenses/slang-grammar-LICENSE.txt`), and `slangd` is one of its built-in servers.
+
 `plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and declares
-`roc_language_server`, which Drift starts only when it is on PATH and Settings > Language servers
-lists beside the built-in ones (under "From roc") with its switch. A language plugin has no setting
-for its server: a missing server does nothing, and the switch turns it off. The registry's `slang`
-adds Khronos' grammar for the Slang shading language; `slangd` itself is one of Drift's built-in
-servers.
+`roc_language_server` with a link to Roc's install guide, since Roc's releases ship it and no package
+manager does. Drift starts it only when it is on PATH; a missing server does nothing.
 The app copies each grammar out of the engine store into plain data, since the syntax worker that
 tokenizes off the main thread is posted it and a store proxy cannot be posted.
 
