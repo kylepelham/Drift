@@ -23,6 +23,8 @@ pub(super) struct Buffer {
     written: u64,
     /// Colors and cursor moves are taken out before anything is kept or logged.
     plain: Plain,
+    /// The start of a character the last read split, held until the read that finishes it.
+    partial: Vec<u8>,
 }
 
 /// New output since the model last looked.
@@ -45,6 +47,7 @@ impl Buffer {
             path,
             written: 0,
             plain: Plain::default(),
+            partial: Vec::new(),
         }
     }
 
@@ -57,9 +60,24 @@ impl Buffer {
     }
 
     /// Keeps and logs what a process printed, without escape sequences; returns it as text.
-    pub(super) fn push(&mut self, bytes: &[u8]) -> String {
-        let bytes = self.plain.strip(bytes);
+    pub(super) fn push(&mut self, printed: &[u8]) -> String {
+        let mut bytes = std::mem::take(&mut self.partial);
+        bytes.extend(self.plain.strip(printed));
+        self.partial = bytes.split_off(whole_characters(&bytes));
+        self.keep(&bytes);
 
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    /// Once the output has ended, a character it cut short is kept as U+FFFD rather than lost.
+    pub(super) fn finish(&mut self) {
+        let partial = std::mem::take(&mut self.partial);
+        if !partial.is_empty() {
+            self.keep(String::from_utf8_lossy(&partial).as_bytes());
+        }
+    }
+
+    fn keep(&mut self, bytes: &[u8]) {
         if let Some(log) = self.log.as_mut().filter(|_| self.written < MAX_SPOOLED_BYTES) {
             let room = usize::try_from(MAX_SPOOLED_BYTES - self.written).unwrap_or(usize::MAX);
             let part = &bytes[..bytes.len().min(room)];
@@ -68,14 +86,12 @@ impl Buffer {
             }
         }
 
-        self.kept.extend_from_slice(&bytes);
+        self.kept.extend_from_slice(bytes);
         let over = self.kept.len().saturating_sub(KEPT_BYTES);
         if over > 0 {
             self.kept.drain(..over);
             self.start += over as u64;
         }
-
-        String::from_utf8_lossy(&bytes).into_owned()
     }
 
     pub(super) fn total(&self) -> u64 {
@@ -137,6 +153,20 @@ impl Buffer {
 
 /// Hosts a dev server on this machine announces itself on.
 const LOCAL_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"];
+
+/// How many leading bytes end on a whole character: all but a character cut short at the very end.
+fn whole_characters(bytes: &[u8]) -> usize {
+    let mut from = 0;
+    loop {
+        match std::str::from_utf8(&bytes[from..]) {
+            Ok(_) => return bytes.len(),
+            Err(error) => match error.error_len() {
+                None => return from + error.valid_up_to(),
+                Some(invalid) => from += error.valid_up_to() + invalid,
+            },
+        }
+    }
+}
 
 /// The address a local server prints when it is ready: a local host and a real port. Addresses a test or a log
 /// merely mentions (example.com, a deliberately refused port) are not one.

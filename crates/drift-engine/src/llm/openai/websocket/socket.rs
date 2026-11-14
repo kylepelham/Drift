@@ -20,6 +20,8 @@ type Frame = Option<Result<Message, tokio_tungstenite::tungstenite::Error>>;
 const MAX_EVENT: usize = 16 * 1024 * 1024;
 /// How a wait with no event at all reads; a silent server is no reason to try another transport.
 const SILENCE: &str = "Responses WebSocket received no event within";
+/// How the server ending a connection at its lifetime limit reads; a new socket serves the next request.
+const LIMIT: &str = "the Responses WebSocket reached its connection lifetime";
 
 pub(super) async fn upgraded(stream: reqwest::Upgraded) -> Socket {
     let config = WebSocketConfig::default()
@@ -108,4 +110,13 @@ fn silence(wait: Duration) -> Error {
 /// Whether the connection itself failed (closed, reset, refused a write), rather than the request or a silent server.
 pub(super) fn dropped(error: &Error) -> bool {
     matches!(error, Error::Transport(message) if !message.starts_with(SILENCE))
+}
+
+pub(super) fn limit_reached() -> Error {
+    Error::Transport(format!("{LIMIT}; reconnecting"))
+}
+
+/// Whether the server closed the connection only because it reached its lifetime limit.
+pub(super) fn at_limit(error: &Error) -> bool {
+    matches!(error, Error::Transport(message) if message.starts_with(LIMIT))
 }

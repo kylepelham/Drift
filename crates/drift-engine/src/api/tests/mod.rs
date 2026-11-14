@@ -180,8 +180,21 @@ async fn submit_and_wait(harness: &Harness, session_id: &str, text: &str) {
         .await
         .unwrap();
 
+    let asked = |message: &crate::session::types::MessageWithParts| {
+        message
+            .parts
+            .iter()
+            .any(|part| matches!(&part.part, crate::session::types::Part::Text { text: said, .. } if said == text))
+    };
     for _ in 0..200 {
-        if !harness.engine.turns.is_running(session_id) {
+        let landed = harness
+            .engine
+            .store
+            .messages(session_id, None, 1000)
+            .unwrap()
+            .iter()
+            .any(asked);
+        if landed && !harness.engine.turns.is_running(session_id) {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::MAX_CONNECTIONS;
+use super::{MAX_CONNECTIONS, socket};
 use crate::llm::{ChunkStream, Error};
 
 /// How long a conversation stays on SSE after its WebSocket failed.
@@ -37,9 +37,10 @@ impl Dropped {
         rests.get(key).is_some_and(|rest| rest.until > now)
     }
 
-    /// Notes a failure of the conversation's WebSocket; an API error is the request's own, not the socket's.
+    /// Notes a failure of the conversation's WebSocket. Only a socket that dropped counts: an API error is the
+    /// request's own, a silent server is no fault of the socket, and one at its lifetime limit is simply replaced.
     pub(super) fn note(&self, key: Option<&str>, error: &Error) {
-        let (Some(key), Error::Transport(_)) = (key, error) else {
+        let Some(key) = key.filter(|_| socket::dropped(error) && !socket::at_limit(error)) else {
             return;
         };
 

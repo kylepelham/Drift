@@ -199,3 +199,18 @@ fn a_variant_left_unnamed_and_one_cleared_hash_apart() {
     };
     assert_ne!(payload_hash(&unnamed), payload_hash(&cleared));
 }
+
+#[test]
+fn a_prompt_sent_again_into_a_worktree_is_not_a_replay() {
+    let plain = prompt("x");
+    let isolated = Prompt {
+        worktree: true,
+        ..prompt("x")
+    };
+    assert_ne!(payload_hash(&plain), payload_hash(&isolated));
+    assert_eq!(
+        payload_hash(&plain),
+        "bf51060e8c2294ec4f7ce8c9b861f2e124ec53500cb217afa17f26bf3f2533be",
+        "a prompt without a worktree hashes as it always did"
+    );
+}

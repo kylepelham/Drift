@@ -66,12 +66,16 @@ pub(in crate::session) fn payload_hash(prompt: &Prompt) -> String {
         .variant
         .as_ref()
         .map(|chosen| serde_json::json!({ "chosen": chosen }));
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "parts": prompt.parts,
         "model": prompt.model,
         "variant": variant,
         "agent": prompt.agent,
     });
+    // Only when set, so hashes stored before it was part of the identity still match.
+    if prompt.worktree {
+        body["worktree"] = true.into();
+    }
     let digest = sha2::Sha256::digest(body.to_string().as_bytes());
     let mut hash = String::with_capacity(digest.len() * 2);
     for byte in digest {

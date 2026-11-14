@@ -33,6 +33,7 @@ pub(super) async fn watch(handle: Arc<Handle>, mut child: tokio::process::Child,
     }
     // Closing the job ends anything still in it; nothing is left that should be.
     handle.tree.lock().unwrap().take();
+    handle.state.lock().unwrap().buffer.finish();
 
     handle.end(exit);
     (watcher.changed)(handle.record());

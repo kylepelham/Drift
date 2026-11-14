@@ -32,6 +32,44 @@ fn each_read_hands_over_only_what_is_new_and_the_log_keeps_everything() {
 }
 
 #[test]
+fn a_character_split_between_reads_arrives_whole() {
+    let mut buffer = Buffer::new(log());
+    let text = "naïve → 日本\n";
+    let (head, tail) = text.as_bytes().split_at(text.find('→').unwrap() + 1);
+
+    let first = buffer.push(head);
+    let second = buffer.push(tail);
+
+    assert_eq!(first, "naïve ");
+    assert_eq!(second, "→ 日本\n");
+    assert_eq!(buffer.unread().text, text);
+    assert_eq!(std::fs::read(&buffer.path).unwrap(), text.as_bytes());
+    assert_eq!(
+        buffer.push(b"\xffok"),
+        "\u{fffd}ok",
+        "a byte that is no character passes as one"
+    );
+    std::fs::remove_dir_all(buffer.path.parent().unwrap()).ok();
+}
+
+#[test]
+fn a_character_cut_short_when_output_ends_is_kept_as_a_replacement() {
+    let mut buffer = Buffer::new(log());
+    assert_eq!(buffer.push("done \u{2192}".as_bytes().split_last().unwrap().1), "done ");
+
+    buffer.finish();
+    buffer.finish();
+
+    assert_eq!(buffer.unread().text, "done \u{fffd}");
+    assert_eq!(
+        std::fs::read_to_string(&buffer.path).unwrap(),
+        "done \u{fffd}",
+        "logged once"
+    );
+    std::fs::remove_dir_all(buffer.path.parent().unwrap()).ok();
+}
+
+#[test]
 fn searches_and_waits_look_at_lines() {
     let mut buffer = Buffer::new(log());
     buffer.push(b"compiling\nerror: one\nok\nerror: two\n");

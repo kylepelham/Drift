@@ -338,7 +338,7 @@ impl Engine {
             (Ok(()), _) => {
                 failures.remove(session_id);
             }
-            (Err(_), Trigger::Manual) => {}
+            (Err(_), Trigger::Manual) | (Err(CompactionError::Aborted), _) => {}
             (Err(_), _) => *failures.entry(session_id.into()).or_default() += 1,
         }
 
@@ -581,10 +581,11 @@ impl Engine {
             };
 
             let error = failure.message();
+            dropped += (starts.len() / 5).max(1);
+            // A summary must see at least one turn of the history it replaces.
             if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
                 return Err(CompactionError::Request(error));
             }
-            dropped += (starts.len() / 5).max(1);
         }
 
         Err(CompactionError::TooLong)
