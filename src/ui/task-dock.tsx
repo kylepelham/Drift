@@ -165,6 +165,9 @@ function TaskRow(props: { task: TaskRecord }) {
                     {" "}
                     · @{props.task.agent} · {t(`drift.task.state.${props.task.state}`)}
                 </span>
+                <Show when={props.task.reason === "user"}>
+                    <span class="text-ink-faint"> · {t("drift.task.byYou")}</span>
+                </Show>
                 <Show when={props.task.held && !props.task.delivered}>
                     <span class="text-ink-faint"> · {t("drift.task.held")}</span>
                 </Show>

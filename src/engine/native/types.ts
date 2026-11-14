@@ -1142,6 +1142,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/subagent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts the user's own subagent as `task` would: `async` (the default) in the background, `seq` as the next turn. */
+        post: operations["startSubagent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/tasks": {
         parameters: {
             query?: never;
@@ -3615,6 +3632,15 @@ export interface components {
         };
         /** @enum {string} */
         State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
+        SubagentBody: {
+            /** @description What was typed after `/subagent`: `[seq|async] [model] <prompt>`. */
+            arguments?: string;
+        };
+        /** @description What `/subagent` did: the message it put in the conversation, or the queued prompt it waits in. */
+        SubagentStart: {
+            queued?: components["schemas"]["QueuedPrompt"] | null;
+            receipt?: components["schemas"]["Receipt"] | null;
+        };
         Subcommand: {
             description: string;
             name: string;
@@ -3646,7 +3672,7 @@ export interface components {
             id: string;
             mode: components["schemas"]["Mode"];
             parentSessionId: string;
-            /** @description Why this mode: `requested`, `agent default`, `default` or `background turned off`. */
+            /** @description Why this mode: `requested`, `agent default`, `default`, `background turned off`, or `user` when the user started it. */
             reason: string;
             /** @description Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it. */
             result?: string | null;
@@ -6260,6 +6286,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    startSubagent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubagentBody"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubagentStart"];
                 };
             };
             400: {

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::Engine;
 use crate::event::Event;
+use crate::session::command::subagent;
 use crate::session::turn::{Admission, Prompt, Receipt, TurnError};
 use crate::store::QueuedPrompt;
 
@@ -56,9 +57,19 @@ impl Engine {
             return Ok(None);
         };
         let mut prompt = queued.prompt;
-        prompt.submission_id = Some(format!("queue:{id}"));
+        let submission = format!("queue:{id}");
 
-        let sent = self.submit(&queued.session_id, prompt).await;
+        let sent = match subagent::queued_arguments(&prompt) {
+            Some(arguments) => {
+                self.turns.release_queue(&queued.session_id);
+                self.run_queued_subagent(&queued.session_id, &arguments, submission, true)
+                    .await
+            }
+            None => {
+                prompt.submission_id = Some(submission);
+                self.submit(&queued.session_id, prompt).await.map(Some)
+            }
+        };
         match &sent {
             Ok(_) => {
                 self.store.unqueue_prompt(id)?;
@@ -67,7 +78,7 @@ impl Engine {
         }
         self.publish_queue(&queued.session_id);
 
-        sent.map(Some)
+        sent
     }
 
     /// Starts the first queued prompt's turn when the session is idle and its queue not held by Stop.
@@ -88,12 +99,22 @@ impl Engine {
         let engine = self.clone();
         tokio::spawn(async move {
             let mut prompt = first.prompt.clone();
-            prompt.submission_id = Some(format!("queue:{}", first.id));
-            let how = Admission {
-                new_turn_only: true,
-                ..Admission::default()
+            let submission = format!("queue:{}", first.id);
+            let started = match subagent::queued_arguments(&prompt) {
+                Some(arguments) => engine
+                    .run_queued_subagent(&first.session_id, &arguments, submission, false)
+                    .await
+                    .map(drop),
+                None => {
+                    prompt.submission_id = Some(submission);
+                    let how = Admission {
+                        new_turn_only: true,
+                        ..Admission::default()
+                    };
+                    engine.admit(&first.session_id, prompt, how).await.map(drop)
+                }
             };
-            match engine.admit(&first.session_id, prompt, how).await {
+            match started {
                 Ok(_) => {
                     let _ = engine.store.unqueue_prompt(&first.id);
                 }

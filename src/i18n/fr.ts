@@ -496,6 +496,7 @@ export const drift = {
     "drift.slash.spawn":
         "Démarrer une discussion séparée qui connaît cette conversation et travaille sur votre instruction",
     "drift.slash.spawn.required": "Indiquez ce que la nouvelle discussion doit faire après /spawn.",
+    "drift.slash.subagent": "Lancer votre propre sous-agent sur une tâche pendant que l'agent continue",
     "drift.settings.execution": "Exécution",
     "drift.settings.execution.turns": "Tours",
     "drift.settings.resumeTurns.title": "Reprendre les tours interrompus au redémarrage de Drift",
@@ -1094,6 +1095,7 @@ export const drift = {
     "drift.message.interrupted": "Interrompu",
     "drift.task.title": "Tâches en arrière-plan",
     "drift.task.background": "arrière-plan",
+    "drift.task.byYou": "lancé par vous",
     "drift.task.progress": "{{done}} sur {{total}} terminées",
     "drift.task.finished": "Tâches terminées",
     "drift.task.state.queued": "en attente d'une place",

@@ -88,6 +88,7 @@ fn session_routes() -> OpenApiRouter<Arc<Engine>> {
 fn session_action_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
         .routes(routes!(sessions::spawn))
+        .routes(routes!(sessions::subagent))
         .routes(routes!(sessions::fork))
         .routes(routes!(sessions::move_session))
         .routes(routes!(sessions::compact))

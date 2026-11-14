@@ -369,6 +369,27 @@ async fn workspace_config_and_commands_are_served() {
 }
 
 #[tokio::test]
+async fn the_users_subagent_is_started_over_http_and_a_bad_one_is_refused() {
+    let harness = harness().await;
+    script_replies(&harness, "found", 2);
+    harness
+        .put("/providers/anthropic/key")
+        .json(&json!({ "key": "k" }))
+        .send()
+        .await
+        .unwrap();
+    let (_, session_id) = session_with_model(&harness).await;
+    let path = format!("/sessions/{session_id}/subagent");
+
+    let refused = response_status(harness.post(&path).json(&json!({ "arguments": "seq" }))).await;
+    assert_eq!(refused, 400, "a job needs a prompt");
+    let started = json_response(harness.post(&path).json(&json!({ "arguments": "look at the parser" }))).await;
+    assert_eq!(started["receipt"]["message"]["role"], "user");
+    assert!(started.get("queued").is_none());
+    assert_eq!(harness.engine.store.tasks_of(&session_id).unwrap()[0].reason, "user");
+}
+
+#[tokio::test]
 async fn a_prompt_cannot_carry_parts_only_the_engine_writes() {
     let harness = harness().await;
     let (_, session_id) = session_with_model(&harness).await;

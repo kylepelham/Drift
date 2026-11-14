@@ -10,6 +10,7 @@ use super::error::ApiError;
 use crate::Engine;
 use crate::event::Event;
 use crate::session::backup::{Backup, Restored};
+use crate::session::command::subagent::SubagentStart;
 use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
@@ -467,6 +468,26 @@ pub(super) async fn command(
                 .execute_command(&id, &body.name, &body.arguments, body.model)
                 .await?,
         ),
+    ))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(super) struct SubagentBody {
+    /// What was typed after `/subagent`: `[seq|async] [model] <prompt>`.
+    #[serde(default)]
+    pub arguments: String,
+}
+
+/// Starts the user's own subagent as `task` would: `async` (the default) in the background, `seq` as the next turn.
+#[utoipa::path(post, path = "/sessions/{id}/subagent", operation_id = "startSubagent", request_body = SubagentBody, responses((status = 202, body = SubagentStart), (status = 400), (status = 404)))]
+pub(super) async fn subagent(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Json(body): Json<SubagentBody>,
+) -> Result<(StatusCode, Json<SubagentStart>), ApiError> {
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(engine.start_subagent(&id, &body.arguments).await?),
     ))
 }
 

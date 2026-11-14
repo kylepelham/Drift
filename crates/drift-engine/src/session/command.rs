@@ -296,5 +296,7 @@ fn file_url(path: &Path) -> String {
     }
 }
 
+pub(crate) mod subagent;
+
 #[cfg(test)]
 mod tests;

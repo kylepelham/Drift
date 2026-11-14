@@ -95,10 +95,7 @@ impl Tool for Task {
                 |earlier| earlier.agent.as_str(),
             );
             let config = &ctx.config;
-            let (mode, reason) = match parent.visibility {
-                Visibility::Hidden => (Mode::Foreground, "a subagent's own"),
-                Visibility::Sibling => task_mode(ctx, &input, agent)?,
-            };
+            let (mode, reason) = launch_mode(ctx, &input, agent, &parent)?;
             let model = worker_model(ctx, &input, agent, &parent)?;
             let workdir = asked_workdir(ctx, &input)?;
             let tags = asked_tags(&input);
@@ -177,6 +174,28 @@ impl Tool for Task {
     fn failed(&self, output: &Output) -> bool {
         !matches!(output.metadata.outcome.as_deref(), Some("replied" | "launched"))
     }
+}
+
+/// How the worker runs and why: a subagent's own run in front, and a command's calls are the user's doing.
+fn launch_mode(
+    ctx: &Context,
+    input: &Value,
+    agent: &str,
+    parent: &crate::session::types::Session,
+) -> Result<(Mode, &'static str), ToolError> {
+    let (mode, reason) = match parent.visibility {
+        Visibility::Hidden => (Mode::Foreground, "a subagent's own"),
+        Visibility::Sibling => task_mode(ctx, input, agent)?,
+    };
+
+    Ok((
+        mode,
+        if ctx.by_command {
+            crate::session::command::subagent::USER_REASON
+        } else {
+            reason
+        },
+    ))
 }
 
 fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'static str), ToolError> {

@@ -105,6 +105,8 @@ export function createClient(target: Target) {
         workspaceConfig: (id: string) => request<Json<"workspaceConfig", 200>>("GET", `/workspaces/${id}/config`),
         runCommand: (id: string, name: string, args: string) =>
             request<Json<"runCommand", 202>>("POST", `/sessions/${id}/command`, { name, arguments: args }),
+        startSubagent: (id: string, args: string) =>
+            request<Json<"startSubagent", 202>>("POST", `/sessions/${id}/subagent`, { arguments: args }),
         createWorkspace: (body: NewWorkspace) => request<Json<"createWorkspace", 201>>("POST", "/workspaces", body),
         sessions: (params: operations["listSessions"]["parameters"]["query"] = {}) =>
             request<Json<"listSessions", 200>>("GET", `/sessions${query({ ...params })}`),

@@ -543,6 +543,8 @@ export function createActions(
             requireClient().reviewTurn(sessionId, messageId),
         steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
         runCommand,
+        /** `/subagent`: the user's own subagent, as the `task` tool would start it; a refusal throws. */
+        startSubagent: (id: string, args: string) => requireClient().startSubagent(id, args),
     };
 }
 
