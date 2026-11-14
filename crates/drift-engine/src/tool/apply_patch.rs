@@ -179,9 +179,10 @@ impl Plan {
                     .into(),
             )
         })?;
-        let ending = TextFormat::detect(&text);
-        let before = ending.normalise(&text);
-        let after = patch::apply_chunks(&before, chunks)?;
+        let bom = text.starts_with('\u{feff}');
+        let body = text.strip_prefix('\u{feff}').unwrap_or(&text);
+        let patched = patch::apply_chunks(body, chunks)?;
+        let (before, after) = (body.replace("\r\n", "\n"), patched.replace("\r\n", "\n"));
 
         let kind = if target == path { "update" } else { "move" };
         self.changes.push(Change::new(
@@ -191,7 +192,7 @@ impl Plan {
             &before,
             &after,
         ));
-        let written = ending.apply(&after).into_bytes();
+        let written = if bom { format!("\u{feff}{patched}") } else { patched }.into_bytes();
         if target == path {
             self.steps.push(Step {
                 path: target.to_path_buf(),

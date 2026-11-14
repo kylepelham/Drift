@@ -20,15 +20,17 @@ async fn finds_lines_with_numbers_and_filters_by_include() {
 }
 
 #[tokio::test]
-async fn a_file_the_search_cannot_read_is_said_to_be_missing() {
-    let sandbox = Sandbox::new("grep-unreadable");
-    sandbox.file("a.rs", "needle\n");
-    std::fs::write(sandbox.ctx.workspace.join("latin1.txt"), b"needle caf\xe9\n").unwrap();
+async fn a_line_that_is_not_utf8_is_shown_lossily_and_the_file_searched_whole() {
+    let sandbox = Sandbox::new("grep-lossy");
+    std::fs::write(
+        sandbox.ctx.workspace.join("latin1.txt"),
+        b"needle caf\xe9\nplain\nneedle again\n",
+    )
+    .unwrap();
     let out = Grep.run(&sandbox.ctx, json!({ "pattern": "needle" })).await.unwrap();
 
-    assert!(out.output.starts_with("a.rs:1: needle"), "{}", out.output);
-    assert!(
-        out.output.contains("1 files or folders could not be read"),
+    assert_eq!(
+        out.output, "latin1.txt:1: needle caf\u{fffd}\nlatin1.txt:3: needle again",
         "{}",
         out.output
     );

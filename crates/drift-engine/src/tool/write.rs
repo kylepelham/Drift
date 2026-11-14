@@ -108,26 +108,45 @@ async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<O
     let existing = match tokio::fs::read(path).await {
         Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => {
-            return Err(ToolError(format!(
-                "{name} could not be read ({error}), so it was not overwritten"
-            )));
-        }
+        Err(error) => return Err(unreadable(name, &error)),
     };
 
+    if existing.is_some() {
+        overwritable(ctx, path, name)?;
+    }
+    Ok(existing)
+}
+
+/// For a tool that writes a whole file without reading it first: a file already there must pass [`overwritable`].
+pub(super) async fn may_replace(ctx: &Context, path: &std::path::Path, name: &str) -> Result<(), ToolError> {
+    match tokio::fs::metadata(path).await {
+        Ok(_) => overwritable(ctx, path, name),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(unreadable(name, &error)),
+    }
+}
+
+/// An existing file is replaced only once read this session and unchanged on disk since.
+fn overwritable(ctx: &Context, path: &std::path::Path, name: &str) -> Result<(), ToolError> {
     // A file the model's own command just wrote is not someone else's work to protect.
-    let own = existing.is_some() && ctx.files.shell_wrote(path);
-    if existing.is_some() && !own && !ctx.files.was_read(path) {
+    if ctx.files.shell_wrote(path) {
+        return Ok(());
+    }
+    if !ctx.files.was_read(path) {
         return Err(ToolError(format!(
             "{name} exists and has not been read this session; read it before overwriting"
         )));
     }
-    if existing.is_some() && !own && ctx.files.changed_since_seen(path) {
+    if ctx.files.changed_since_seen(path) {
         return Err(ToolError(format!(
             "{name} changed on disk since it was last read; read it again before overwriting"
         )));
     }
-    Ok(existing)
+    Ok(())
+}
+
+fn unreadable(name: &str, error: &std::io::Error) -> ToolError {
+    ToolError(format!("{name} could not be read ({error}), so it was not overwritten"))
 }
 
 fn lines(count: usize) -> String {

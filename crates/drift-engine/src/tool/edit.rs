@@ -181,7 +181,7 @@ fn miss(content: &str, old: &str) -> String {
 }
 
 /// The window of the file whose lines best overlap `wanted`, numbered, so the model can copy it
-/// without another read; `None` when no line overlaps at all.
+/// without another read; `None` when no telling line (one with a letter or digit) overlaps at all.
 pub(super) fn closest_region(content: &str, wanted: &[&str]) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
     let wanted: Vec<&str> = wanted
@@ -189,21 +189,26 @@ pub(super) fn closest_region(content: &str, wanted: &[&str]) -> Option<String> {
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect();
-    if lines.is_empty() || wanted.is_empty() {
+    let telling: Vec<&str> = wanted
+        .iter()
+        .copied()
+        .filter(|line| line.chars().any(char::is_alphanumeric))
+        .collect();
+    if lines.is_empty() || telling.is_empty() {
         return None;
     }
 
     let window = wanted.len().min(lines.len());
-    let score = |start: usize| {
+    let hits = |start: usize, among: &[&str]| {
         lines[start..start + window]
             .iter()
-            .filter(|line| wanted.contains(&line.trim()))
+            .filter(|line| among.contains(&line.trim()))
             .count()
     };
-    let (best, hits) = (0..=lines.len() - window)
-        .map(|start| (start, score(start)))
-        .max_by_key(|(start, hits)| (*hits, usize::MAX - *start))?;
-    if hits == 0 {
+    let (best, telling_hits, _) = (0..=lines.len() - window)
+        .map(|start| (start, hits(start, &telling), hits(start, &wanted)))
+        .max_by_key(|(start, telling, all)| (*telling, *all, usize::MAX - *start))?;
+    if telling_hits == 0 {
         return None;
     }
 
@@ -505,5 +510,16 @@ mod tests {
     #[test]
     fn no_overlap_gives_a_plain_miss() {
         assert!(miss("a\nb\n", "zzz").contains("read the file again"));
+    }
+
+    #[test]
+    fn lines_of_only_braces_or_blanks_point_at_no_region() {
+        let file = "fn a() {\n    one();\n}\n\nfn b() {\n    two();\n}\n";
+        assert_eq!(closest_region(file, &["fn c() {", "    three();", "}", ""]), None);
+        assert_eq!(closest_region(file, &["});", ""]), None);
+        assert!(
+            closest_region(file, &["fn b() {", "    three();", "}"])
+                .is_some_and(|region| region.contains("5: fn b() {"))
+        );
     }
 }

@@ -9,7 +9,7 @@ pub(super) struct TextFormat {
 impl TextFormat {
     pub(super) fn detect(text: &str) -> Self {
         Self {
-            crlf: text.contains("\r\n"),
+            crlf: text.contains("\r\n") && dominant(text, "\r\n") == "\r\n",
             bom: text.starts_with('\u{feff}'),
         }
     }
@@ -31,6 +31,18 @@ impl TextFormat {
     }
 }
 
+/// The line ending most of `text` uses, or `fallback` when neither has more.
+pub(super) fn dominant(text: &str, fallback: &'static str) -> &'static str {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count() - crlf;
+
+    match crlf.cmp(&lf) {
+        std::cmp::Ordering::Greater => "\r\n",
+        std::cmp::Ordering::Less => "\n",
+        std::cmp::Ordering::Equal => fallback,
+    }
+}
+
 /// A typographic dash, quote or space as its ASCII form, one character for one, so offsets map back.
 pub(super) fn ascii(character: char) -> char {
     match character {
@@ -47,6 +59,16 @@ mod tests {
     use crate::tool::tests::Sandbox;
     use crate::tool::{Tool, apply_patch::ApplyPatch, edit::Edit, read::Read, write::Write};
     use serde_json::json;
+
+    #[test]
+    fn a_file_keeps_crlf_unless_most_of_its_lines_end_in_lf() {
+        let crlf = |text: &str| super::TextFormat::detect(text).crlf;
+        assert!(crlf("a\r\nb\n"), "a tie stays CRLF, as it always did");
+        assert!(crlf("a\r\nb\r\nc\n"));
+        assert!(!crlf("a\r\nb\nc\n"));
+        assert!(!crlf("no newline"));
+        assert!(!crlf(""));
+    }
 
     #[tokio::test]
     async fn edits_writes_and_patches_preserve_bom_and_crlf() {

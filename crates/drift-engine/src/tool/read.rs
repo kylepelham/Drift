@@ -740,6 +740,11 @@ mod tests {
             .join("ses_someone_else")
             .join("call_1.log");
         assert!(ask(&escape).is_some(), "resolved before it is judged");
+
+        let mut odd = sandbox.ctx_clone();
+        odd.session_id = "..".into();
+        let ask_odd = Read.ask(&odd, &json!({ "path": data.join("drift.db").to_string_lossy() }));
+        assert!(ask_odd.is_some(), "a restored id that is not an id owns nothing");
     }
 
     #[test]

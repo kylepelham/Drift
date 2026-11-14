@@ -106,6 +106,30 @@ async fn trailing_whitespace_matches_never_overlap_and_crlf_is_kept() {
 }
 
 #[tokio::test]
+async fn overlapping_matches_are_ambiguous_in_every_tier_and_replace_all_takes_the_earliest() {
+    let sandbox = Sandbox::new("edit-overlapping");
+    sandbox.file("letters.txt", "aaa");
+    sandbox.file("braces.rs", "    }\n}\n}\n");
+    sandbox.file("dashes.txt", "x\u{2014}\u{2014}\u{2014}y");
+    sandbox.file("trailing.txt", "a  \na  \na  \n");
+
+    for (name, old) in [
+        ("letters.txt", "aa"),
+        ("braces.rs", "}\n}"),
+        ("dashes.txt", "--"),
+        ("trailing.txt", "a\na"),
+    ] {
+        let error = edit(&sandbox, call(name, old, "z")).await.unwrap_err();
+        assert!(error.0.contains("matches 2 places"), "{name}: {}", error.0);
+    }
+    let mut all = call("letters.txt", "aa", "z");
+    all["replace_all"] = json!(true);
+    assert_eq!(edit(&sandbox, all).await.unwrap().metadata.replacements, Some(1));
+    assert_eq!(read(&sandbox, "letters.txt"), "za");
+    assert_eq!(read(&sandbox, "braces.rs"), "    }\n}\n}\n");
+}
+
+#[tokio::test]
 async fn a_bom_and_crlf_endings_are_kept() {
     let sandbox = Sandbox::new("edit-bom");
     sandbox.file("windows.txt", "\u{feff}before\r\nrest\r\n");

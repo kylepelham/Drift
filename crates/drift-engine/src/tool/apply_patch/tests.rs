@@ -293,3 +293,18 @@ async fn a_hunk_patches_an_unread_file_since_its_context_must_match() {
     assert!(deleted.0.contains("has not been read"), "{}", deleted.0);
     assert!(path.exists(), "deleting it still needs a read");
 }
+
+#[tokio::test]
+async fn a_mixed_file_keeps_each_lines_ending_and_new_lines_take_the_ending_around_them() {
+    let sandbox = Sandbox::new("apply-patch-mixed");
+    let path = sandbox.file("mixed.txt", "\u{feff}head\r\nkeep\nold\nmore\ntail\r\nlast");
+    let patch = "*** Begin Patch\n*** Update File: mixed.txt\n@@ head\n keep\n-old\n+new\n+added\n more\n tail\n+after\n*** End Patch\n";
+
+    ApplyPatch.run(&sandbox.ctx, json!({ "patch": patch })).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "\u{feff}head\r\nkeep\nnew\nadded\nmore\ntail\r\nafter\r\nlast",
+        "kept lines keep their endings, changed ones take the replaced line's, an inserted one its neighbour's, \
+         and the missing final newline stays missing"
+    );
+}

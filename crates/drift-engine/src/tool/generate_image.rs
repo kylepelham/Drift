@@ -170,6 +170,8 @@ impl Tool for GenerateImage {
             let chosen = ctx.engine.image_settings().size;
             let size = Size::parse(input["size"].as_str().unwrap_or(&chosen)).map_err(ToolError)?;
             let references = references(ctx, &targets.references).await?;
+            // Refused before the provider is paid; checked again before saving, since generating takes a while.
+            super::write::may_replace(ctx, &targets.path, &display(&targets.path, ctx.workdir())).await?;
             let request = ImageRequest {
                 prompt: &targets.prompt,
                 size,
@@ -186,7 +188,7 @@ impl Tool for GenerateImage {
     }
 }
 
-/// The reference files, each scaled within what providers take.
+/// The reference files, each scaled within what providers take; each counts as read, as `read` showing it would.
 async fn references(ctx: &Context, paths: &[PathBuf]) -> Result<Vec<Image>, ToolError> {
     let mut images = Vec::new();
     for path in paths {
@@ -197,6 +199,7 @@ async fn references(ctx: &Context, paths: &[PathBuf]) -> Result<Vec<Image>, Tool
         let mime = sniff(&bytes)
             .filter(|mime| *mime != "image/gif")
             .ok_or_else(|| ToolError(format!("{name} is not a PNG, JPEG or WebP image")))?;
+        ctx.files.mark_read(path);
         let image = Image::from_bytes(mime, &bytes);
         let (image, _) = tokio::task::spawn_blocking(move || super::image::normalize(image))
             .await?
@@ -236,7 +239,9 @@ async fn save(ctx: &Context, targets: &Targets, generated: Generated) -> Result<
     let (bytes, width, height) = tokio::task::spawn_blocking(move || encoded(&image, format)).await??;
     let name = display(&targets.path, ctx.workdir());
     super::fits_history(&name, bytes.len())?;
+    super::write::may_replace(ctx, &targets.path, &name).await?;
     super::stage::replace(&ctx.engine.store, &targets.path, &bytes).await?;
+    ctx.files.mark_read(&targets.path);
 
     Ok(Output {
         title: name.clone(),
@@ -280,4 +285,46 @@ fn described(generated: &Generated, name: &str, width: u32, height: u32) -> Stri
     text.push_str("\n\nThe image follows; check it against what was asked.");
 
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::tests::Sandbox;
+
+    #[tokio::test]
+    async fn an_unread_file_is_refused_before_anything_is_generated() {
+        let sandbox = Sandbox::new("generate-image-guard");
+        let path = sandbox.file("art.png", "theirs");
+        let error = GenerateImage
+            .run(&sandbox.ctx, json!({ "prompt": "a cat", "path": "art.png" }))
+            .await
+            .unwrap_err();
+
+        assert!(error.0.contains("has not been read"), "{}", error.0);
+        assert_eq!(std::fs::read(&path).unwrap(), b"theirs");
+    }
+
+    #[tokio::test]
+    async fn a_reference_counts_as_read_so_it_may_be_replaced() {
+        let sandbox = Sandbox::new("generate-image-reference");
+        let path = sandbox.ctx.workspace.join("logo.png");
+        image::RgbaImage::new(2, 2).save(&path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let error = GenerateImage
+            .run(
+                &sandbox.ctx,
+                json!({ "prompt": "a sharper logo", "references": ["logo.png"], "path": "logo.png" }),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(!error.0.contains("has not been read"), "{}", error.0);
+        assert!(sandbox.ctx.files.was_read(&sandbox.ctx.resolve("logo.png")));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "no provider is chosen, so nothing was saved"
+        );
+    }
 }
