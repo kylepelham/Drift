@@ -127,17 +127,20 @@ What a plugin may do, each a host interface it imports (Settings shows which):
   drift.json entry as JSON.
 - `store`: `get(key)` and `set(key, value)`, kept by Drift across runs.
 - `files`: `read(path)` and `write(path, content)` under the workspace of the event being
-  handled, never outside it.
+  handled, never outside it; a write makes no folder through a link that leads out of it.
 - `process`: `run(program, args, timeout-ms)` in that workspace, with the exit code and the
   first 64 KiB of each stream; a minute at most.
-- `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most.
+- `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most; reading stops at
+  the cap, so an endless body cannot hold the call.
 - `notify`: `show(title, body, tone)`, a notice in the app like Drift's own, titled with the
   plugin's name.
 
 Plugins run in the order listed: the first refusal wins, a replaced input or prompt feeds the next
-plugin. A call gets five seconds of its own running time, plus whatever its host calls take; a
+plugin. A call gets five seconds of its own running time, plus whatever its host calls take, and
+never more than 120 seconds by the wall clock, sleeps and host calls included; a
 call that runs past that, traps, or returns something unusable is logged and treated as `allow`,
-`keep` or `accept`.
+`keep` or `accept`. A call that traps or runs out of time also restarts the plugin from its compiled
+code, so one bad call does not disable it; a trap while it loads restarts it before it goes live.
 
 `plugins/guard` is the example, in Rust with `wit-bindgen`: it refuses shell commands that
 rewrite history, notes failed commands, and when a reply says `@guard test` runs the configured
@@ -281,7 +284,7 @@ programs.
 by every conversation and subagent, such as a merge or benchmark lock. Acquiring waits through
 `wait` answers until the lock is free (or `wait_seconds` runs out; 0 tries once), and acquiring a lock
 the session already holds starts its time over. A lock frees itself after `ttl_minutes` (60 by
-default), when its holder is deleted, and when a subagent holding it finishes; a conversation keeps
+default, at most 1440; `wait_seconds` is at most 3600), when its holder is deleted, and when a subagent holding it finishes; a conversation keeps
 its locks between turns. Releasing another session's lock needs `force`, for a holder that is gone,
 such as one Drift stopped by restarting. Locks live in the plugin's store, so a restart keeps them.
 
@@ -293,7 +296,8 @@ project and its parents to the repository root), the user's own (the same three 
 directory, `~/.config/drift/skills` first) and those from installed packs, grouped by pack with the
 pack's picture and a Remove. A skill is a folder with a `SKILL.md` whose front matter gives its name
 and description; nothing about that format changes, and a folder with no front matter is listed by
-its folder name. Off is Drift's own setting, the folder on the engine's `disabledSkills` list:
+its folder name. A project's skills follow links only while they stay inside the project, never into
+version-control folders or to a secret, since a cloned repository could link anywhere. Off is Drift's own setting, the folder on the engine's `disabledSkills` list:
 the skill's files are never touched, so Claude Code and any other tool reading `~/.claude/skills`
 or a project's skill folders still see it, and a project's `git status` stays clean. Off, the model
 is not offered it and the slash menu leaves it out, from the next turn (`GET /skills?workspace=`,
@@ -522,6 +526,14 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 - Subagents come from the `task` tool. Their result returns to the parent's task card, which
   opens the stored transcript. They show under the parent in the sidebar while running, waiting on
   the user, or open, stop when the parent stops, and cannot delegate further.
+- The user can start one too: `/subagent [seq|async] [model] <prompt>` gives the job to the
+  `general` subagent exactly as `task` would, so its context stays out of the conversation.
+  `async` (the default) starts it at once, even mid-turn, shows it in the task dock as started by
+  you, notes it in the conversation so the agent knows it did not launch it, and delivers its
+  result as any background result. `seq` runs it as the first call of the next turn (queued behind
+  a running one), and the agent carries on from its result. A `provider/model` whose provider
+  lacks that model is refused before anything starts. A delegating workspace command's subagents
+  also show as started by you.
 - Spawned threads come only from the user. `/spawn <instruction>` creates a new top-level
   conversation at once with a copy of this one's finished messages and starts it on the
   instruction, on the source's model and level. There is no drafting request and no review: the

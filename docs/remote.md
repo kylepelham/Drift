@@ -101,7 +101,8 @@ through and never holds the certificate's private key, so it cannot read the tra
 
 The tunnel's client terminates TLS in Drift and hands each connection to a listener on `127.0.0.1` as plain HTTP,
 after a PROXY protocol v2 header naming the visitor's address. That address drives sign-in throttling, so a stranger
-cannot lock everyone out at once. Nothing is trusted for coming from loopback; a tunneled request must name the
+cannot lock everyone out at once. A connection whose header names no address cannot sign in at all, as it has no
+throttling bucket of its own. Nothing is trusted for coming from loopback; a tunneled request must name the
 tunnel's own host exactly, or it is refused.
 
 ## Browser access
@@ -120,7 +121,11 @@ open loses its event stream at once. The Drift app is unaffected: it has its own
 
 Passwords are stored as PBKDF2-HMAC-SHA256 with a random 16-byte salt and 600,000 iterations, in Drift's SQLite
 `app_setting` table. After five wrong attempts from one address, sign-in from that address locks for 30 seconds,
-doubling per further failure up to 15 minutes. At most two password checks run at once.
+doubling per further failure up to 15 minutes. An IPv6 address counts by its /64, since a visitor owns the whole
+block and could rotate within it. Across all addresses, once 30 attempts have failed within 10 minutes, sign-in waits
+10 seconds after each failure, so many addresses together cannot try passwords quickly. Requests to connect a device
+answer only to their own address's lock, since this PC's user approves each one. At most two password checks run at
+once.
 
 Each device holds its own random 256-bit session token, in an `HttpOnly; Secure; SameSite=Strict` cookie that lasts
 400 days for a browser, or as a bearer token for the app. Drift stores only the token's SHA-256 in the
@@ -218,8 +223,10 @@ keep their sessions.
 - Android WebView file inputs work and attachments are sent to the engine through the gateway.
 - Clipboard, notifications, and microphone capture follow browser policy; on the network address they are most
   reliable once the certificate is installed.
-- Opening a code file is an explicit action on the host. Adding a workspace remotely asks for a host filesystem path
-  because a host-native folder dialog is not useful on the remote device.
+- Opening a code file is an explicit action on the host, and never runs a program or script there (see
+  `docs/architecture.md`). Adding a workspace remotely asks for a host filesystem path because a host-native folder
+  dialog is not useful on the remote device.
+- A paired device previews files only inside a workspace Drift knows or one of its worktrees.
 - Desktop window controls and application updates are hidden remotely and remain host-only.
 
 ## Test procedure

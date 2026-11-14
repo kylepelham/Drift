@@ -507,6 +507,27 @@ From the Ona project's wishlist (#22): its GPU job limit and merge and bench loc
 - [x] A plugin's language server is used as shipped and must say how to get it (install commands, a guide, or why neither); Install runs a plugin's own commands too
 - [x] A plugin that declares no settings has no Edit button and no raw JSON editor
 
+## 2.7.0: review fixes
+
+From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
+
+- [x] A project's `instructions` and `skillPaths` are relative paths inside the project, refused before anything is opened; its skills, instructions, agents, commands and `drift.json` follow links only inside it, never into `.git` or secrets
+- [x] Language servers start from PATH only, with cmd told to skip the project folder; Check says so for one installed only inside the project; relative PATH entries are never searched
+- [x] The SSE endpoint is same-origin like the rest of the API; MCP stdio servers start suspended inside their job
+- [x] A plugin that traps or waits past 120 s is started afresh from its compiled component and keeps guarding, at load too; `http.fetch` stops reading at the body cap; `files.write` makes no folders through links out of the workspace
+- [x] Tag names are unique ignoring case and spaces; a worker runs under a running ancestor's slot for a tag they share instead of deadlocking
+- [x] The lock tool caps `ttl_minutes` at 1440 and `wait_seconds` at 3600
+- [x] apply_patch: a missing `@@` context is a miss and each line keeps or takes its neighbours' ending; overlapping matches are ambiguous; grep reads files that are not UTF-8; image tools never replace a file the agent has not read
+- [x] Compaction never summarises zero turns and a Stop is not a failure; calls a stopped or unsaved turn never ran are closed; a reply cut off at its output limit runs the calls it finished, unless that cut ends the turn
+- [x] A WebSocket silence timeout or connection-limit error no longer moves a conversation to SSE; process output never splits a character
+- [x] Snapshots refresh an existing blob's age; long credentials are written in generations so a crash never mixes two; a poisoned store lock rolls back; a backup's conversation ids must have the shape Drift makes
+- [x] Paired devices preview files only inside known workspaces; Open file opens only an existing local file and never runs scripts or executables; login lockout counts IPv6 by /64, has a global ceiling that leaves pairing alone, and refuses tunnel connections without an address
+- [x] OAuth callbacks escape their page, time out idle connections and ignore any request without the expected state; the browser masks passwords in errors too, before cutting, and as forms and JSON spell them; session search matches text JSON escapes
+- [x] Bash and background processes run without the provider keys Drift manages; the user's own tokens pass through
+- [x] Each conversation has its own scratch folder, shared with its subagents, spawned threads and forks
+- [x] Web search waits for a paused key and runs at most four requests per provider at once; webfetch saves PDFs up to 100 MB; a question without text asks its header
+- [x] `/subagent [seq|async] [model] <prompt>` starts a subagent for the user while the agent works; the conversation is told the user started it, and its result arrives like any other
+
 ## Readability and tooling pass
 
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`

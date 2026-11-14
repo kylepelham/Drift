@@ -33,11 +33,12 @@ uses it.
   `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
   and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers, and its
   allow rules rank below every rule of the user's, so it can tighten permissions but not loosen them.
+  Nothing a project lists or links reaches outside it ("Config" in engine-rewrite.md).
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
   servers and config once, in the background, from opencode v1 and v2 alike ("Importing opencode
   conversations" in engine-rewrite.md).
 - Drift writes to the system's temporary directory only inside `Drift` (`platform::temp`):
-  `scratch` for the model's scratch files, `voice` for dictation audio, `engined` for a headless
+  `scratch` for the model's scratch files (`scratch/<root id>` per conversation), `voice` for dictation audio, `engined` for a headless
   engine without a home, `dev` for the browser dev loop, `bench` and `i18n` for those scripts,
   and `tests/<run>` for each test process. Tests cannot delete files an engine still holds open, so
   each run writes under its own folder and the next run removes folders untouched for an hour;

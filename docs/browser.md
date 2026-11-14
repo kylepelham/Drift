@@ -315,7 +315,9 @@ Settings > Browser lists the current workspace's stored sign-ins: a name, a user
 password is stored. Names, users and domains are a setting per workspace; passwords are keychain secrets
 (`browser:<workspace>:<name>`). The engine fills them in itself, through `login` or `fill` with `secret`, so a
 password never reaches the model. Every tool result has the workspace's passwords replaced with
-`[password]`, since a sign-in address or a page can echo one back. A `login` call asks for the hosts of
+`[password]`, since a sign-in address or a page can echo one back. Errors are masked too, text is
+masked before it is cut to length (so a password split by the cut cannot leak), and a password is
+found as written, percent-encoded as an address or a form would spell it, and as JSON escapes it. A `login` call asks for the hosts of
 `login.url` and `login.path` as well as the base and current page, and a `login.url` whose host would come from
 the credential is refused.
 
