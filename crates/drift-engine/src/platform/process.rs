@@ -452,7 +452,8 @@ pub fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) ->
     } else {
         vec![program.to_string()]
     };
-    dirs.flat_map(|dir| names.iter().map(move |name| dir.join(name)).collect::<Vec<_>>())
+    dirs.filter(|dir| dir.is_absolute())
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)).collect::<Vec<_>>())
         .find(|candidate| candidate.is_file())
 }
 
@@ -550,6 +551,17 @@ mod tests {
             Some(dir.join(shim))
         );
         assert_eq!(super::find_in("absent", [dir.clone()].into_iter()), None);
+        let (relative, reaches) = relative_from_here(&dir);
+        assert!(
+            !reaches || relative.join(shim).is_file(),
+            "the relative entry names the folder holding it"
+        );
+        let relative = ["".into(), ".".into(), relative];
+        assert_eq!(
+            super::find_in("lint", relative.into_iter()),
+            None,
+            "a relative or empty PATH entry would resolve against Drift's own folder"
+        );
         let full = dir.join(shim).to_string_lossy().to_string();
         assert_eq!(
             super::find_in(&full, std::iter::empty()),
@@ -557,6 +569,27 @@ mod tests {
             "a path is taken as given"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// `dir` relative to the working directory (read, never changed), and whether it reaches it: not across drives.
+    fn relative_from_here(dir: &std::path::Path) -> (std::path::PathBuf, bool) {
+        use std::path::Component;
+        let named = |path: &std::path::Path| -> Vec<std::ffi::OsString> {
+            path.components()
+                .filter_map(|part| match part {
+                    Component::Normal(name) => Some(name.to_os_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let here = std::env::current_dir().unwrap();
+        let relative = named(&here)
+            .iter()
+            .map(|_| std::ffi::OsString::from(".."))
+            .chain(named(dir))
+            .collect();
+
+        (relative, here.components().next() == dir.components().next())
     }
 
     #[test]

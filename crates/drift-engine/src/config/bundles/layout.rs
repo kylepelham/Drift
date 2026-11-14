@@ -80,7 +80,7 @@ fn inside(root: &Path, path: &str) -> Option<PathBuf> {
 
 fn skills(dirs: &[PathBuf]) -> Vec<Item> {
     let mut found: Vec<Item> = Vec::new();
-    for file in dirs.iter().flat_map(|dir| skill_files(dir)) {
+    for file in dirs.iter().flat_map(|dir| skill_files(dir, None)) {
         let Some(item) = item(&file, file.parent().unwrap_or(&file)) else {
             continue;
         };

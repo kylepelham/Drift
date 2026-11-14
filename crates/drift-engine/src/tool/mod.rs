@@ -41,7 +41,10 @@ pub(crate) mod tests;
 pub use crate::session::types::ToolMetadata;
 pub use ask::{Ask, MAX_ASK_DIFF, Reason};
 pub use context::{Context, Progress, SessionFiles, read_ask};
-pub use paths::{FileGlob, Skipped, canonical, display, scratch_dir, search_walker, walk, walker};
+pub use paths::{
+    FileGlob, Skipped, canonical, conversation_scratch, display, scratch_dir, search_walker, walk, walker,
+};
+pub(crate) use paths::{VCS_DIRS, strip_verbatim};
 pub use registry::Registry;
 
 use crate::llm::ToolSpec;

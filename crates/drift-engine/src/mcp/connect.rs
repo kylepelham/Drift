@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rmcp::service::{ClientLifecycleMode, ClientServiceExt};
+use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 
 use super::{Client, DriftClient, Era, Error, Failure, Listing, Live, PROBE_WAIT, STEP_LIMIT, ServerConfig, Transport};
 use super::{lifecycle, oauth, sse};
@@ -155,17 +156,23 @@ async fn start(
             cwd,
             ..
         } => {
-            let command_process = stdio_command(command, args, env, cwd.as_deref(), workspace)?;
-            let transport = TokioChildProcess::new(command_process)
-                .map_err(|error| format!("could not start {command}: {error}"))?;
+            let mut process = stdio_command(command, args, env, cwd.as_deref(), workspace)?;
+            process.stdin(Stdio::piped()).stdout(Stdio::piped());
 
-            // Adopt the process tree before the handshake so cancellation also kills server children.
-            let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
+            // The tree owns the server before it runs, so whatever it starts (npx, uvx) dies with it.
+            let (mut child, tree) = crate::platform::process::spawn_owned(&mut process)
+                .await
+                .map_err(|error| format!("could not start {command}: {error}"))?;
+            let pipes = child.stdout.take().zip(child.stdin.take());
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
+            let pipes = pipes.ok_or_else(|| format!("could not start {command}: its stdio was not piped"))?;
             let service = DriftClient::rooted(workspace)
-                .serve_with_lifecycle(transport, lifecycle(known))
+                .serve_with_lifecycle(pipes, lifecycle(known))
                 .await?;
 
-            Ok((service, tree))
+            Ok((service, Some(tree)))
         }
         ServerConfig::Http {
             url,
@@ -250,10 +257,6 @@ fn stdio_command(
     if let Some(directory) = directory {
         process.current_dir(directory);
     }
-
-    crate::platform::process::prepare(&mut process);
-    #[cfg(windows)]
-    process.creation_flags(0x0800_0000 | crate::platform::process::BELOW_NORMAL);
 
     Ok(process)
 }

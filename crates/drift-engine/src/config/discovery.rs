@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::frontmatter;
 
@@ -51,20 +51,30 @@ pub(super) fn instruction_files(listed: &str, resolved: &Path) -> Vec<(String, P
         .collect()
 }
 
-/// Skill folders in precedence order: project ancestors, configured paths, then home folders.
-pub(crate) fn skill_folders(workspace: &Path, home: Option<&Path>, listed: Vec<PathBuf>) -> Vec<PathBuf> {
+/// Skill folders in precedence order: project ancestors, configured paths, then home folders, each with the
+/// folder its files must stay inside (none for the user's own).
+pub(crate) fn skill_folders(
+    workspace: &Path,
+    home: Option<&Path>,
+    listed: Vec<(PathBuf, Option<PathBuf>)>,
+) -> Vec<(PathBuf, Option<PathBuf>)> {
     let project = ancestors_to_repo_root(workspace)
         .into_iter()
-        .flat_map(|dir| SKILL_DIRS.map(|skills| dir.join(skills)));
+        .flat_map(|dir| SKILL_DIRS.map(|skills| (dir.join(skills), Some(dir.clone()))));
     let user = home
         .into_iter()
-        .flat_map(|home| HOME_SKILL_DIRS.map(|skills| home.join(skills)));
+        .flat_map(|home| HOME_SKILL_DIRS.map(|skills| (home.join(skills), None)));
 
     project.chain(listed).chain(user).collect()
 }
 
-/// The `SKILL.md` files under `dir`, sorted, so the same tree always yields the same skills.
-pub(crate) fn skill_files(dir: &Path) -> Vec<PathBuf> {
+/// The `SKILL.md` files under `dir`, sorted, so the same tree always yields the same skills. Under `within`, a
+/// link is followed only while it stays inside, so a project's skill never reads a file from elsewhere.
+pub(crate) fn skill_files(dir: &Path, within: Option<&Path>) -> Vec<PathBuf> {
+    let kept = |path: &Path| within.is_none_or(|root| confined(root, path));
+    if !kept(dir) {
+        return Vec::new();
+    }
     let mut found = Vec::new();
     let mut pending = vec![(dir.to_path_buf(), 0)];
 
@@ -75,8 +85,12 @@ pub(crate) fn skill_files(dir: &Path) -> Vec<PathBuf> {
 
         for entry in entries.flatten() {
             let path = entry.path();
+            let linked = entry.file_type().is_ok_and(|kind| kind.is_symlink());
             let skipped = matches!(entry.file_name().to_str(), Some("node_modules" | ".git"));
-            if path.is_dir() && depth < SKILL_DEPTH && !skipped {
+            if skipped || (linked && !kept(&path)) {
+                continue;
+            }
+            if path.is_dir() && depth < SKILL_DEPTH {
                 pending.push((path, depth + 1));
             } else if entry.file_name() == "SKILL.md" {
                 found.push(path);
@@ -104,11 +118,13 @@ pub fn in_repository(workspace: &Path) -> bool {
     workspace.ancestors().any(|dir| dir.join(".git").exists())
 }
 
-/// The first of AGENTS.md and CLAUDE.md in `dir`.
-pub(super) fn instruction_file(dir: &Path) -> Option<(&'static str, String)> {
+/// The first of AGENTS.md and CLAUDE.md in `dir` that stays inside `within` and is no secret.
+pub(super) fn instruction_file(dir: &Path, within: &Path) -> Option<(&'static str, String)> {
     INSTRUCTION_FILES
         .iter()
-        .find_map(|name| std::fs::read_to_string(dir.join(name)).ok().map(|text| (*name, text)))
+        .map(|name| (*name, dir.join(name)))
+        .filter(|(_, path)| confined(within, path))
+        .find_map(|(name, path)| std::fs::read_to_string(path).ok().map(|text| (name, text)))
 }
 
 /// Whether `path` is named as an instruction file is.
@@ -128,7 +144,7 @@ pub fn nested_instructions(workspace: &Path, file: &Path) -> Vec<(PathBuf, Strin
     let mut found = Vec::new();
     for part in relative.components() {
         dir.push(part);
-        if let Some((name, text)) = instruction_file(&dir) {
+        if let Some((name, text)) = instruction_file(&dir, workspace) {
             found.push((dir.join(name), clip(&text)));
         }
     }
@@ -136,21 +152,104 @@ pub fn nested_instructions(workspace: &Path, file: &Path) -> Vec<(PathBuf, Strin
     found
 }
 
+/// Whether a project's entry names a path relative to its folder: no drive, share, root or `~`, so refusing
+/// one touches nothing.
+pub(super) fn relative_entry(path: &Path) -> bool {
+    !path.to_string_lossy().starts_with(['/', '\\', '~'])
+        && path
+            .components()
+            .all(|part| matches!(part, Component::Normal(_) | Component::CurDir | Component::ParentDir))
+}
+
+/// Whether `path`, under `root` as written, stays inside it with every link resolved and is neither a secret nor
+/// version-control internals (a remote's URL may carry a token). Nothing outside `root` is touched to tell.
+pub(super) fn confined(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let root = crate::tool::canonical(root);
+    let Some(resolved) = resolve_within(&root, relative) else {
+        return false;
+    };
+    let in_vcs = resolved.strip_prefix(&root).is_ok_and(|inside| {
+        inside.components().any(|part| {
+            crate::tool::VCS_DIRS
+                .iter()
+                .any(|name| part.as_os_str().eq_ignore_ascii_case(name))
+        })
+    });
+
+    !in_vcs && !crate::tool::sensitive::is_sensitive(&resolved)
+}
+
+/// `relative` under `root`, each link followed by reading where it points rather than opening it; `None` once a
+/// step leaves `root`, so a link to another drive or a share is refused unopened.
+fn resolve_within(root: &Path, relative: &Path) -> Option<PathBuf> {
+    const MAX_LINKS: usize = 40;
+    let mut pending = steps(relative)?;
+    let mut current = root.to_path_buf();
+    let mut links = 0;
+
+    while let Some(step) = pending.pop() {
+        if step == "." {
+            continue;
+        }
+        if step == ".." {
+            if current == root {
+                return None;
+            }
+            current.pop();
+            continue;
+        }
+        let next = current.join(&step);
+        if !next.symlink_metadata().is_ok_and(|meta| meta.file_type().is_symlink()) {
+            current = next;
+            continue;
+        }
+        links += 1;
+        let target = std::fs::read_link(&next).ok().filter(|_| links <= MAX_LINKS)?;
+        if !relative_entry(&target) {
+            // An absolute target (a junction's always is) is followed only when it names a place inside `root`.
+            current = root.to_path_buf();
+            pending.extend(steps(crate::tool::strip_verbatim(target).strip_prefix(root).ok()?)?);
+            continue;
+        }
+        pending.extend(steps(&target)?);
+    }
+
+    Some(current)
+}
+
+/// A relative path's parts, last first, to be taken off the end one by one.
+fn steps(path: &Path) -> Option<Vec<std::ffi::OsString>> {
+    relative_entry(path).then(|| {
+        path.components()
+            .rev()
+            .map(|part| part.as_os_str().to_owned())
+            .collect()
+    })
+}
+
 /// A Markdown file's text after its front matter.
 pub fn body(text: &str) -> String {
     frontmatter::parse(text).body
 }
 
-pub(super) fn markdown_files(dir: &Path) -> Vec<(String, frontmatter::Document)> {
+/// The Markdown files directly in `dir`, by name; under `within`, only those that stay inside it, as [`confined`] says.
+pub(super) fn markdown_files(dir: &Path, within: Option<&Path>) -> Vec<(String, frontmatter::Document)> {
+    let kept = |path: &Path| within.is_none_or(|root| confined(root, path));
+    if !kept(dir) {
+        return Vec::new();
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
 
     let mut files: Vec<(String, frontmatter::Document)> = entries
         .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|extension| extension == "md"))
-        .filter_map(|entry| {
-            let path = entry.path();
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "md") && kept(path))
+        .filter_map(|path| {
             let text = std::fs::read_to_string(&path).ok()?;
             let name = path.file_stem()?.to_string_lossy().into_owned();
             Some((name, frontmatter::parse(&text)))

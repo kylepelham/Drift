@@ -74,9 +74,12 @@ impl Store {
                 .exists([session_id])?)
     }
 
-    /// Starts writing `session`, hidden; `false`, writing nothing, when it was imported before or a
-    /// conversation with its id already exists. A start left unfinished by an earlier run is discarded first.
+    /// Starts writing `session`, hidden; `false`, writing nothing, when it was imported before, a conversation
+    /// with its id already exists, or the id is not one Drift makes (it names folders). An unfinished start is discarded first.
     pub fn begin_import(&self, session: &Session) -> rusqlite::Result<bool> {
+        if !id::well_formed(&session.id) {
+            return Ok(false);
+        }
         transaction(&self.lock(), |conn| {
             let complete: Option<bool> = conn
                 .prepare_cached("SELECT complete FROM imported_session WHERE id = ?1")?
@@ -406,5 +409,11 @@ mod tests {
                 .unwrap(),
             "a conversation that is not an import is never replaced"
         );
+        for id in ["../../x", "C:\\x", "ses_a/b", ""] {
+            assert!(
+                !store.begin_import(&session(id)).unwrap(),
+                "{id} names a folder outside its own"
+            );
+        }
     }
 }

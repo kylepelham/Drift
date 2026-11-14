@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 /// Directories that belong to version control, never to the project's content.
-pub(super) const VCS_DIRS: [&str; 4] = [".git", ".hg", ".svn", ".jj"];
+pub(crate) const VCS_DIRS: [&str; 4] = [".git", ".hg", ".svn", ".jj"];
 
 /// A file glob as ripgrep's `--glob` reads it, which is how opencode runs both `glob` and `grep`'s
 /// `include`: without a `/` it matches a file name at any depth (`*.ts`), with one it matches from
@@ -26,6 +26,21 @@ impl FileGlob {
 /// workspace: `scratch` in Drift's temporary folder. It is made when the engine opens.
 pub fn scratch_dir() -> PathBuf {
     canonical(&crate::platform::temp::root().join("scratch"))
+}
+
+/// A conversation's own folder in [`scratch_dir`], so one's leftovers never shadow another's files: the folder of the
+/// tree it shares a prompt cache with, so subagents, spawned threads and forks keep their source's. Made if missing.
+/// A root not shaped like an id (a restored backup's) never names a folder: [`scratch_dir`] itself is used.
+pub fn conversation_scratch(store: &crate::store::Store, session_id: &str) -> PathBuf {
+    let root = store.cache_root(session_id).unwrap_or_else(|_| session_id.to_owned());
+    let dir = if crate::id::well_formed(&root) {
+        scratch_dir().join(root)
+    } else {
+        scratch_dir()
+    };
+    let _ = std::fs::create_dir_all(&dir);
+
+    dir
 }
 
 /// Folders a search skips unless its `path` is in one or it asks for everything: dependencies, build output, caches.
@@ -161,7 +176,7 @@ pub fn canonical(path: &Path) -> PathBuf {
 }
 
 /// Windows canonical paths carry `\\?\` (`\\?\UNC\` for a share); nothing downstream wants it.
-fn strip_verbatim(path: PathBuf) -> PathBuf {
+pub(crate) fn strip_verbatim(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
 
     match text.strip_prefix(r"\\?\") {

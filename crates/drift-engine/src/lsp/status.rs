@@ -145,11 +145,8 @@ fn entries(config: &BTreeMap<String, LspConfig>, plugins: &[(String, LanguageSer
 /// The first of `commands` installed: on PATH, or in the workspace's `node_modules/.bin`.
 fn locate(commands: &[Vec<String>], workspace: Option<&Path>) -> Option<(PathBuf, Vec<String>)> {
     match workspace {
-        Some(workspace) => table::installed(commands, workspace, workspace),
-        None => commands.iter().find_map(|command| {
-            let (program, args) = command.split_first()?;
-            crate::platform::process::which(program).map(|found| (found, args.to_vec()))
-        }),
+        Some(workspace) => table::installed_or_local(commands, workspace, workspace),
+        None => table::installed(commands),
     }
 }
 
@@ -180,7 +177,7 @@ impl Servers {
                     match checked.get(&entry.name) {
                         Some(Ok(())) => (LspState::Works, None),
                         Some(Err(why)) => (LspState::Failed, Some(why.clone())),
-                        None if failed.contains(&entry.name) => (
+                        None if failed.contains(&entry.name) && table::installed(&entry.commands).is_some() => (
                             LspState::Failed,
                             Some("it did not start the last time Drift tried".into()),
                         ),
@@ -235,7 +232,13 @@ impl Servers {
             .into_iter()
             .find(|entry| entry.name == name)
             .ok_or_else(|| format!("no language server is named {name}"))?;
-        let (program, args) = locate(&entry.commands, workspace).ok_or_else(|| format!("{name} is not installed"))?;
+        let (program, args) =
+            table::installed(&entry.commands).ok_or_else(|| match locate(&entry.commands, workspace) {
+                Some(_) => {
+                    format!("{name} is installed only inside this project; Drift starts language servers from PATH")
+                }
+                None => format!("{name} is not installed"),
+            })?;
         let folder = match workspace {
             Some(workspace) => workspace.to_path_buf(),
             None => {

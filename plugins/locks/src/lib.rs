@@ -15,6 +15,8 @@ struct Locks;
 const KEY: &str = "locks";
 const RETRY_MS: u32 = 1_000;
 const DEFAULT_TTL_MINUTES: u64 = 60;
+const MAX_TTL_MINUTES: u64 = 1_440;
+const MAX_WAIT_SECONDS: u64 = 3_600;
 const DESCRIPTION: &str = "Takes, gives back or lists named locks shared by every conversation and subagent in Drift, \
 such as a merge or benchmark lock. `acquire` waits until the lock is free without spending your turns; do not \
 sleep or poll for one yourself. Give a lock back with `release` as soon as the work it guards is done. A lock \
@@ -35,8 +37,8 @@ impl Guest for Locks {
             "properties": {
                 "action": { "type": "string", "enum": ["acquire", "release", "list"] },
                 "name": { "type": "string", "description": "The lock, such as merge or bench. Required for acquire and release." },
-                "wait_seconds": { "type": "integer", "minimum": 0, "description": "For acquire: the longest to wait for it; 0 tries once. Default: as long as Drift lets a call wait." },
-                "ttl_minutes": { "type": "integer", "minimum": 1, "description": "For acquire: when it frees itself if never released. Default 60; acquiring it again starts this over." },
+                "wait_seconds": { "type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "description": "For acquire: the longest to wait for it; 0 tries once. Default: as long as Drift lets a call wait." },
+                "ttl_minutes": { "type": "integer", "minimum": 1, "maximum": MAX_TTL_MINUTES, "description": "For acquire: when it frees itself if never released. Default 60; acquiring it again starts this over." },
                 "reason": { "type": "string", "description": "For acquire: what it guards, shown to whoever waits for it." },
                 "force": { "type": "boolean", "description": "For release: free a lock another session holds. Only when that holder is gone, such as after Drift restarted." }
             },
@@ -115,14 +117,19 @@ fn acquire(locks: &mut Map<String, Value>, request: &ToolRequest, input: &Value,
     let Some(name) = lock_name(input) else {
         return ToolAnswer::Failed("`name` is required to acquire a lock".into());
     };
-    let ttl = input["ttl_minutes"].as_u64().unwrap_or(DEFAULT_TTL_MINUTES).max(1);
-    let expires = now + ttl * 60_000;
+    let ttl = input["ttl_minutes"]
+        .as_u64()
+        .unwrap_or(DEFAULT_TTL_MINUTES)
+        .clamp(1, MAX_TTL_MINUTES);
+    let expires = now.saturating_add(ttl.saturating_mul(60_000));
     let reason = input["reason"].as_str().unwrap_or_default();
 
     match locks.get(name) {
         Some(lock) if lock["holder"] != request.session_id.as_str() => {
             let status = format!("Waiting for {name}: {}", holding(lock, now));
-            let limit = input["wait_seconds"].as_u64().map(|seconds| seconds * 1_000);
+            let limit = input["wait_seconds"]
+                .as_u64()
+                .map(|seconds| seconds.min(MAX_WAIT_SECONDS).saturating_mul(1_000));
             if limit.is_some_and(|limit| request.waited_ms >= limit) {
                 return ToolAnswer::Failed(format!("{name} is still held: {}", holding(lock, now)));
             }

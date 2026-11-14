@@ -31,6 +31,17 @@ pub fn stamp_of(id: &str) -> Option<i64> {
     u64::from_str_radix(rest.get(..16)?, 16).ok().map(|stamp| stamp as i64)
 }
 
+/// Whether `id` has the shape ids are made in, a prefix, `_` and the rest in letters and digits, so it is safe
+/// as one folder name; one read from a restored backup may not be.
+pub fn well_formed(id: &str) -> bool {
+    let plain = |part: &str| !part.is_empty() && part.chars().all(|char| char.is_ascii_alphanumeric() || char == '_');
+
+    id.len() <= 64
+        && id
+            .split_once('_')
+            .is_some_and(|(prefix, rest)| plain(prefix) && plain(rest))
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -54,5 +65,26 @@ mod tests {
         let stamp = super::stamp();
         let after = super::new("msg");
         assert!(super::stamp_of(&before).unwrap() < stamp && stamp < super::stamp_of(&after).unwrap());
+    }
+
+    #[test]
+    fn only_an_id_of_the_made_shape_is_well_formed() {
+        assert!(super::well_formed(&super::new("ses")));
+        assert!(super::well_formed("ses_someone_else"));
+        for odd in [
+            "",
+            "ses",
+            "_x",
+            "ses_",
+            "../../x",
+            "ses_../x",
+            "C:\\x",
+            "ses_a/b",
+            "ses_a.b",
+            "ses_\u{e9}",
+        ] {
+            assert!(!super::well_formed(odd), "{odd}");
+        }
+        assert!(!super::well_formed(&format!("ses_{}", "a".repeat(64))));
     }
 }

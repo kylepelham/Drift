@@ -106,7 +106,7 @@ pub struct TaskRecord {
     pub description: String,
     pub agent: String,
     pub mode: Mode,
-    /// Why this mode: `requested`, `agent default`, `default` or `background turned off`.
+    /// Why this mode: `requested`, `agent default`, `default`, `background turned off`, or `user` when the user started it.
     pub reason: String,
     pub state: TaskState,
     /// Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it.
@@ -219,7 +219,7 @@ struct SlotLimit {
 pub enum LimitError {
     #[error("the background task limit must be from 1 to {MAX_BACKGROUND_LIMIT}")]
     OutOfRange,
-    #[error("each tag needs a name and a limit from 1 to {MAX_BACKGROUND_LIMIT}")]
+    #[error("each tag needs its own name, ignoring case and spaces, and a limit from 1 to {MAX_BACKGROUND_LIMIT}")]
     TagOutOfRange,
     #[error(transparent)]
     Store(#[from] rusqlite::Error),
@@ -427,11 +427,17 @@ fn owner_entry<'a>(owners: &'a mut Owners, store: &crate::store::Store, owner: &
     })
 }
 
-/// Whether every tag has a name and a limit Settings allows.
+/// Whether every tag has a name no other tag shares once trimmed and lowercased, and a limit Settings allows.
 pub(crate) fn valid_tag_limits(limits: &BTreeMap<String, usize>) -> bool {
-    limits
+    let named = limits
         .iter()
-        .all(|(tag, limit)| !tag.trim().is_empty() && (1..=MAX_BACKGROUND_LIMIT).contains(limit))
+        .all(|(tag, limit)| !tag.trim().is_empty() && (1..=MAX_BACKGROUND_LIMIT).contains(limit));
+    let distinct = limits
+        .keys()
+        .map(|tag| task_tag(tag))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    named && distinct.len() == limits.len()
 }
 
 /// A tag as it is kept and compared: trimmed and lowercased.
@@ -562,7 +568,7 @@ impl Engine {
         if task.mode == Mode::Foreground {
             let Some(_tags) = self
                 .workers
-                .take_tags(&task.tags, || self.task_tag_limits(), &token)
+                .take_tags(&self.tags_to_take(task), || self.task_tag_limits(), &token)
                 .await
             else {
                 self.end_task(&task.id, TaskState::Stopped, STOPPED);
@@ -581,6 +587,23 @@ impl Engine {
         Ok(None)
     }
 
+    /// The tags `task` waits for: those no running worker above it already holds, whose slot it runs under.
+    fn tags_to_take(&self, task: &TaskRecord) -> Vec<String> {
+        let mut held = Vec::new();
+        let mut parent = task.parent_session_id.clone();
+        for _ in 0..=MAX_DELEGATION_DEPTH {
+            let Some(ancestor) = self.store.task_for_session(&parent).ok().flatten() else {
+                break;
+            };
+            if ancestor.state == TaskState::Running {
+                held.extend(ancestor.tags);
+            }
+            parent = ancestor.parent_session_id;
+        }
+
+        task.tags.iter().filter(|tag| !held.contains(tag)).cloned().collect()
+    }
+
     /// A queued worker: waits for its tags' slots and then a shared one, then runs unless it was stopped meanwhile,
     /// however the wait ended.
     async fn work(
@@ -593,7 +616,7 @@ impl Engine {
         // Tags first, so a worker waiting on its tag never sits on a shared slot another could use.
         let tags = self
             .workers
-            .take_tags(&task.tags, || self.task_tag_limits(), &token)
+            .take_tags(&self.tags_to_take(&task), || self.task_tag_limits(), &token)
             .await;
         let permit = match tags {
             Some(_) => tokio::select! {

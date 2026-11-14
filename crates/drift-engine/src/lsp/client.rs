@@ -52,16 +52,7 @@ pub(super) struct Client {
 impl Client {
     /// Starts `program` in `root` and initializes it in the background; `Err` when it cannot start at all.
     pub(super) async fn start(program: &Path, args: &[String], root: &Path) -> std::io::Result<Arc<Self>> {
-        let mut spawn = tokio::process::Command::new(program);
-        process::use_current_path(&mut spawn, &Default::default());
-        spawn
-            .args(args)
-            .current_dir(root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        spawn.creation_flags(0x0800_0000);
+        let mut spawn = command(program, args, root);
         let (mut child, tree) = process::spawn_owned(&mut spawn).await?;
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             return Err(std::io::Error::other("no pipes"));
@@ -362,6 +353,23 @@ impl Drop for Client {
     fn drop(&mut self) {
         self.kill();
     }
+}
+
+/// How a server starts in `root`, with cmd.exe (which runs `.cmd` shims) told not to run programs found there.
+pub(super) fn command(program: &Path, args: &[String], root: &Path) -> tokio::process::Command {
+    let mut spawn = tokio::process::Command::new(program);
+    process::use_current_path(&mut spawn, &Default::default());
+    spawn
+        .args(args)
+        .current_dir(root)
+        .env("NoDefaultCurrentDirectoryInExePath", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    spawn.creation_flags(0x0800_0000);
+
+    spawn
 }
 
 /// Reaps the child. `Drop` can run with no runtime, where `spawn` would panic, so that path waits on its own.

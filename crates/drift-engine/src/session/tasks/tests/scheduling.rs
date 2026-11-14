@@ -391,6 +391,41 @@ async fn a_tags_limit_queues_its_workers_until_one_finishes_or_the_limit_rises()
 }
 
 #[tokio::test]
+async fn two_spellings_of_one_tag_are_refused_not_one_of_them_dropped() {
+    let h = harness().await;
+    let twice = BTreeMap::from([("GPU".to_owned(), 1), (" gpu".to_owned(), 3)]);
+    assert!(matches!(
+        h.engine.set_task_tag_limits(&twice),
+        Err(LimitError::TagOutOfRange)
+    ));
+    assert!(h.engine.task_tag_limits().is_empty());
+}
+
+#[tokio::test]
+async fn a_tagged_worker_launching_a_tagged_one_in_front_runs_it_under_its_own_slot() {
+    let h = harness().await;
+    h.engine
+        .set_task_tag_limits(&BTreeMap::from([("gpu".to_owned(), 1)]))
+        .unwrap();
+    h.provider
+        .push_for("PARENT", launches(&[tagged("Outer", "OUTER go", false)]))
+        .push_for("OUTER go", launches(&[tagged("Inner", "INNER go", false)]))
+        .push_for("INNER go", text("inner done"))
+        .push_for("OUTER go", text("outer done"))
+        .push_for("PARENT", text("all done"));
+
+    h.engine.submit(&h.session.id, prompt("PARENT nest")).await.unwrap();
+    until("the outer one replies", || state_of(&h, "Outer") == TaskState::Replied).await;
+    let outer = tasks(&h).into_iter().find(|task| task.description == "Outer").unwrap();
+    let inner = h.engine.store.tasks_of(&outer.session_id).unwrap();
+    assert_eq!(
+        (inner[0].state, inner[0].tags.as_slice()),
+        (TaskState::Replied, ["gpu".to_owned()].as_slice())
+    );
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn a_tagged_worker_in_front_waits_queued_for_its_slot_and_then_replies() {
     let h = harness().await;
     h.engine
