@@ -10,6 +10,8 @@ pub mod favicon;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const MAX_BYTES: usize = 5 * 1024 * 1024;
+/// The largest PDF saved for `read` to page through, the same ceiling as `read`'s.
+const MAX_SAVED_PDF_BYTES: usize = 100 * 1024 * 1024;
 /// An HTML page with less visible text than this is taken for one that builds itself with JavaScript.
 const THIN_PAGE_CHARS: usize = 200;
 
@@ -138,10 +140,12 @@ async fn direct(ctx: &Context, url: &str, format: &str, unasked: bool) -> Result
     }
     let status = response.status();
     if !status.is_success() {
-        let error = ToolError(format!("{url} answered {status}"));
         // A page that is not there is not there for a provider either.
-        let gone = matches!(status.as_u16(), 404 | 410);
-        return if gone { Err(error) } else { Ok(Fetched::Blocked(error)) };
+        return if matches!(status.as_u16(), 404 | 410) {
+            Err(missing(ctx, url, status))
+        } else {
+            Ok(Fetched::Blocked(ToolError(format!("{url} answered {status}"))))
+        };
     }
 
     let content_type = response
@@ -151,12 +155,12 @@ async fn direct(ctx: &Context, url: &str, format: &str, unasked: bool) -> Result
         .unwrap_or("")
         .to_string();
     let bytes = tokio::select! {
-        read = read_capped(response, url) => read?,
+        read = read_capped(response, url, cap_for(url, &content_type)) => read?,
         () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
     };
     // An image or PDF, known by its bytes whatever the server calls it, comes back to look at.
     if let Some(mime) = image::sniff(&bytes).or(image::is_pdf(&bytes).then_some(image::PDF)) {
-        return fetched_file(url, mime, &bytes).map(Fetched::Done);
+        return file_output(ctx, url, mime, &bytes).await.map(Fetched::Done);
     }
     if bytes.len() > MAX_BYTES {
         return Err(ToolError(format!("{url} is {} bytes; too large to fetch", bytes.len())));
@@ -183,6 +187,17 @@ async fn direct(ctx: &Context, url: &str, format: &str, unasked: bool) -> Result
 
 fn visible_chars(html: &str) -> usize {
     strip_tags(html).chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// A page that is not there, with where to look instead when `websearch` is offered.
+fn missing(ctx: &Context, url: &str, status: reqwest::StatusCode) -> ToolError {
+    let hint = if ctx.engine.web_search_available() {
+        "; use `websearch` to find where it lives rather than guessing another URL"
+    } else {
+        ""
+    };
+
+    ToolError(format!("{url} answered {status}{hint}"))
 }
 
 /// The page read through a web search provider, as markdown; `None` when no provider can read pages or the URL
@@ -434,10 +449,19 @@ fn elsewhere(response: &reqwest::Response) -> Option<String> {
     response.url().join(location).ok().map(String::from)
 }
 
-/// The body, read a chunk at a time and given up on once it passes the largest size anything accepts
-/// (a PDF's), so a huge or endless response never fills memory.
-async fn read_capped(mut response: reqwest::Response, url: &str) -> Result<Vec<u8>, ToolError> {
-    let cap = MAX_BYTES.max(image::MAX_PDF_BYTES);
+/// The most of a response worth reading: a PDF's ceiling when it says it is one, else the largest any other file takes.
+fn cap_for(url: &str, content_type: &str) -> usize {
+    let named_pdf = reqwest::Url::parse(url).is_ok_and(|parsed| parsed.path().to_ascii_lowercase().ends_with(".pdf"));
+    if named_pdf || content_type.contains(image::PDF) {
+        MAX_SAVED_PDF_BYTES
+    } else {
+        MAX_BYTES.max(image::MAX_PDF_BYTES)
+    }
+}
+
+/// The body, read a chunk at a time and given up on once it passes `cap`, so a huge or endless response never
+/// fills memory.
+async fn read_capped(mut response: reqwest::Response, url: &str, cap: usize) -> Result<Vec<u8>, ToolError> {
     let too_large = |size: u64| {
         ToolError(format!(
             "{url} is over {} MB ({size} bytes or more); too large to fetch",
@@ -461,6 +485,53 @@ async fn read_capped(mut response: reqwest::Response, url: &str) -> Result<Vec<u
     }
 
     Ok(bytes)
+}
+
+/// An image or PDF to look at; a PDF too large to attach is saved for `read` to page through instead.
+async fn file_output(ctx: &Context, url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
+    if mime != image::PDF || bytes.len() <= image::MAX_PDF_BYTES {
+        return fetched_file(url, mime, bytes);
+    }
+
+    let path = super::conversation_scratch(&ctx.engine.store, &ctx.session_id).join(pdf_name(url, &ctx.call_id));
+    tokio::fs::write(&path, bytes)
+        .await
+        .map_err(|error| ToolError(format!("could not save {url} to {}: {error}", path.display())))?;
+    Ok(Output {
+        title: url.into(),
+        output: format!(
+            "{url} is a PDF of {} MB, too large to attach, so it was saved to {}; read it with `read` and `pages`.",
+            bytes.len().div_ceil(1024 * 1024),
+            path.display()
+        ),
+        metadata: ToolMetadata {
+            content_type: Some(mime.into()),
+            bytes: Some(bytes.len()),
+            ..Default::default()
+        },
+    })
+}
+
+/// The URL's own file name when it is a plain one ending in `.pdf`, tagged with the call's id so parallel calls
+/// sharing a scratch folder never overwrite each other; else one named for the call.
+fn pdf_name(url: &str, call_id: &str) -> String {
+    let call = super::call_file_name(call_id);
+    let named = reqwest::Url::parse(url).ok().and_then(|parsed| {
+        let last = parsed.path_segments()?.next_back()?.to_string();
+        let plain = last
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || matches!(char, '.' | '_' | '-'));
+        (plain && !last.starts_with('.') && last.to_ascii_lowercase().ends_with(".pdf")).then_some(last)
+    });
+
+    match named {
+        Some(last) => format!(
+            "{}-{}.pdf",
+            &last[..last.len() - 4],
+            &call[call.len().saturating_sub(6)..]
+        ),
+        None => format!("{call}.pdf"),
+    }
 }
 
 fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {

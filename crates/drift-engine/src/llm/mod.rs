@@ -6,6 +6,7 @@ pub mod bedrock;
 pub mod catalog;
 pub mod compat;
 mod credential_file;
+pub use credential_file::KEY_VARIABLE as CREDENTIALS_KEY_VARIABLE;
 pub mod credentials;
 mod eventstream;
 mod files;
@@ -65,9 +66,14 @@ pub enum Credential {
 pub fn ambient(provider: &str) -> Option<Option<String>> {
     match provider {
         "amazon-bedrock" => Some(aws::detect()),
-        "google-vertex" | "google-vertex-anthropic" => Some(google::detect()),
+        _ if cloud_route(provider) => Some(google::detect()),
         _ => None,
     }
+}
+
+/// A route signed with a cloud's own credentials; its catalog variables are never an API key.
+pub fn cloud_route(provider: &str) -> bool {
+    matches!(provider, "amazon-bedrock" | "google-vertex" | "google-vertex-anthropic")
 }
 
 /// A token this close to its end is refreshed before a request, not after the provider refuses it mid-turn.

@@ -6,7 +6,7 @@
 //! provider that last answered it.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,10 @@ pub use providers::{BUILT_IN, Query, Site};
 pub const SETTINGS_KEY: &str = "webSearch";
 /// A rate limit that names no wait cools its key this long.
 const DEFAULT_COOLDOWN: Duration = Duration::from_secs(60);
+/// The longest a search waits for a cooling key before it tries again, once.
+const MAX_PAUSE_WAIT: Duration = Duration::from_secs(60);
+/// Requests one provider is sent at a time; the rest queue, so a burst of searches is not a burst of 429s.
+const PER_PROVIDER: usize = 4;
 /// The most results one search asks for.
 pub const MAX_RESULTS: u32 = 20;
 /// The most pages one map lists.
@@ -141,6 +145,8 @@ pub(crate) struct Routing {
     cooling: Mutex<HashMap<String, Instant>>,
     refused: Mutex<HashSet<String>>,
     sticky: Mutex<HashMap<String, String>>,
+    /// Requests in flight per provider, at most [`PER_PROVIDER`].
+    in_flight: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
     /// Where tests serve the built-in providers instead.
     #[cfg(test)]
     pub(crate) base: Mutex<Option<String>>,
@@ -384,15 +390,42 @@ impl Engine {
         let sticky = self.search_routing.sticky.lock().unwrap().get(session_id).cloned();
         attempts.sort_by_key(|attempt| sticky.as_deref() != Some(provider_of(attempt)));
 
+        let last = match self.try_each(session_id, job, &attempts).await {
+            Ok(answered) => return Ok(answered),
+            Err(last) => last,
+        };
+        // When only paused keys stand in the way, the first to come back is waited for and tried once more.
+        let Some(wait) = self.next_free(&attempts).filter(|wait| *wait <= MAX_PAUSE_WAIT) else {
+            return Err(self.with_pause(last, &attempts));
+        };
+        tokio::time::sleep(wait).await;
+
+        self.try_each(session_id, job, &attempts)
+            .await
+            .map_err(|last| self.with_pause(last, &attempts))
+    }
+
+    /// One pass over `attempts`, skipping keys that cool or were refused; the first answer wins.
+    async fn try_each(
+        &self,
+        session_id: &str,
+        job: &Job<'_>,
+        attempts: &[Attempt],
+    ) -> Result<(String, Answer), String> {
         let mut last = String::from("every web search provider is cooling down or refused its keys");
         let mut given_up = HashSet::new();
         for attempt in attempts {
-            if given_up.contains(provider_of(&attempt)) || self.unusable(&attempt.slot()) {
+            if given_up.contains(provider_of(attempt)) || self.unusable(&attempt.slot()) {
                 continue;
             }
-            match self.ask_provider(&attempt, job).await {
+            let _turn = self.turn_at(provider_of(attempt)).await;
+            // The key may have started cooling while this request queued.
+            if self.unusable(&attempt.slot()) {
+                continue;
+            }
+            match self.ask_provider(attempt, job).await {
                 Ok(answer) => {
-                    let provider = provider_of(&attempt).to_string();
+                    let provider = provider_of(attempt).to_string();
                     self.search_routing
                         .sticky
                         .lock()
@@ -403,14 +436,55 @@ impl Engine {
                 Err(error) => {
                     // Only a spent, refused or rate limited key is worth trying another key of the same provider for.
                     if matches!(error, SearchError::Failed(_)) {
-                        given_up.insert(provider_of(&attempt).to_string());
+                        given_up.insert(provider_of(attempt).to_string());
                     }
-                    last = self.note_failure(&attempt, error);
+                    last = self.note_failure(attempt, error);
                 }
             }
         }
 
         Err(last)
+    }
+
+    /// A place among the requests `provider` is sent at once, held until the request ends.
+    async fn turn_at(&self, provider: &str) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
+        let gate = self
+            .search_routing
+            .in_flight
+            .lock()
+            .unwrap()
+            .entry(provider.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(PER_PROVIDER)))
+            .clone();
+
+        gate.acquire_owned().await
+    }
+
+    /// How long until the first of `attempts`' paused keys may be asked again; `None` when none is paused.
+    fn next_free(&self, attempts: &[Attempt]) -> Option<Duration> {
+        let now = Instant::now();
+        let cooling = self.search_routing.cooling.lock().unwrap();
+        let refused = self.search_routing.refused.lock().unwrap();
+
+        attempts
+            .iter()
+            .map(Attempt::slot)
+            .filter(|slot| !refused.contains(slot))
+            .filter_map(|slot| cooling.get(&slot).copied())
+            .filter(|until| *until > now)
+            .map(|until| until - now)
+            .min()
+    }
+
+    /// The failure, with how long until a paused key is free again when one is.
+    fn with_pause(&self, last: String, attempts: &[Attempt]) -> String {
+        match self.next_free(attempts) {
+            Some(wait) => format!(
+                "{last}; a paused key is free again in {} s",
+                wait.as_millis().div_ceil(1000)
+            ),
+            None => last,
+        }
     }
 
     async fn ask_provider(&self, attempt: &Attempt, job: &Job<'_>) -> Result<Answer, SearchError> {

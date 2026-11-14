@@ -518,3 +518,66 @@ async fn python_prints_as_it_goes_and_a_subagent_is_told_to_wait_for_its_process
     assert!(started.output.contains("You are a subagent"), "{}", started.output);
     engine.processes.stop_session(&hidden.id);
 }
+
+#[test]
+fn only_the_keys_drift_manages_are_kept_from_a_command() {
+    let sandbox = Sandbox::new("bash");
+    let bash = Bash::detect();
+    let process = super::super::shell_for(bash.shell(), "env", Path::new("."), true, &sandbox.ctx);
+
+    let removed: Vec<String> = process
+        .as_std()
+        .get_envs()
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| name.to_string_lossy().to_ascii_uppercase())
+        .collect();
+    for name in [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "FIRECRAWL_API_KEY",
+        "DRIFT_CREDENTIALS_KEY",
+    ] {
+        assert!(removed.contains(&name.to_string()), "{name}");
+    }
+    for name in [
+        "GIT_CONFIG_KEY_0",
+        "NPM_TOKEN",
+        "GH_TOKEN",
+        "HF_TOKEN",
+        "TOKENIZERS_PARALLELISM",
+        "PASSWORD_STORE_DIR",
+        "AWS_REGION",
+        "AWS_SECRET_ACCESS_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "PATH",
+    ] {
+        assert!(!removed.contains(&name.to_string()), "{name} passes through");
+    }
+}
+
+#[tokio::test]
+async fn a_background_command_sees_the_users_tokens_but_not_a_managed_key() {
+    let sandbox = Sandbox::new("bash");
+    let bash = Bash::detect();
+    let print = match bash.shell {
+        Shell::Bash(_) => "echo \"${OPENAI_API_KEY:-hidden} ${NPM_TOKEN:-unset}\"",
+        Shell::PowerShell(_) => {
+            "Write-Output \"$(if ($env:OPENAI_API_KEY) { 'shown' } else { 'hidden' }) $env:NPM_TOKEN\""
+        }
+    };
+    let mut process = super::super::shell_for(bash.shell(), print, Path::new("."), true, &sandbox.ctx);
+    let managed: Vec<_> = process
+        .as_std()
+        .get_envs()
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| name.to_owned())
+        .collect();
+    // Set on the command, as an inherited value would be, then withheld the way `shell_for` withholds.
+    process.env("OPENAI_API_KEY", "sk-test").env("NPM_TOKEN", "npm-test");
+    for name in managed {
+        process.env_remove(name);
+    }
+
+    let output = process.output().await.unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hidden npm-test");
+}

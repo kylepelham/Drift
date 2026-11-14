@@ -16,6 +16,7 @@ pub use cost::{Cost, CostTier};
 use raw::RawProvider;
 
 const SNAPSHOT: &str = include_str!("../../data/models.json");
+/// `DRIFT_CATALOG_URL` overrides it for recorded runs, which must not depend on what models.dev lists today.
 const SOURCE_URL: &str = "https://models.dev/api.json";
 /// Renamed whenever the entries made from models.dev change, so a cache an older build wrote is not read.
 const CACHE_FILE: &str = "models-5.json";
@@ -324,7 +325,8 @@ impl Catalog {
     }
 
     pub async fn refresh(client: &reqwest::Client, data_dir: &Path) -> Result<Self, CatalogError> {
-        let text = client.get(SOURCE_URL).send().await?.text().await?;
+        let source = std::env::var("DRIFT_CATALOG_URL").unwrap_or_else(|_| SOURCE_URL.into());
+        let text = client.get(source).send().await?.text().await?;
         let catalog = Self::parse(&text)?;
         let json = serde_json::to_string(&catalog.providers)?;
 

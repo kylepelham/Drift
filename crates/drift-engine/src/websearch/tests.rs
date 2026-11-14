@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::Json;
@@ -20,6 +20,10 @@ struct Behaviour {
     asked: Mutex<Vec<String>>,
     /// The body of Firecrawl's last search.
     last_search: Mutex<Value>,
+    /// Firecrawl takes a while to answer, counting how many requests it holds at once.
+    firecrawl_slow: AtomicBool,
+    in_flight: AtomicUsize,
+    most_in_flight: AtomicUsize,
 }
 
 fn key(headers: &HeaderMap) -> String {
@@ -49,6 +53,12 @@ async fn firecrawl(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap, 
     }
     if behaviour.firecrawl_broken.load(Ordering::SeqCst) {
         return (StatusCode::BAD_GATEWAY, "upstream timed out").into_response();
+    }
+    if behaviour.firecrawl_slow.load(Ordering::SeqCst) {
+        let now = behaviour.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        behaviour.most_in_flight.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        behaviour.in_flight.fetch_sub(1, Ordering::SeqCst);
     }
     let mut page = json!({ "url": "https://fire.example", "title": "Fire", "description": body["query"] });
     if body["scrapeOptions"].is_object() {
@@ -280,6 +290,52 @@ async fn a_failure_that_is_not_the_key_skips_the_providers_other_keys() {
     let (provider, _) = engine.web_search("s2", query("rust")).await.unwrap();
     assert_eq!(provider, "firecrawl", "the key was not set aside");
     assert_eq!(asked(&behaviour, "firecrawl:f1"), 2);
+}
+
+#[tokio::test]
+async fn a_search_that_meets_only_a_paused_key_waits_for_it_once() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_busy.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("firecrawl", "f1").unwrap();
+    choose(&engine, "firecrawl", &[]);
+    let calming = behaviour.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        calming.firecrawl_busy.store(false, Ordering::SeqCst);
+    });
+
+    let (provider, _) = engine.web_search("s1", query("rust")).await.unwrap();
+    assert_eq!(provider, "firecrawl");
+    assert_eq!(
+        asked(&behaviour, "firecrawl:f1"),
+        2,
+        "asked again once its Retry-After passed"
+    );
+
+    behaviour.firecrawl_busy.store(true, Ordering::SeqCst);
+    let error = engine.web_search("s2", query("rust")).await.unwrap_err();
+    assert!(
+        error.contains("rate limited") && error.contains("free again in 1 s"),
+        "{error}"
+    );
+    assert_eq!(asked(&behaviour, "firecrawl:f1"), 4, "only once more");
+}
+
+#[tokio::test]
+async fn one_provider_is_sent_only_a_few_requests_at_once() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_slow.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("firecrawl", "f1").unwrap();
+    choose(&engine, "firecrawl", &[]);
+
+    let searches = (0..10).map(|_| engine.web_search("s1", query("rust")));
+    let answered = futures_util::future::join_all(searches).await;
+
+    assert!(answered.iter().all(Result::is_ok));
+    let most = behaviour.most_in_flight.load(Ordering::SeqCst);
+    assert!((2..=super::PER_PROVIDER).contains(&most), "{most} at once");
 }
 
 #[tokio::test]

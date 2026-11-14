@@ -82,6 +82,8 @@ pub struct Setting<'a> {
     pub references: &'a [crate::session::references::Listed],
     /// The workspace's plans folder, which the environment names.
     pub plans: Option<&'a Path>,
+    /// The conversation's own scratch folder, which the environment names.
+    pub scratch: &'a Path,
     /// The MCP tools `tool_search` loads on request, by server.
     pub deferred: &'a [(String, Vec<String>)],
 }
@@ -140,7 +142,7 @@ fn instruction_files(config: &Config, workspace: &Path, workdir: Option<&Path>) 
     found
 }
 
-fn environment(here: &Path, plans: Option<&Path>) -> Source {
+fn environment(here: &Path, plans: Option<&Path>, scratch: &Path) -> Source {
     let git = if crate::config::in_repository(here) {
         "yes"
     } else {
@@ -158,7 +160,7 @@ fn environment(here: &Path, plans: Option<&Path>) -> Source {
         "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace){plans}",
         here.display(),
         std::env::consts::OS,
-        crate::tool::scratch_dir().display()
+        scratch.display()
     );
 
     Source::new("environment", "the environment", environment)
@@ -178,6 +180,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         servers,
         references,
         plans,
+        scratch,
         deferred,
         ..
     } = *setting;
@@ -215,7 +218,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
     if let Some(listed) = references_text(references) {
         found.push(Source::new("references", "the references", listed));
     }
-    found.push(environment(workdir.unwrap_or(workspace), plans));
+    found.push(environment(workdir.unwrap_or(workspace), plans, scratch));
     found.push(Source::new("model", "the model", format!("Model: {model}")));
     found.push(Source::new(
         "date",
@@ -451,6 +454,7 @@ mod tests {
             servers: &servers,
             references: &[],
             plans: None,
+            scratch: Path::new("scratch"),
             deferred: &[],
         };
 
@@ -539,6 +543,7 @@ mod tests {
                 servers: &[],
                 references: &[],
                 plans: None,
+                scratch: Path::new("scratch"),
                 deferred: &[],
             })
         };
@@ -585,6 +590,7 @@ mod tests {
                 servers: &[],
                 references: &[],
                 plans: None,
+                scratch: Path::new("scratch"),
                 deferred: &[],
             })
         };
@@ -627,6 +633,7 @@ mod tests {
             servers: &[],
             references: &[],
             plans: None,
+            scratch: Path::new("scratch"),
             deferred: &[],
         });
         assert!(

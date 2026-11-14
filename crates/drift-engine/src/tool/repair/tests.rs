@@ -163,6 +163,27 @@ fn numeric_and_boolean_strings_are_read_and_anything_else_kept() {
 }
 
 #[test]
+fn hexadecimal_text_is_read_as_an_integer_only_where_one_is_expected() {
+    let schema = object(json!({
+        "length": { "type": ["integer", "null"] },
+        "count": { "type": "integer" },
+        "ratio": { "type": "number" },
+        "address": { "type": "string" },
+        "wide": { "type": "integer" },
+        "broken": { "type": "integer" },
+    }));
+    let input = json!({
+        "length": "0x40", "count": "0X1A", "ratio": "0x10", "address": "0x7ff6",
+        "wide": "0xFFFFFA0000000000", "broken": "0xZZ",
+    });
+
+    let mut expected = input.clone();
+    expected["length"] = json!(64);
+    expected["count"] = json!(26);
+    assert_eq!(repair(&schema, &input), expected);
+}
+
+#[test]
 fn a_compatible_single_value_is_wrapped_as_an_array() {
     let schema = object(json!({
         "text": { "type": "array", "items": { "type": "string" } },

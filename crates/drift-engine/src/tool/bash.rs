@@ -117,13 +117,7 @@ impl Tool for Bash {
             let started = Started {
                 command: command.to_string(),
                 title: input["description"].as_str().unwrap_or(command).to_string(),
-                running: spawn(shell_for(
-                    &self.shell,
-                    command,
-                    &directory,
-                    background,
-                    &context.config.programs,
-                ))?,
+                running: spawn(shell_for(&self.shell, command, &directory, background, context))?,
             };
 
             if background {
@@ -233,7 +227,7 @@ impl Bash {
         directory: &Path,
         env: &[(&str, &Path)],
     ) -> Result<Output, ToolError> {
-        let mut process = shell_for(&self.shell, line, directory, false, &context.config.programs);
+        let mut process = shell_for(&self.shell, line, directory, false, context);
         process.envs(env.iter().copied());
         let mut running = spawn(process)?;
         let limit = context.engine.shell_timeout();
@@ -316,14 +310,14 @@ pub(crate) struct Started {
     pub running: Running,
 }
 
-/// The shell for `line`; a background command gets an input pipe so the model can type into it. `programs` (the
-/// bin folders of bundles that are on) are on its PATH after the user's own.
+/// The shell for `line`; a background command gets an input pipe so the model can type into it. The bin folders of
+/// bundles that are on come on its PATH after the user's own, and the keys Drift manages never reach it.
 fn shell_for(
     shell: &Shell,
     line: &str,
     directory: &Path,
     background: bool,
-    programs: &[std::path::PathBuf],
+    context: &Context,
 ) -> tokio::process::Command {
     let mut process = shell_command(shell, line);
     let stdin = if background { Stdio::piped() } else { Stdio::null() };
@@ -333,13 +327,40 @@ fn shell_for(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    process.env("PATH", crate::platform::process::path_with(programs));
+    process.env("PATH", crate::platform::process::path_with(&context.config.programs));
     // Python holds its output back when it is not writing to a terminal, so a running script would look silent.
     if std::env::var_os("PYTHONUNBUFFERED").is_none() {
         process.env("PYTHONUNBUFFERED", "1");
     }
+    for name in managed_keys(&context.engine) {
+        process.env_remove(name);
+    }
 
     process
+}
+
+/// The variables Drift reads provider keys from (models, images, web search) and its own store's key; the user's
+/// other tokens are theirs to use and pass through.
+fn managed_keys(engine: &crate::Engine) -> Vec<String> {
+    let mut names: Vec<String> = engine
+        .catalog
+        .read()
+        .unwrap()
+        .providers
+        .values()
+        .filter(|provider| !crate::llm::cloud_route(&provider.id))
+        .flat_map(|provider| provider.env.iter().cloned())
+        .collect();
+    names.extend(
+        crate::imagegen::key_variables()
+            .chain(crate::websearch::BUILT_IN.iter().map(|provider| provider.env))
+            .chain([crate::llm::CREDENTIALS_KEY_VARIABLE])
+            .map(str::to_string),
+    );
+    names.sort_unstable();
+    names.dedup();
+
+    names
 }
 
 /// Starts the shell in a job that holds everything it starts.

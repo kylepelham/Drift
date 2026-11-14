@@ -428,6 +428,7 @@ impl Engine {
         };
         let references = self.references_for_turn(&plan.config.references);
         let plans = self.plans_dir(&plan.session.workspace_id);
+        let scratch = crate::tool::conversation_scratch(&self.store, &plan.session.id);
         let setting = prompt::Setting {
             base: &base,
             family: plan.model.prompt,
@@ -443,6 +444,7 @@ impl Engine {
             servers: &servers,
             references: &references,
             plans: Some(&plans),
+            scratch: &scratch,
             deferred: &listed,
         };
         let sources = prompt::sources(&setting);
