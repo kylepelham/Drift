@@ -620,10 +620,12 @@ pub fn mentions_context_overflow(text: &str) -> bool {
     OVERFLOW_PHRASES.iter().any(|phrase| text.contains(phrase))
 }
 
-/// How providers say a safety classifier blocked the request outright: OpenAI's `cyber_policy` 400, content filters.
-const SAFETY_BLOCK_PHRASES: [&str; 4] = [
+/// How providers say a safety classifier blocked the request outright: the policy codes Codex treats as blocks.
+const SAFETY_BLOCK_PHRASES: [&str; 6] = [
     "cyber_policy",
     "flagged for possible cybersecurity risk",
+    "bio_policy",
+    "misalignment_policy_violation",
     "content_filter",
     "content_policy_violation",
 ];
@@ -696,6 +698,9 @@ mod overflow_tests {
         let cyber = "cyber_policy (400): This content was flagged for possible cybersecurity risk. \
                      If this seems wrong, try rephrasing your request.";
         assert!(super::mentions_safety_block(cyber));
+        assert!(super::mentions_safety_block(
+            "bio_policy (400): flagged for possible biological risk."
+        ));
         assert!(super::mentions_safety_block(
             "The response was filtered: content_filter"
         ));
