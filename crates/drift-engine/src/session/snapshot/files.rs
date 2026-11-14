@@ -44,9 +44,12 @@ impl Snapshots {
             .map(Some)
     }
 
-    /// A stored blob's bytes.
+    /// A stored blob's bytes; in a repository's top folder they may live only in its own object store.
     pub async fn blob(&self, workspace: &Path, blob: &str) -> Result<Vec<u8>, Error> {
-        self.git_bytes(workspace, &["cat-file", "blob", blob]).await
+        let source = self.source(workspace).await;
+
+        self.run_with(workspace, &["cat-file", "blob", blob], None, source.as_ref())
+            .await
     }
 
     /// Makes `path` hold `blob` through the staged writer, or removes it for `None`.
@@ -59,7 +62,7 @@ impl Snapshots {
     ) -> Result<(), Error> {
         let file = workspace.join(path);
         let content = match blob {
-            Some(blob) => Some(self.git_bytes(workspace, &["cat-file", "blob", blob]).await?),
+            Some(blob) => Some(self.blob(workspace, blob).await?),
             None => None,
         };
 
@@ -86,8 +89,14 @@ impl Snapshots {
             return Ok(HashMap::new());
         }
         let input = blobs.join("\n") + "\n";
+        let source = self.source(workspace).await;
         let output = self
-            .run(workspace, &["cat-file", "--batch"], Some(input.as_bytes()))
+            .run_with(
+                workspace,
+                &["cat-file", "--batch"],
+                Some(input.as_bytes()),
+                source.as_ref(),
+            )
             .await?;
 
         parse_batch(&output)

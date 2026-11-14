@@ -47,3 +47,32 @@ async fn many_blobs_come_back_byte_for_byte_from_one_read() {
     assert_eq!(blobs[&ids[2]], empty);
     assert!(!blobs.contains_key(missing), "a blob the store lacks is left out");
 }
+
+#[tokio::test]
+async fn recording_bytes_again_keeps_their_blob_through_the_next_prune() {
+    let (base, workspace) = dirs();
+    let snapshots = Snapshots::new(&base.join("data"));
+    let again = snapshots.store_bytes(&workspace, b"recorded twice").await.unwrap();
+    let once = snapshots.store_bytes(&workspace, b"recorded once").await.unwrap();
+    let objects = snapshots.git_dir(&workspace).join("objects");
+    let hours_ago = std::time::SystemTime::now() - Duration::from_secs(3 * 60 * 60);
+    for id in [&again, &once] {
+        let path = objects.join(&id[..2]).join(&id[2..]);
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(hours_ago).unwrap();
+        drop(file);
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+
+    assert_eq!(
+        snapshots.store_bytes(&workspace, b"recorded twice").await.unwrap(),
+        again
+    );
+    snapshots.prune(&workspace, &[]).await.unwrap();
+
+    assert!(stored(&snapshots, &workspace, &again), "a blob recorded again is fresh");
+    assert!(!stored(&snapshots, &workspace, &once), "an old unpinned blob is pruned");
+    std::fs::remove_dir_all(base).ok();
+}
