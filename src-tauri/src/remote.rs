@@ -497,7 +497,8 @@ remote_commands! {
             optional(args, "column")?,
         )?),
         "read_file_preview" => value(
-            file_preview::read_file_preview(
+            file_preview::read_workspace_preview(
+                app.state::<crate::native::Native>().engine().clone(),
                 arg(args, "path")?,
                 arg(args, "directory")?,
                 arg(args, "maxBytes")?,

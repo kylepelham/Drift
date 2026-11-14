@@ -51,6 +51,12 @@ pub(crate) fn escape_like(query: &str) -> String {
     escaped
 }
 
+/// `text` as it is spelled inside a JSON string, so the `LIKE` over raw part JSON finds quotes, backslashes and newlines.
+fn json_escaped(text: &str) -> String {
+    let quoted = serde_json::to_string(text).unwrap_or_default();
+    quoted[1..quoted.len() - 1].to_string()
+}
+
 /// Normalizes directory casing and slash direction for comparisons between stored and user-selected paths.
 pub(crate) fn normalize_directory(directory: &str) -> String {
     directory.replace('\\', "/").trim_end_matches('/').to_lowercase()
@@ -113,7 +119,7 @@ pub(crate) fn search_in(connection: &Connection, query: &str, directory: &str) -
     }
 
     let needle = trimmed.chars().take(MAX_QUERY_CHARS).collect::<String>();
-    let pattern = format!("%{}%", escape_like(&needle));
+    let pattern = format!("%{}%", escape_like(&json_escaped(&needle)));
     let scope = normalize_directory(directory);
 
     let mut statement = connection.prepare(

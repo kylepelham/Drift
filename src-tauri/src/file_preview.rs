@@ -3,13 +3,13 @@
 mod opened_path;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use drift_engine::Engine;
 use opened_path::opened_file_path;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MAX_PREVIEW_BYTES: u64 = 40 * 1024 * 1024;
 
@@ -21,6 +21,10 @@ enum PreviewError {
     RelativeDirectory,
     #[error("File preview directory is not a directory")]
     NotDirectory,
+    #[error("File preview directory is not in a Drift workspace")]
+    UnknownWorkspace,
+    #[error("File preview could not list workspaces: {0}")]
+    Workspaces(#[source] rusqlite::Error),
     #[error("File preview path is missing")]
     EmptyPath,
     #[error("File preview path is outside the workspace")]
@@ -63,6 +67,68 @@ pub(crate) async fn read_file_preview(path: String, directory: String, max_bytes
         .map_err(|error| error.to_string())
 }
 
+/// A paired device's preview: `directory` must lie in a workspace Drift knows or in one of its worktrees.
+pub(crate) async fn read_workspace_preview(
+    engine: Arc<Engine>,
+    path: String,
+    directory: String,
+    max_bytes: u64,
+) -> Result<FilePreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let roots = workspace_roots(&engine).map_err(PreviewError::Workspaces)?;
+        read_known_preview(&path, &directory, max_bytes, &roots)
+    })
+    .await
+    .map_err(|error| format!("File preview task failed: {error}"))?
+    .map_err(|error| error.to_string())
+}
+
+fn workspace_roots(engine: &Engine) -> rusqlite::Result<Vec<PathBuf>> {
+    let workspaces = engine.store.workspaces()?;
+    let roots = workspaces.into_iter().flat_map(|workspace| {
+        let worktrees = store_id(&workspace.id).then(|| engine.worktree_path(&workspace.id, ""));
+        [Some(PathBuf::from(workspace.path)), worktrees].into_iter().flatten()
+    });
+
+    Ok(roots.collect())
+}
+
+/// An id the store makes: 24 lowercase hex digits, so it names one folder under `worktrees` and nothing else.
+fn store_id(id: &str) -> bool {
+    id.len() == 24 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn read_known_preview(
+    path: &str,
+    directory: &str,
+    max_bytes: u64,
+    roots: &[PathBuf],
+) -> Result<FilePreview, PreviewError> {
+    check_limit(max_bytes)?;
+    read_in_root(path, &known_root(directory, roots)?, max_bytes, |path| File::open(path))
+}
+
+/// `directory` resolved once, when it lies in one of `roots`; the read then uses this path, never `directory` again.
+fn known_root(directory: &str, roots: &[PathBuf]) -> Result<PathBuf, PreviewError> {
+    let directory = Path::new(directory);
+    let root = directory
+        .is_absolute()
+        .then(|| directory.canonicalize().ok())
+        .flatten()
+        .filter(|directory| {
+            roots
+                .iter()
+                .filter_map(|root| root.canonicalize().ok())
+                .any(|root| directory.starts_with(root))
+        })
+        .ok_or(PreviewError::UnknownWorkspace)?;
+    if !root.is_dir() {
+        return Err(PreviewError::NotDirectory);
+    }
+
+    Ok(root)
+}
+
 fn read_preview(path: &str, directory: &str, max_bytes: u64) -> Result<FilePreview, PreviewError> {
     read_preview_with_open(path, directory, max_bytes, |path| File::open(path))
 }
@@ -73,10 +139,7 @@ fn read_preview_with_open(
     max_bytes: u64,
     open: impl FnOnce(&Path) -> io::Result<File>,
 ) -> Result<FilePreview, PreviewError> {
-    if max_bytes > MAX_PREVIEW_BYTES {
-        return Err(PreviewError::InvalidLimit);
-    }
-
+    check_limit(max_bytes)?;
     let root = Path::new(directory);
     if !root.is_absolute() {
         return Err(PreviewError::RelativeDirectory);
@@ -85,12 +148,31 @@ fn read_preview_with_open(
     if !root.is_dir() {
         return Err(PreviewError::NotDirectory);
     }
+
+    read_in_root(path, &root, max_bytes, open)
+}
+
+fn check_limit(max_bytes: u64) -> Result<(), PreviewError> {
+    if max_bytes > MAX_PREVIEW_BYTES {
+        return Err(PreviewError::InvalidLimit);
+    }
+
+    Ok(())
+}
+
+/// Reads `path` inside `root`, which the caller has already made canonical, within a checked `max_bytes`.
+fn read_in_root(
+    path: &str,
+    root: &Path,
+    max_bytes: u64,
+    open: impl FnOnce(&Path) -> io::Result<File>,
+) -> Result<FilePreview, PreviewError> {
     if path.is_empty() {
         return Err(PreviewError::EmptyPath);
     }
 
     let path = root.join(path).canonicalize().map_err(io_error)?;
-    if !path.starts_with(&root) {
+    if !path.starts_with(root) {
         return Err(PreviewError::OutsideWorkspace);
     }
 
@@ -105,7 +187,7 @@ fn read_preview_with_open(
     let file = open(&path).map_err(io_error)?;
     // Validate the open handle because its checked pathname may have been replaced before open.
     let opened_path = opened_file_path(&file)?;
-    if !opened_path.is_absolute() || !opened_path.starts_with(&root) {
+    if !opened_path.is_absolute() || !opened_path.starts_with(root) {
         return Err(PreviewError::OpenedOutsideWorkspace);
     }
 
@@ -459,6 +541,96 @@ mod tests {
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(fixture.workspace(), &root_link).unwrap();
         assert_eq!(read_preview("inside", root_link.to_str().unwrap(), 6).unwrap().size, 6);
+    }
+
+    #[test]
+    fn file_preview_for_a_paired_device_stays_inside_known_workspaces() {
+        let fixture = Fixture::new();
+        fs::write(fixture.workspace().join("inside"), b"inside").unwrap();
+        fs::create_dir(fixture.workspace().join("nested")).unwrap();
+        fs::write(fixture.workspace().join("nested/deeper"), b"deeper").unwrap();
+        fs::write(fixture.0.join("secret"), b"secret").unwrap();
+        let roots = [fixture.workspace(), fixture.0.join("missing-worktrees")];
+        let read = |path: &str, directory: &Path| read_known_preview(path, directory.to_str().unwrap(), 100, &roots);
+
+        assert_eq!(read("inside", &fixture.workspace()).unwrap().size, 6);
+        assert_eq!(read("deeper", &fixture.workspace().join("nested")).unwrap().size, 6);
+        for directory in [
+            fixture.0.clone(),
+            fixture.0.join("workspace-other"),
+            PathBuf::from("workspace"),
+        ] {
+            assert!(matches!(
+                read("secret", &directory),
+                Err(PreviewError::UnknownWorkspace)
+            ));
+        }
+        assert!(matches!(
+            read("secret", &fixture.workspace().join("..")),
+            Err(PreviewError::UnknownWorkspace)
+        ));
+        assert!(matches!(
+            read_known_preview("inside", fixture.workspace().to_str().unwrap(), 100, &[]),
+            Err(PreviewError::UnknownWorkspace)
+        ));
+    }
+
+    #[test]
+    fn file_preview_takes_worktrees_only_under_ids_the_store_makes() {
+        assert!(store_id("0123456789abcdef01234567"));
+        for id in [
+            "",
+            "..",
+            r"..\..",
+            "../..",
+            r"C:\",
+            "/",
+            "0123456789ABCDEF01234567",
+            "0123456789abcdef0123456",
+            "0123456789abcdef012345678",
+            r"0123456789abcdef\..\4567",
+        ] {
+            assert!(!store_id(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn file_preview_reads_in_the_root_it_checked_even_if_the_directory_is_swapped() {
+        let fixture = Fixture::new();
+        fs::write(fixture.workspace().join("file"), b"inside").unwrap();
+        let outside = fixture.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("file"), b"secret").unwrap();
+        let link = fixture.0.join("link");
+        #[cfg(unix)]
+        let result = std::os::unix::fs::symlink(fixture.workspace(), &link);
+        #[cfg(windows)]
+        let result = std::os::windows::fs::symlink_dir(fixture.workspace(), &link);
+        #[cfg(windows)]
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.raw_os_error() == Some(1314))
+        {
+            eprintln!("swap fixture skipped: Windows requires Developer Mode or symlink privilege");
+            return;
+        }
+        result.unwrap();
+
+        let root = known_root(link.to_str().unwrap(), &[fixture.workspace()]).unwrap();
+        assert_eq!(root, fixture.workspace().canonicalize().unwrap());
+        #[cfg(unix)]
+        {
+            fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            fs::remove_dir(&link).unwrap();
+            std::os::windows::fs::symlink_dir(&outside, &link).unwrap();
+        }
+        let preview = read_in_root("file", &root, 6, |path| File::open(path)).unwrap();
+        assert_eq!(STANDARD.decode(preview.content).unwrap(), b"inside");
     }
 
     #[tokio::test]

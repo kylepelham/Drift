@@ -283,6 +283,83 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
 }
 
 #[test]
+fn an_ipv6_visitor_is_throttled_by_its_whole_slash_64() {
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    let now = Instant::now();
+    let v6 = |low: u16, net: u16| IpAddr::from([0x2001, 0xdb8, 0, net, 0, 0, 0, low]);
+
+    for low in 0..FREE_FAILURES as u16 {
+        auth.fail(v6(low, 1), now);
+    }
+    assert!(
+        auth.locked_for(v6(999, 1), now).is_some(),
+        "rotating within the /64 is still locked"
+    );
+    assert!(auth.locked_for(v6(0, 2), now).is_none(), "the next /64 is someone else");
+    auth.succeed(v6(12345, 1));
+    assert!(auth.locked_for(v6(0, 1), now).is_none());
+
+    let mapped = IpAddr::from([0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0128]);
+    assert_eq!(
+        throttle_key(mapped),
+        address(40),
+        "an IPv4-mapped address shares its IPv4 bucket"
+    );
+    assert!(anonymous(IpAddr::from([0, 0, 0, 0])) && anonymous(IpAddr::from([0u16; 8])));
+    assert!(!anonymous(address(1)));
+
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn many_failures_across_addresses_slow_every_sign_in() {
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    let now = Instant::now();
+
+    for index in 0..GLOBAL_FAILURES - 1 {
+        auth.fail(IpAddr::from([10, 0, (index / 250) as u8, (index % 250) as u8]), now);
+    }
+    assert!(
+        auth.locked_for(address(1), now).is_none(),
+        "below the ceiling nobody else waits"
+    );
+
+    auth.fail(IpAddr::from([10, 1, 0, 0]), now);
+    assert_eq!(auth.locked_for(address(1), now), Some(GLOBAL_SPACING));
+    assert!(
+        auth.pairing_locked_for(address(1), now).is_none(),
+        "password failures elsewhere never stop a pairing request the user approves"
+    );
+    for _ in 0..FREE_FAILURES {
+        auth.fail(address(1), now);
+    }
+    assert!(
+        auth.pairing_locked_for(address(1), now).is_some(),
+        "an address's own failures still lock its pairing"
+    );
+    assert!(auth.pairing_locked_for(address(2), now).is_none());
+    assert!(auth.locked_for(address(1), now + GLOBAL_SPACING).is_some());
+    assert!(auth.locked_for(address(2), now + GLOBAL_SPACING).is_none());
+    assert_eq!(
+        auth.recent_failures.len(),
+        GLOBAL_FAILURES,
+        "the global record stays bounded"
+    );
+
+    auth.fail(IpAddr::from([10, 2, 0, 0]), now + GLOBAL_WINDOW);
+    assert!(
+        auth.locked_for(address(1), now + GLOBAL_WINDOW).is_none(),
+        "old failures age out of the ceiling"
+    );
+
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
 fn session_tokens_come_from_bearer_or_a_cookie_while_browsers_may_sign_in() {
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer abc"));

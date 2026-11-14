@@ -221,7 +221,7 @@ pub(super) async fn accept_loop(listener: TcpListener, router: Router, host: Str
 async fn serve(mut stream: TcpStream, router: Router, host: String) {
     let header = tokio::time::timeout(HEADER_TIMEOUT, read_proxy_header(&mut stream)).await;
     let Ok(Ok(visitor)) = header else { return };
-    // A header without an address shares one throttling bucket rather than borrowing loopback's.
+    // A header without an address gets the unspecified one, which sign-in refuses, rather than borrowing loopback's.
     let visitor = visitor.unwrap_or(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)));
     let service = router.map_request(move |mut request: Request<hyper::body::Incoming>| {
         request.extensions_mut().insert(ConnectInfo(visitor));

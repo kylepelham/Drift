@@ -115,6 +115,7 @@ fn gateway() -> Router {
             get(|| async { axum::Json(json!({ "api": 1, "version": "test", "computer": "PC" })) }),
         )
         .route("/auth/me", get(|| async { "{}" }))
+        .route("/auth/logout", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
         .route(
             "/engine/echo",
             axum::routing::post(|headers: HeaderMap, body: String| async move {
@@ -255,6 +256,25 @@ async fn an_open_page_gets_its_pc_back_after_the_connection_dropped() {
         .unwrap();
 
     assert_eq!(echoed, "Bearer phone-session - - prompt");
+}
+
+#[tokio::test]
+async fn signing_out_with_a_query_still_forgets_the_pc() {
+    let (proxy, address, client) = proxy().await;
+    let authority = Authority::new();
+    let pc_address = authority.serve(gateway()).await;
+    let id = link(&proxy, &authority, &["127.0.0.1"], pc_address.port());
+
+    let signed_out = client
+        .post(format!("http://{address}/auth/logout?reason=menu"))
+        .header("cookie", signed_in())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(signed_out.status(), StatusCode::NO_CONTENT);
+    assert!(proxy.computers.lock().unwrap().get(&id).is_none());
+    assert!(proxy.route.lock().unwrap().is_none());
 }
 
 #[tokio::test]

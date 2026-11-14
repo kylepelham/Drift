@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
 use super::requests::Answer;
-use super::{constant_time_eq, device_name, random_bytes, session_cookie, verify_password, with_cookie};
+use super::{anonymous, constant_time_eq, device_name, random_bytes, session_cookie, verify_password, with_cookie};
 
 /// How long one wait for an answer is held open before the device asks again.
 const ANSWER_POLL: Duration = Duration::from_secs(25);
@@ -91,7 +91,7 @@ pub(crate) async fn options(State(app): State<tauri::AppHandle>) -> Response {
 }
 
 /// A device asks to connect. This computer commits to its secret now and reveals it only once the device sent its own.
-/// Declined requests count toward the same lockout as wrong passwords.
+/// Declined requests count toward the same lockout as wrong passwords, but only the address's own lock stops a request.
 pub(crate) async fn request_open(
     State(app): State<tauri::AppHandle>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -99,8 +99,11 @@ pub(crate) async fn request_open(
 ) -> Response {
     let access = app.state::<RemoteAccess>();
     let address = peer.ip();
+    if anonymous(address) {
+        return unknown_address();
+    }
     let mut auth = access.auth();
-    if let Some(wait) = auth.locked_for(address, Instant::now()) {
+    if let Some(wait) = auth.pairing_locked_for(address, Instant::now()) {
         return locked_response(wait);
     }
 
@@ -186,6 +189,9 @@ pub(crate) async fn login(
 ) -> Response {
     let access = app.state::<RemoteAccess>();
     let address = peer.ip();
+    if anonymous(address) {
+        return unknown_address();
+    }
     let (locked, password) = {
         let mut auth = access.auth();
         (auth.locked_for(address, Instant::now()), auth.password.clone())
@@ -218,7 +224,7 @@ pub(crate) async fn login(
         return failure(StatusCode::UNAUTHORIZED, "Wrong username or password.");
     }
 
-    auth.failures.remove(&address);
+    auth.succeed(address);
     match auth.create_device(device_name(request.name), "password", &app.state::<Store>()) {
         Ok(token) => {
             drop(auth);
@@ -232,6 +238,13 @@ pub(crate) async fn login(
 fn locked_response(wait: std::time::Duration) -> Response {
     let message = format!("Too many attempts. Try again in {} seconds.", wait.as_secs().max(1));
     failure(StatusCode::TOO_MANY_REQUESTS, &message)
+}
+
+fn unknown_address() -> Response {
+    failure(
+        StatusCode::FORBIDDEN,
+        "This connection does not say where it comes from, so it cannot sign in.",
+    )
 }
 
 /// The signed-in device, and where this PC can be reached now, so the app keeps its addresses current.

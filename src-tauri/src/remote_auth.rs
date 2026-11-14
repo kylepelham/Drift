@@ -14,9 +14,9 @@ use axum::response::{Html, IntoResponse, Response};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::time::{Duration, Instant};
 
 pub(crate) const COOKIE_NAME: &str = "drift_remote";
@@ -27,6 +27,9 @@ const PASSWORD_ITERATIONS: u32 = 600_000;
 const FREE_FAILURES: u32 = 5;
 const MAX_LOCK: Duration = Duration::from_secs(900);
 const FORGET_FAILURES: Duration = Duration::from_secs(3600);
+const GLOBAL_FAILURES: usize = 30;
+const GLOBAL_WINDOW: Duration = Duration::from_secs(600);
+const GLOBAL_SPACING: Duration = Duration::from_secs(10);
 const TOUCH_INTERVAL_MS: i64 = 60_000;
 
 #[derive(Debug, thiserror::Error)]
@@ -59,6 +62,8 @@ pub(crate) struct Auth {
     password: Option<Password>,
     requests: requests::Requests,
     failures: HashMap<IpAddr, Failure>,
+    /// The latest failures from every address together, oldest first, at most `GLOBAL_FAILURES`.
+    recent_failures: VecDeque<Instant>,
 }
 
 impl Auth {
@@ -76,6 +81,7 @@ impl Auth {
             password,
             requests: requests::Requests::default(),
             failures: HashMap::new(),
+            recent_failures: VecDeque::new(),
         })
     }
 
@@ -168,16 +174,47 @@ impl Auth {
         Ok(())
     }
 
+    /// How long `address` must wait: its own lock, or the global spacing once every address together failed too often.
     fn locked_for(&mut self, address: IpAddr, now: Instant) -> Option<Duration> {
-        let until = self.failures.get(&address)?.locked_until?;
+        let flooded = self.recent_failures.len() >= GLOBAL_FAILURES
+            && self
+                .recent_failures
+                .front()
+                .is_some_and(|first| now.duration_since(*first) < GLOBAL_WINDOW);
+        let global = self
+            .recent_failures
+            .back()
+            .filter(|_| flooded)
+            .map(|last| *last + GLOBAL_SPACING);
+        let until = self.own_lock(address).max(global)?;
         (until > now).then(|| until - now)
+    }
+
+    /// How long `address` must wait to ask to pair: only its own lock, as the user approves every request here.
+    fn pairing_locked_for(&self, address: IpAddr, now: Instant) -> Option<Duration> {
+        let until = self.own_lock(address)?;
+        (until > now).then(|| until - now)
+    }
+
+    fn own_lock(&self, address: IpAddr) -> Option<Instant> {
+        self.failures
+            .get(&throttle_key(address))
+            .and_then(|failure| failure.locked_until)
+    }
+
+    fn succeed(&mut self, address: IpAddr) {
+        self.failures.remove(&throttle_key(address));
     }
 
     fn fail(&mut self, address: IpAddr, now: Instant) {
         // An address quiet for an hour is past any lock, so it is forgotten and the map stays small.
         self.failures
             .retain(|_, failure| now.duration_since(failure.last) < FORGET_FAILURES);
-        let failure = self.failures.entry(address).or_insert(Failure {
+        if self.recent_failures.len() >= GLOBAL_FAILURES {
+            self.recent_failures.pop_front();
+        }
+        self.recent_failures.push_back(now);
+        let failure = self.failures.entry(throttle_key(address)).or_insert(Failure {
             count: 0,
             locked_until: None,
             last: now,
@@ -190,6 +227,19 @@ impl Auth {
             failure.locked_until = Some(now + delay);
         }
     }
+}
+
+/// The bucket an address is throttled in: an IPv6 visitor owns its whole /64, so rotating within it gains nothing.
+fn throttle_key(address: IpAddr) -> IpAddr {
+    match address.to_canonical() {
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(v6.to_bits() & !u128::from(u64::MAX))),
+        v4 => v4,
+    }
+}
+
+/// A tunnel connection whose PROXY header named no visitor; it may not sign in, as it has no bucket of its own.
+fn anonymous(address: IpAddr) -> bool {
+    address.is_unspecified()
 }
 
 pub(crate) fn token_hash(token: &str) -> String {

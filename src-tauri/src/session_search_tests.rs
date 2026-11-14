@@ -227,6 +227,23 @@ fn treats_wildcards_as_literal_text() {
 }
 
 #[test]
+fn finds_backslashes_quotes_and_line_breaks_as_typed() {
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:\\work");
+    let session = fixture.session(&workspace, "Escapes", 100, None);
+    fixture.text(&session, "open C:\\Users\\Kyle and say \"hi\"\nthen\ttab");
+
+    for query in ["C:\\Users", "say \"hi\"", "\"hi\"\nthen", "then\ttab"] {
+        assert_eq!(fixture.search(query, "C:/work").len(), 1, "{query:?}");
+    }
+    assert!(
+        fixture.search("C:\\\\Users", "C:/work").is_empty(),
+        "the JSON spelling is not the text"
+    );
+    assert_eq!(json_escaped("a\\b\"c\nd"), "a\\\\b\\\"c\\nd");
+}
+
+#[test]
 fn requires_a_meaningful_query() {
     let fixture = Fixture::new();
     let workspace = fixture.workspace("C:\\work");

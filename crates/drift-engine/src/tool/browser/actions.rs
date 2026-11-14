@@ -25,6 +25,14 @@ const LOG_LINES: usize = 200;
 const PAST_DIALOG: &[&str] = &["dialog", "pages", "select", "close", "logs", "stop", "open"];
 
 pub(super) async fn run(context: &Context, action: &str, input: &Value) -> Result<Step, String> {
+    // An error, or a batch's earlier steps, skip the tool's own masking, so every action masks what it says.
+    match dispatch(context, action, input).await {
+        Ok(step) => Ok(super::hide_passwords(context, step)),
+        Err(error) => Err(super::hide_passwords(context, Step::text(error)).text),
+    }
+}
+
+async fn dispatch(context: &Context, action: &str, input: &Value) -> Result<Step, String> {
     match action {
         "open" => open(context, input).await,
         "stop" => Ok(stop(context)),
@@ -70,11 +78,11 @@ async fn on_page(
     input: &Value,
 ) -> Result<Step, String> {
     match action {
-        "snapshot" => snapshot(tab, input).await,
+        "snapshot" => snapshot(context, tab, input).await,
         "screenshot" => screenshot(tab).await,
         "zoom" => zoom(tab, input).await,
-        "logs" => logs(tab, input).await,
-        "eval" => eval(tab, input).await,
+        "logs" => logs(context, tab, input).await,
+        "eval" => eval(context, tab, input).await,
         "wait" => wait(context, tab, input).await,
         "dialog" => dialog(tab, input).await,
         "viewport" => viewport(tab, input).await,
@@ -331,7 +339,7 @@ fn describe(tab: &dyn Tab) -> String {
     format!("\"{}\" at {}", record.title, record.url)
 }
 
-async fn snapshot(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
+async fn snapshot(context: &Context, tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
     let tree = tab.snapshot(input["interactive"].as_bool().unwrap_or(false)).await?;
     let body = if tree.trim().is_empty() {
         "(the page shows nothing to read)"
@@ -339,7 +347,11 @@ async fn snapshot(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
         &tree
     };
 
-    Ok(Step::text(format!("{}\n\n{}", describe(tab.as_ref()), cut(body))))
+    Ok(Step::text(format!(
+        "{}\n\n{}",
+        describe(tab.as_ref()),
+        cut(context, body)
+    )))
 }
 
 async fn screenshot(tab: &Arc<dyn Tab>) -> Result<Step, String> {
@@ -432,7 +444,7 @@ async fn wait(context: &Context, tab: &Arc<dyn Tab>, input: &Value) -> Result<St
     }
 }
 
-async fn eval(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
+async fn eval(context: &Context, tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
     let expression = input["expression"].as_str().ok_or("`expression` is required")?;
     let language = match input["language"].as_str() {
         Some("vbscript") => Language::VbScript,
@@ -445,13 +457,13 @@ async fn eval(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
         other => serde_json::to_string_pretty(other).unwrap_or_default(),
     };
 
-    Ok(Step::text(cut(&text)))
+    Ok(Step::text(cut(context, &text)))
 }
 
-async fn logs(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
+async fn logs(context: &Context, tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
     if let Some(request) = input["request"].as_str() {
         let body = tab.response_body(request).await?;
-        return Ok(Step::text(cut(&body)));
+        return Ok(Step::text(cut(context, &body)));
     }
 
     let network = input["kind"].as_str() == Some("network");
@@ -472,7 +484,7 @@ async fn logs(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
         return Ok(Step::text(format!("No {what} match.")));
     }
 
-    Ok(Step::text(cut(&lines.join("\n"))))
+    Ok(Step::text(cut(context, &lines.join("\n"))))
 }
 
 async fn dialog(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
@@ -523,10 +535,11 @@ pub(super) fn size(input: &Value) -> Result<Option<Size>, String> {
     }
 }
 
-/// Text cut to what a result carries, saying how much was left out.
-fn cut(text: &str) -> String {
+/// Text with its passwords hidden, then cut to what a result carries, saying how much was left out.
+fn cut(context: &Context, text: &str) -> String {
+    let text = super::hidden(context, text);
     if text.len() <= MAX_TEXT {
-        return text.to_string();
+        return text;
     }
 
     let mut end = MAX_TEXT;
@@ -568,5 +581,62 @@ mod tests {
         assert!(navigated(&settled).starts_with("It is still loading"));
         settled.loading = false;
         assert_eq!(navigated(&settled), "Loaded.");
+    }
+
+    #[tokio::test]
+    async fn an_error_never_shows_a_stored_password() {
+        let sandbox = crate::tool::tests::Sandbox::new("browser-error-mask");
+        let ctx = with_password(&sandbox, "Quay Side/7");
+
+        for engine in ["Quay Side/7", "Quay%20Side%2F7"] {
+            let Err(error) = run(&ctx, "open", &json!({ "action": "open", "engine": engine })).await else {
+                panic!("`{engine}` is not an engine");
+            };
+            assert!(!error.contains(engine) && error.contains("[password]"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_password_is_hidden_before_the_text_is_cut() {
+        let sandbox = crate::tool::tests::Sandbox::new("browser-cut-mask");
+        let ctx = with_password(&sandbox, "Quay Side/7");
+        let text = format!("{}Quay Side/7 and more", "a".repeat(MAX_TEXT - 3));
+
+        let shown = cut(&ctx, &text);
+        assert!(!shown.contains("Qua"), "a cut must not leave the start of a password");
+        assert!(shown.starts_with(&"a".repeat(MAX_TEXT - 3)) && shown.contains("more characters were cut"));
+    }
+
+    /// A context whose conversation's workspace stores `password` for the browser.
+    fn with_password(sandbox: &crate::tool::tests::Sandbox, password: &str) -> Context {
+        let engine = &sandbox.ctx.engine;
+        let workspace = engine
+            .store
+            .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "Harbour Kitchen", "")
+            .unwrap();
+        let session = engine
+            .store
+            .create_session(crate::store::NewSession {
+                workspace_id: &workspace.id,
+                parent_id: None,
+                visibility: crate::session::types::Visibility::Sibling,
+                title: "Masking check",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let credential = crate::browser::project::Credential {
+            name: "front".into(),
+            user: "front.desk".into(),
+            domain: String::new(),
+            has_password: false,
+        };
+        engine
+            .save_browser_credential(&workspace.id, &credential, Some(password))
+            .unwrap();
+        let mut ctx = sandbox.ctx_clone();
+        ctx.session_id = session.id.clone();
+
+        ctx
     }
 }
