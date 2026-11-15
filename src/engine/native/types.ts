@@ -1480,6 +1480,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/websearch/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asks each built-in key's provider what it has left, at no cost; a refused or spent key is set aside, and one with
+         *     credit is tried again.
+         */
+        post: operations["checkWebSearchKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/websearch/keys": {
         parameters: {
             query?: never;
@@ -1763,6 +1783,16 @@ export interface components {
             sessions: components["schemas"]["SessionBackup"][];
             /** Format: int32 */
             version: number;
+        };
+        /** @description What a provider says a key can still spend. */
+        Balance: {
+            /** Format: int64 */
+            left: number;
+            plan?: string | null;
+            /** @description When the plan's credits renew, as the provider wrote it. */
+            renews?: string | null;
+            /** Format: int64 */
+            total?: number | null;
         };
         BasePrompt: {
             /** @description The user's replacement, when there is one. */
@@ -2545,6 +2575,17 @@ export interface components {
             /** @description How the user and the model hear it named. */
             title: string;
         };
+        /** @description One key's check; Exa tells a plain key only that it works, so its balance is absent. */
+        KeyCheck: {
+            balance?: components["schemas"]["Balance"] | null;
+            error?: string | null;
+            /** @description Its place among the keys saved in Settings; absent for the environment's key. */
+            index?: number | null;
+            /** @description The key by its last four characters. */
+            key: string;
+            provider: string;
+            state: components["schemas"]["KeyState"];
+        };
         /** @description A key event from the pane, as a browser's `KeyboardEvent` describes it. */
         KeyInput: {
             code: string;
@@ -2556,6 +2597,11 @@ export interface components {
             /** Format: int32 */
             modifiers?: number;
         };
+        /**
+         * @description How a key answered a check.
+         * @enum {string}
+         */
+        KeyState: "ok" | "refused" | "rateLimited" | "failed";
         Limit: {
             /**
              * Format: int64
@@ -6921,6 +6967,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebSearchState"];
+                };
+            };
+        };
+    };
+    checkWebSearchKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyCheck"][];
                 };
             };
         };

@@ -527,6 +527,8 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] Each conversation has its own scratch folder, shared with its subagents, spawned threads and forks
 - [x] Web search waits for a paused key and runs at most four requests per provider at once; webfetch saves PDFs up to 100 MB; a question without text asks its header
 - [x] `/subagent [seq|async] [model] <prompt>` starts a subagent for the user while the agent works; the conversation is told the user started it, and its result arrives like any other
+- [x] Settings > Web search > Credits checks every search and fetch key at no cost: credits left per key and in total, renewal dates, refused and rate limited keys; the answers set keys aside or back
+- [x] A provider's 403 that is not about the key (Firecrawl's "we do not support this site") no longer sets every key aside, and a refused key is tried again after an hour
 
 ## Readability and tooling pass
 

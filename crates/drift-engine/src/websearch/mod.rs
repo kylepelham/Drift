@@ -15,13 +15,17 @@ use utoipa::ToSchema;
 
 use crate::Engine;
 
+mod credits;
 mod providers;
 
+pub use credits::{Balance, KeyCheck, KeyState};
 pub use providers::{BUILT_IN, Query, Site};
 
 pub const SETTINGS_KEY: &str = "webSearch";
 /// A rate limit that names no wait cools its key this long.
 const DEFAULT_COOLDOWN: Duration = Duration::from_secs(60);
+/// How long a refused key is set aside before it is tried again, in case the refusal was not about the key.
+const REFUSED_FOR: Duration = Duration::from_secs(60 * 60);
 /// The longest a search waits for a cooling key before it tries again, once.
 const MAX_PAUSE_WAIT: Duration = Duration::from_secs(60);
 /// Requests one provider is sent at a time; the rest queue, so a burst of searches is not a burst of 429s.
@@ -97,7 +101,7 @@ impl Want {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SearchError {
     /// Busy for now; try again after the wait, when it says.
     RateLimited(Option<Duration>),
@@ -143,7 +147,8 @@ pub struct SearchProvider {
 #[derive(Default)]
 pub(crate) struct Routing {
     cooling: Mutex<HashMap<String, Instant>>,
-    refused: Mutex<HashSet<String>>,
+    /// Keys set aside as refused, with when; a check or a new key clears them sooner.
+    refused: Mutex<HashMap<String, Instant>>,
     sticky: Mutex<HashMap<String, String>>,
     /// Requests in flight per provider, at most [`PER_PROVIDER`].
     in_flight: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
@@ -464,12 +469,11 @@ impl Engine {
     fn next_free(&self, attempts: &[Attempt]) -> Option<Duration> {
         let now = Instant::now();
         let cooling = self.search_routing.cooling.lock().unwrap();
-        let refused = self.search_routing.refused.lock().unwrap();
 
         attempts
             .iter()
             .map(Attempt::slot)
-            .filter(|slot| !refused.contains(slot))
+            .filter(|slot| !self.set_aside(slot))
             .filter_map(|slot| cooling.get(&slot).copied())
             .filter(|until| *until > now)
             .map(|until| until - now)
@@ -526,7 +530,17 @@ impl Engine {
             .unwrap()
             .get(slot)
             .is_some_and(|until| *until > Instant::now());
-        cooling || self.search_routing.refused.lock().unwrap().contains(slot)
+        cooling || self.set_aside(slot)
+    }
+
+    /// Whether `slot`'s key was refused within the last [`REFUSED_FOR`].
+    fn set_aside(&self, slot: &str) -> bool {
+        self.search_routing
+            .refused
+            .lock()
+            .unwrap()
+            .get(slot)
+            .is_some_and(|since| since.elapsed() < REFUSED_FOR)
     }
 
     fn note_failure(&self, attempt: &Attempt, error: SearchError) -> String {
@@ -542,7 +556,11 @@ impl Engine {
                 format!("{provider} is rate limited")
             }
             SearchError::Refused(why) => {
-                self.search_routing.refused.lock().unwrap().insert(attempt.slot());
+                self.search_routing
+                    .refused
+                    .lock()
+                    .unwrap()
+                    .insert(attempt.slot(), Instant::now());
                 format!("{provider} refused a key: {why}")
             }
             SearchError::Failed(why) => format!("{provider} failed: {why}"),
@@ -576,8 +594,12 @@ fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
 
 /// Sends `body` and reads the answer as JSON, telling a refused key and a rate limit apart.
 async fn post(request: reqwest::RequestBuilder, body: Value) -> Result<Value, SearchError> {
+    send(request.json(&body)).await
+}
+
+/// Sends `request` and reads the answer as JSON, telling a refused key and a rate limit apart.
+async fn send(request: reqwest::RequestBuilder) -> Result<Value, SearchError> {
     let response = request
-        .json(&body)
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -589,13 +611,23 @@ async fn post(request: reqwest::RequestBuilder, body: Value) -> Result<Value, Se
     match status {
         200..=299 => serde_json::from_str(&text).map_err(|error| SearchError::Failed(error.to_string())),
         // Tavily says a plan or pay-as-you-go limit was reached with 432 and 433.
-        401..=403 | 432 | 433 => Err(SearchError::Refused(crate::llm::error_message(&text))),
+        401 | 402 | 432 | 433 => Err(SearchError::Refused(crate::llm::error_message(&text))),
+        // Firecrawl forbids a site it does not support with 403 too; only a 403 about the key refuses the key.
+        403 if about_the_key(&text) => Err(SearchError::Refused(crate::llm::error_message(&text))),
         429 => Err(SearchError::RateLimited(wait)),
         _ => Err(SearchError::Failed(format!(
             "{status} {}",
             crate::llm::error_message(&text)
         ))),
     }
+}
+
+/// Whether a refusal's text blames the key or its account rather than what was asked.
+fn about_the_key(text: &str) -> bool {
+    let text = text.to_lowercase();
+    ["key", "token", "credit", "auth", "payment", "billing", "plan"]
+        .iter()
+        .any(|word| text.contains(word))
 }
 
 /// `text` cut to about `chars` characters on a word boundary.

@@ -306,6 +306,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         putWebSearch: (body: Parameters<Client["putWebSearch"]>[0]) => requireClient().putWebSearch(body),
         addWebSearchKey: (provider: string, key: string) => requireClient().addWebSearchKey(provider, key),
         removeWebSearchKey: (provider: string, index: number) => requireClient().removeWebSearchKey(provider, index),
+        checkWebSearchKeys: () => requireClient().checkWebSearchKeys(),
         imageGeneration: () => requireClient().imageGeneration(),
         putImageGeneration: (body: Parameters<Client["putImageGeneration"]>[0]) =>
             requireClient().putImageGeneration(body),

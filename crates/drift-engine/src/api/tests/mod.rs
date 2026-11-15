@@ -186,7 +186,8 @@ async fn submit_and_wait(harness: &Harness, session_id: &str, text: &str) {
             .iter()
             .any(|part| matches!(&part.part, crate::session::types::Part::Text { text: said, .. } if said == text))
     };
-    for _ in 0..200 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
         let landed = harness
             .engine
             .store
@@ -195,8 +196,9 @@ async fn submit_and_wait(harness: &Harness, session_id: &str, text: &str) {
             .iter()
             .any(asked);
         if landed && !harness.engine.turns.is_running(session_id) {
-            break;
+            return;
         }
+        assert!(std::time::Instant::now() < deadline, "{text:?} never finished its turn");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }

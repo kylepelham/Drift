@@ -147,6 +147,7 @@ export function createClient(target: Target) {
                 "DELETE",
                 `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
             ),
+        checkWebSearchKeys: () => request<Json<"checkWebSearchKeys", 200>>("POST", "/websearch/check"),
         imageGeneration: () => request<Json<"getImageGeneration", 200>>("GET", "/image-generation"),
         putImageGeneration: (body: components["schemas"]["ImageGeneration"]) =>
             request<Json<"putImageGeneration", 200>>("PUT", "/image-generation", body),

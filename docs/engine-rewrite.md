@@ -1734,9 +1734,20 @@ listed there.
   plus how it reports a rate limit), so routing never knows which kind it called.
   - Built-in providers: Firecrawl (`POST /v2/search`; confirm the shape in Firecrawl's docs), Exa
     and Tavily. Each takes a list of keys, from Settings > Web search into the credential store, or
-    the usual environment variables. A key answering 401 or 402 is set aside and the next is
-    tried; a 429 cools that key for its `Retry-After`. This covers the key rotation Kyle's balancer
-    does, inside the engine, with no local proxy.
+    the usual environment variables. A key answering 401 or 402 (Tavily's 432 and 433 too) is set
+    aside for an hour and the next is tried; a 403 counts only when its text is about the key or its
+    account, since Firecrawl also answers 403 for a site it will not read, and once that walked a
+    page through every key and set them all aside for the rest of the run. A 429 cools that key for
+    its `Retry-After`. This covers the key rotation Kyle's balancer does, inside the engine, with no
+    local proxy.
+  - Credits: Settings > Web search > Credits asks each built-in key's account at once
+    (`POST /websearch/check`), through endpoints that spend nothing: Firecrawl's
+    `team/credit-usage`, Tavily's `usage` (plan and pay-as-you-go left, capped by the key's own
+    limit) and Exa's `websets/v0/teams/me`, which proves the key works but tells a plain key no
+    balance (Exa reports one only to a team service key). Each answer feeds routing: a refused or
+    spent key is set aside, and one with credit left is tried again at once. Firecrawl's overdrawn
+    balances read as 0. Keys on one Firecrawl team each report the team's balance, so the summed
+    total can count one balance more than once.
   - Plugin providers: a `searching` world in `wit/drift.wit` that includes `plugin` and exports
     `search-providers` (id, name) and `search` (query in, results or an error out, the error able to
     say "rate limited, retry after N seconds"). The engine calls the plugin directly; a plugin that
