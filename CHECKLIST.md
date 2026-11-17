@@ -495,7 +495,7 @@ Found in 30 days of `drift.db` (322,000 tool calls).
 - [x] Hex dumps, disassembly listings, checksums, `cmp`, `diff` and `command -v` count as read-only
 - [x] An edit with identical strings says how to insert; the Windows shell note warns that Python writes CRLF
 
-## 2.7.0: what Ona asked for
+## 2.6.0: what Ona asked for
 
 From the Ona project's wishlist (#22): its GPU job limit and merge and bench locks were kept by hand and by sleep loops.
 
@@ -507,7 +507,7 @@ From the Ona project's wishlist (#22): its GPU job limit and merge and bench loc
 - [x] A plugin's language server is used as shipped and must say how to get it (install commands, a guide, or why neither); Install runs a plugin's own commands too
 - [x] A plugin that declares no settings has no Edit button and no raw JSON editor
 
-## 2.7.0: review fixes
+## 2.6.0: review fixes
 
 From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 
