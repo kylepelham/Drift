@@ -1,6 +1,5 @@
 import { backgroundWork, modelInfo, needsProvider, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { IconBranch, IconCheck, IconLayers, IconMic, IconPaperclip, IconPlug, IconShieldCheck } from "./icons";
-import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { activeWorkspace, pickWorkspace, workspaces, workspacesReady } from "../state/workspaces";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
@@ -52,6 +51,16 @@ import {
     type ComposerDraft,
     type StagedFile,
 } from "../state/composer";
+import {
+    clearEdits,
+    draftAccount,
+    modelVisible,
+    prefsFor,
+    seedPrefs,
+    sendableVariant,
+    takeDraftAccount,
+    updatePrefs,
+} from "../state/prefs";
 
 // Autosize ceiling; matches the textarea's `max-h-50` (12.5rem).
 const maxComposerHeightPx = 200;
@@ -262,6 +271,7 @@ export function Composer() {
                     selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants),
                     worktree: !existing && inWorktree(),
                     ultra: !existing && ultraNext(),
+                    account: existing ? undefined : draftAccount(),
                 };
             },
             transform: transformComposerSubmit,
@@ -291,6 +301,10 @@ export function Composer() {
                 if (prepared.ultra) {
                     await engine.actions.setUltra(id, true);
                     setUltraNext(false);
+                }
+                if (prepared.account) {
+                    const account = takeDraftAccount(prepared.selectedModel?.providerID);
+                    if (account) await engine.actions.setSessionAccount(id, account);
                 }
                 const attachments = await prepareAttachmentsForSend(snapshot.staged);
                 const files = [

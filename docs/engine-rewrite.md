@@ -2274,7 +2274,9 @@ code until he picks.
     publishes `provider.switched` with its reason (`limit`, `reset`, `model`, `refusal`), shown as a notice.
   - A chat can be set to one of the provider's accounts (`Session::account`, `PATCH /sessions/{id}`
     with `account`, null for the order; `/account <name|number>` or `/account auto` in the chat,
-    offered when the model's provider has more than one account). While that account suits the turn, every request goes to
+    offered when the model's provider has more than one account; in a new chat that has sent nothing
+    yet, the pick is kept in the UI and set just before its first prompt, if that prompt's model is on
+    the same provider). While that account suits the turn, every request goes to
     it (`Engine::pinned_account`, read from the store each step so a change applies from the next
     request): a new turn starts there, a step moves there whatever its cache, and no
     `provider.switched` is published for the move, since the user chose it. When it stops suiting

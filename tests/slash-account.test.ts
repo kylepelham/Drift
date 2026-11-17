@@ -84,3 +84,30 @@ test("/account sets the chat by name or number, clears it with auto, and says wh
     ]);
     expect(notice.mock.calls.at(-1)?.[0].message).toBe('No Anthropic account matches "nobody".');
 });
+
+test("/account in a chat that has sent nothing keeps the pick for its first prompt on that provider", async () => {
+    const { draftAccount, setDraftAccount, takeDraftAccount, updatePrefs } = await import("../src/state/prefs");
+    const { engine, setSessionAccount } = engineWith([
+        { id: "anthropic", label: "main@example.com" },
+        { id: "anthropic~b", label: "security@example.com" },
+    ]);
+    applyMirroredSession(null);
+    updatePrefs(null, { model: { providerID: "anthropic", modelID: "claude-opus" } });
+    const item = slashItem(engine, "account")!;
+
+    await runSlash(engine, item, "security@example.com");
+    expect(setSessionAccount).not.toHaveBeenCalled();
+    expect(draftAccount()).toEqual({ provider: "anthropic", account: "anthropic~b" });
+    expect(slashPresets(slashItem(engine, "account")!, "")[2].description).toStartWith("In use.");
+
+    expect(takeDraftAccount("openai")).toBeUndefined();
+    expect(draftAccount()).toBeNull();
+    await runSlash(engine, item, "2");
+    expect(takeDraftAccount("anthropic")).toBe("anthropic~b");
+    await runSlash(engine, item, "2");
+    await runSlash(engine, item, "auto");
+    expect(draftAccount()).toBeNull();
+
+    setDraftAccount(null);
+    updatePrefs(null, { model: null });
+});

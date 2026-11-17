@@ -74,7 +74,7 @@ const builtins: SlashItem[] = [
     { name: "undo", description: "command.session.undo.description", needsSession: true },
     { name: "redo", description: "command.session.redo.description", needsSession: true },
     { name: "compact", description: "command.session.compact.description", needsSession: true },
-    { name: "account", description: "drift.slash.account", needsSession: true, usage: "[auto|<account>]" },
+    { name: "account", description: "drift.slash.account", usage: "[auto|<account>]" },
     { name: "theme", description: "command.theme.cycle" },
     { name: "mcp", description: "drift.slash.mcp" },
 ];
@@ -152,6 +152,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
 
     if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length]);
     if (item.name === "mcp") openMcpServers();
+    if (item.name === "account") return setSessionAccount(engine, current, args);
 
     if (current) return runSessionSlash(engine, current, item.name, args);
 }
@@ -166,8 +167,6 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
             return startSubagent(engine, current, args);
         case "archive":
             return archiveCurrentSession(engine, current);
-        case "account":
-            return setSessionAccount(engine, current, args);
         case "compact":
             return engine.actions.summarize(current, composerChoice(engine.state, current));
         case "undo":
