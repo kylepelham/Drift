@@ -6,7 +6,7 @@
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
    servers (see [mcp.md](mcp.md)), per-family base prompts in Settings > Prompts, and engine
-   plugins: WebAssembly components that see tool calls and session events and can add languages (below). The engine runs
+   plugins: WebAssembly components that see tool calls and session events and can add languages and tools (below). The engine runs
    no JavaScript. Plugins written for opencode are named in the import summary and not run.
 2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
@@ -39,16 +39,17 @@ Drift's data.
 Settings > Plugins > Registry lists the plugins at
 [Drift-Plugins](https://github.com/kylepelham/Drift-Plugins): guard, protect-files, auto-format,
 lint-check, test-gate, notify, git-autocommit, git-context and tool-log, the hooks most people run
-in Claude Code, built as components, and slang, a language plugin (category Languages). Cards show the plugin's picture (an SVG tile from the
+in Claude Code, built as components. Cards show the plugin's picture (an SVG tile from the
 repository, through jsDelivr, since raw GitHub serves SVG as text), category, hooks and a line of
 description; the install sheet shows its config fields (text, comma-separated list, switch, number
 or JSON) with the registry's defaults, its size and a link to its source. Install fetches the
 component over https, checks it against the registry's SHA-256, writes it to
 `~/.config/drift/plugins/<id>.wasm`, adds the entry with its config to `drift.json` (the file is
 rewritten as JSON, so a comment in it does not survive) and reloads (`POST /plugins/install`).
-Remove on the Installed tab takes the entry and the file away (`DELETE /plugins`); Edit opens the
-same fields prefilled with what drift.json holds, or the raw object for a plugin no registry
-describes, and saves with `PUT /plugins/config`. Installed rows show the same picture, looked up in the registries by the
+Remove on the Installed tab takes the entry and the file away (`DELETE /plugins`). Edit appears only
+for a plugin that declares its settings (below): it opens that form prefilled with what drift.json
+holds and saves with `PUT /plugins/config`. A plugin that declares none has no Edit and no JSON box;
+its config, if it takes any, is set in drift.json by hand. Installed rows show the same picture, looked up in the registries by the
 plugin's path; installed MCP servers show the logo they were installed with (`drift.mcp.logos`,
 backfilled from the GitHub catalog for servers installed earlier), so both pages share one tile
 (`LogoTile`): the image, or the name's initial.
@@ -126,17 +127,20 @@ What a plugin may do, each a host interface it imports (Settings shows which):
   drift.json entry as JSON.
 - `store`: `get(key)` and `set(key, value)`, kept by Drift across runs.
 - `files`: `read(path)` and `write(path, content)` under the workspace of the event being
-  handled, never outside it.
+  handled, never outside it; a write makes no folder through a link that leads out of it.
 - `process`: `run(program, args, timeout-ms)` in that workspace, with the exit code and the
   first 64 KiB of each stream; a minute at most.
-- `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most.
+- `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most; reading stops at
+  the cap, so an endless body cannot hold the call.
 - `notify`: `show(title, body, tone)`, a notice in the app like Drift's own, titled with the
   plugin's name.
 
 Plugins run in the order listed: the first refusal wins, a replaced input or prompt feeds the next
-plugin. A call gets five seconds of its own running time, plus whatever its host calls take; a
+plugin. A call gets five seconds of its own running time, plus whatever its host calls take, and
+never more than 120 seconds by the wall clock, sleeps and host calls included; a
 call that runs past that, traps, or returns something unusable is logged and treated as `allow`,
-`keep` or `accept`.
+`keep` or `accept`. A call that traps or runs out of time also restarts the plugin from its compiled
+code, so one bad call does not disable it; a trap while it loads restarts it before it goes live.
 
 `plugins/guard` is the example, in Rust with `wit-bindgen`: it refuses shell commands that
 rewrite history, notes failed commands, and when a reply says `@guard test` runs the configured
@@ -200,8 +204,8 @@ Drift reads them once, when the plugin loads. `host.config()` returns the stored
 declared key you left unset filled in with its default, so the plugin need not repeat its defaults.
 Saving refuses a value that does not fit its kind ("Limit is a whole number") and writes nothing;
 keys the plugin does not declare are kept as they are. Empty rows are dropped when you save. A
-plugin built for `plugin` alone has no form: its registry entry's fields are shown if it has them,
-its raw JSON otherwise.
+plugin that declares no settings (built for `plugin` alone, or answering an empty list) has no Edit
+button, so a plugin that wants settings changed from the app must declare them.
 
 ### Answering web searches
 
@@ -223,8 +227,14 @@ A plugin built for the `languages` world (the `configurable` world plus two expo
 Drift does not know. Both exports are asked once, when the plugin loads.
 
 - `language-servers()`: servers Drift starts as it starts the built-in ones and those in drift.json
-  `lsp`. Each has an id, a command found on PATH, the file name endings it handles and optionally the
-  LSP language id it is told. The errors an edit leaves in those files come back with the edit. Your
+  `lsp`. Each has an id, a command found on PATH, the file name endings it handles, optionally the
+  LSP language id it is told, the language's name as Settings shows it, and its `setup`, which every
+  server must give: `install` (commands tried in order, the first whose program is on PATH run when the
+  user presses Install, plus a guide for when none is), `guide` (only a link), or `none` with a line
+  saying where it comes from, for a private or bundled server. A server is used as shipped: the plugin
+  offers no setting for it, and Settings > Language servers lists it beside the built-in ones (marked
+  with the plugin's name) with its state, Install or Guide, and a switch; the plugin's other settings
+  stay in Settings > Plugins. The errors an edit leaves in those files come back with the edit. Your
   drift.json `lsp` entry of the same id replaces a plugin's server or, set to `false`, turns it off;
   a project's file can turn it off too. Two plugins naming one id: the first listed wins. A plugin
   that declares a server lists "starts language servers" among what it can reach, since Drift runs
@@ -238,11 +248,45 @@ Drift does not know. Both exports are asked once, when the plugin loads.
   plugin load changes them, and views shown before they arrived highlight again. Highlighting keeps a grammar it
   has loaded, so an edited grammar with the same `scopeName` shows on the app's next start.
 
-`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and starts
-`roc_language_server` unless `config.server` names another command (empty turns it off). The
-registry's `slang` does the same for the Slang shading language, with Khronos' grammar and `slangd`.
+Drift ships one grammar of its own the same way, served after the plugins' (a plugin's grammar of the same
+name replaces it): Slang, Khronos' grammar from the Slang VS Code extension (`data/grammars`, licence in
+`licenses/slang-grammar-LICENSE.txt`), and `slangd` is one of its built-in servers.
+
+`plugins/roc` is that plugin: it highlights `.roc` files and `roc` fences, and declares
+`roc_language_server` with a link to Roc's install guide, since Roc's releases ship it and no package
+manager does. Drift starts it only when it is on PATH; a missing server does nothing.
 The app copies each grammar out of the engine store into plain data, since the syntax worker that
 tokenizes off the main thread is posted it and a store proxy cannot be posted.
+
+### Adding tools
+
+A plugin built for the `tooling` world (the `configurable` world plus two exports) adds tools the
+model can call. `tools()` names them, asked once at load, each with a name, a description and its
+parameters as JSON Schema text (a tool whose parameters are not JSON is logged and left out). Every
+turn offers them after the built-in tools and before MCP tools; a built-in tool of the same name
+wins, and when two plugins name one tool the first listed keeps it, both logged. Settings lists
+"adds tools" among what the plugin can reach.
+
+`call-tool(request)` gets the session, workspace, agent, tool name and the model's input as JSON,
+and answers `done` with the result, `failed` with why, or `wait` with a retry delay and a status. On
+`wait` the engine asks again after that delay (kept from 100 ms to a minute), with `waited-ms` set to
+how long the call has waited, while the tool card shows the status. The model spends no turn
+meanwhile, and Stop ends the wait. After ten minutes of waiting (an hour in a subagent, which
+`worker` says the caller is) the call fails with the last status. Each ask is one plugin call with
+the usual five second budget, so a plugin waits by answering `wait`, never by blocking.
+
+Plugin tools are allowed without asking unless the user's permission rules name them, as built-in
+tools are, under the tool's own name. Their calls pass through every plugin's `before-tool` and
+`after-tool` like any other. A read-only agent never calls one, since a plugin may write files or run
+programs.
+
+`plugins/locks` is that plugin: one `lock` tool to `acquire`, `release` or `list` named locks shared
+by every conversation and subagent, such as a merge or benchmark lock. Acquiring waits through
+`wait` answers until the lock is free (or `wait_seconds` runs out; 0 tries once), and acquiring a lock
+the session already holds starts its time over. A lock frees itself after `ttl_minutes` (60 by
+default, at most 1440; `wait_seconds` is at most 3600), when its holder is deleted, and when a subagent holding it finishes; a conversation keeps
+its locks between turns. Releasing another session's lock needs `force`, for a holder that is gone,
+such as one Drift stopped by restarting. Locks live in the plugin's store, so a restart keeps them.
 
 ## Skills
 
@@ -252,7 +296,8 @@ project and its parents to the repository root), the user's own (the same three 
 directory, `~/.config/drift/skills` first) and those from installed packs, grouped by pack with the
 pack's picture and a Remove. A skill is a folder with a `SKILL.md` whose front matter gives its name
 and description; nothing about that format changes, and a folder with no front matter is listed by
-its folder name. Off is Drift's own setting, the folder on the engine's `disabledSkills` list:
+its folder name. A project's skills follow links only while they stay inside the project, never into
+version-control folders or to a secret, since a cloned repository could link anywhere. Off is Drift's own setting, the folder on the engine's `disabledSkills` list:
 the skill's files are never touched, so Claude Code and any other tool reading `~/.claude/skills`
 or a project's skill folders still see it, and a project's `git status` stays clean. Off, the model
 is not offered it and the slash menu leaves it out, from the next turn (`GET /skills?workspace=`,
@@ -480,7 +525,17 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 
 - Subagents come from the `task` tool. Their result returns to the parent's task card, which
   opens the stored transcript. They show under the parent in the sidebar while running, waiting on
-  the user, or open, stop when the parent stops, and cannot delegate further.
+  the user, or open, stop when the parent stops, and delegate further only as deep as Settings >
+  Execution allows. Their own subagents show indented under them on the same terms, with every
+  subagent above one that shows.
+- The user can start one too: `/subagent [seq|async] [model] <prompt>` gives the job to the
+  `general` subagent exactly as `task` would, so its context stays out of the conversation.
+  `async` (the default) starts it at once, even mid-turn, shows it in the task dock as started by
+  you, notes it in the conversation so the agent knows it did not launch it, and delivers its
+  result as any background result. `seq` runs it as the first call of the next turn (queued behind
+  a running one), and the agent carries on from its result. A `provider/model` whose provider
+  lacks that model is refused before anything starts. A delegating workspace command's subagents
+  also show as started by you.
 - Spawned threads come only from the user. `/spawn <instruction>` creates a new top-level
   conversation at once with a copy of this one's finished messages and starts it on the
   instruction, on the source's model and level. There is no drafting request and no review: the

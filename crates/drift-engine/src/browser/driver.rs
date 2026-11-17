@@ -36,6 +36,8 @@ pub(crate) struct Settled {
     pub(crate) title: String,
     pub(crate) navigated: bool,
     pub(crate) dialog: Option<DialogRecord>,
+    /// The page was still loading when the action stopped waiting for it.
+    pub(crate) loading: bool,
 }
 
 /// A JPEG of what a page shows, with its size in pixels.

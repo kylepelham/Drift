@@ -9,7 +9,8 @@ a remote device see the same servers.
 - Each server is a row in `drift.db` (`mcp_config`): its name, its definition, whether it is
   on, and whether read-only agents may use its tools. A project's files can never add one.
 - Transports: stdio (a command with arguments, environment variables and an optional working
-  folder), streamable HTTP, and the deprecated HTTP with server-sent events. A remote server
+  folder), streamable HTTP, and the deprecated HTTP with server-sent events, whose message
+  endpoint must be on the configured URL's origin, since posts carry its credentials. A remote server
   that answers in the 2026-07-28 stateless protocol is found by probing; the handshake is the
   fallback. Each row shows the transport and, once connected, the protocol version and mode.
 - Environment variable and header values are secrets. They go into the engine and never come
@@ -32,7 +33,8 @@ a remote device see the same servers.
   while any window or device has that workspace open. It stops when the workspace is removed, or
   5 minutes after its last use once no window shows the workspace. Connecting from the manager starts it in
   the active workspace, so open a workspace first. Disconnecting stops it everywhere until you
-  connect it again. A remote server has one connection for all workspaces.
+  connect it again. A remote server has one connection for all workspaces. A stdio server is
+  owned by a process tree before it runs, so what it starts (npx, uvx) stops with it.
 
 ## Tools, prompts and permissions
 

@@ -4,6 +4,8 @@
 //! just carries no diagnostics.
 
 mod client;
+mod setup;
+mod status;
 mod table;
 
 use std::collections::{BTreeMap, HashMap};
@@ -16,6 +18,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 
 use client::Client;
 pub use client::Diagnostic;
+pub use status::{LspSource, LspState, LspStatus};
 
 use crate::config::LspConfig;
 
@@ -126,6 +129,7 @@ fn language(spec: &Spec, file: &Path) -> String {
         "tex" => "latex",
         "bib" => "bibtex",
         "typ" | "typc" => "typst",
+        "slangh" => "slang",
         "" if file
             .file_name()
             .is_some_and(|name| name.eq_ignore_ascii_case("dockerfile")) =>
@@ -155,8 +159,10 @@ pub struct Servers {
     running: Running,
     /// One lock per root and server, held across a start, so reads in parallel start one server, not one each.
     starting: Mutex<HashMap<Slot, Arc<tokio::sync::Mutex<()>>>>,
-    /// A start that failed, by root and server: a server missing at one root may be installed in another's `node_modules`.
+    /// A start that failed, by root and server, so one root's failure never holds back another's.
     failed: Mutex<HashMap<Slot, Instant>>,
+    /// What the last check of each server from Settings found, by its name: `Err` says why it did not answer.
+    checked: Mutex<HashMap<String, Result<(), String>>>,
     reaping: std::sync::atomic::AtomicBool,
 }
 
@@ -185,7 +191,7 @@ impl Servers {
                 }
             }
             for (root, handled) in by_root {
-                if let Some(client) = self.client(workspace, &root, spec).await {
+                if let Some(client) = self.client(&root, spec).await {
                     checks.push(async move {
                         let deadline = if client.ready_by(client.launched() + START).await {
                             deadline.max(tokio::time::Instant::now() + WAIT)
@@ -219,13 +225,13 @@ impl Servers {
     pub async fn warm(&self, workspace: &Path, file: &Path, config: &BTreeMap<String, LspConfig>) {
         for spec in resolve(config).iter().filter(|spec| handles(spec, file)) {
             if let Some(root) = table::root_for(spec.root, spec.unless, file, workspace) {
-                let _ = self.client(workspace, &root, spec).await;
+                let _ = self.client(&root, spec).await;
             }
         }
     }
 
     /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
-    async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
+    async fn client(&self, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
         let slot: Slot = (root.to_path_buf(), spec.name.clone(), spec.commands.clone());
         let running = || {
             self.running
@@ -251,7 +257,7 @@ impl Servers {
             return None;
         }
 
-        let started = match table::installed(&spec.commands, root, workspace) {
+        let started = match table::installed(&spec.commands) {
             Some((program, args)) => Client::start(&program, &args, root).await,
             None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not installed")),
         };

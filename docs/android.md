@@ -12,19 +12,19 @@ own switch (`docs/remote.md`), for a device without the app.
 - **Shape.** A Tauri app in `src-android/` that bundles Drift's own SolidJS UI and none of the
   engine. Every request to a PC goes through Rust, which pins that PC's Remote Access certificate
   authority, so the WebView never makes a TLS connection and can never show a warning.
-- **Shared code.** `crates/drift-pairing` holds what the PC and the app must agree on: the QR
-  payload and the remote API version. It has no engine in it.
+- **Shared code.** `crates/drift-pairing` holds what the PC and the app must agree on: discovery,
+  the matching code and the remote API version. It has no engine in it.
 - **Reach.** The same network, Tailscale (the authority's name constraints already cover
   100.64/10), and from anywhere through OpenTunnel when the PC turns on **Reach from anywhere**. The
   app pins the tunnel certificate's key, so the relay cannot stand in for the PC.
 - **PCs.** One app holds several PCs. A PC is identified by its authority fingerprint; its
   addresses (LAN, Tailscale) and its tunnel are only where to look for it, and each connection
   refreshes them from what the PC reports.
-- **Linking.** Only by scanning the desktop's pairing code: it carries the addresses, the
-  fingerprint, the tunnel and its key, the MAC for Wake-on-LAN and a one-time ticket, so scanning
-  both trusts the PC and links the phone. There is no discovery and no typed code: a second QR code
-  for the browser on the same page caught the scanner, and typed codes needed a trust-on-first-use
-  connection and six words to compare.
+- **Linking.** The phone finds PCs on its network, or takes a typed address, and asks one to
+  connect; the PC's user accepts after checking that both screens show the same six-digit code
+  (`docs/remote.md`). It replaced scanning a QR code with a one-time ticket in 2.6: asking needs no
+  camera, works the same from a desktop, and the code keeps first use as safe as the pinned
+  authority the QR code carried.
 - **Versions.** The PC reports a remote API version; the app refuses a different major version and
   says which side to update. The PC and the app are released together.
 - **Security on the phone.** The device token is kept with the Android Keystore. Opening the app
@@ -43,32 +43,25 @@ own switch (`docs/remote.md`), for a device without the app.
 
 ## Phases
 
-1. **The desktop side.** One-time pairing tickets (`POST /auth/pair`), the pairing QR in Settings,
-   the remote API version and computer name in `/auth/options`, every reachable address, the LAN
-   adapter's MAC and the tunnel in the pairing data.
+1. **The desktop side.** Linking (first a QR code with a one-time ticket, since 2.6 asking to
+   connect), the remote API version and computer name in `/auth/options`, every reachable address,
+   the LAN adapter's MAC and the tunnel.
 2. **The Android shell.** The crate, the pinned-TLS proxy the UI's engine client and RPC go
-   through, the PC list, QR linking, and reaching a PC from anywhere through its tunnel. Usable on a
+   through, the PC list, linking, and reaching a PC from anywhere through its tunnel. Usable on a
    phone from here.
 3. **Native polish.** Back gesture, safe areas, keyboard, biometric lock, the offline banner.
 4. **Phone extras.** Dictation, share target, camera and gallery, cues, Wake-on-LAN.
 5. **Background and shipping.** The notification service, then CI signing, release APKs and the
    update prompt.
 
-## Pairing
+## Linking
 
-The desktop shows a QR code holding a `drift://pair` URI:
-
-```text
-drift://pair?v=1&n=<computer name>&f=<authority SHA-256, 64 hex>&a=<address>,<address>&p=41718&m=<MAC, 12 hex>&h=<tunnel host>&k=<tunnel key SHA-256, 64 hex>&t=<ticket, 64 hex>
-```
-
-`h` and `k` come together, while the PC's tunnel is up; `a` may then be empty. The app tries every
-address with the authority in `f` as its only trust anchor, and the tunnel trusting only a public
-certificate whose key matches `k`, all at once. It sends `POST /auth/pair {"ticket", "name"}` to the
-one that answers (a network address if any does within 400 ms of the tunnel), since the ticket works
-once. The PC answers `{"token"}`, a device session token, which the app sends as
-`Authorization: Bearer`. A ticket lasts 10 minutes, works once, and showing a new one replaces it.
-Wrong tickets count toward the same lockout as wrong passwords.
+The computers page broadcasts `drift-discover/1` on UDP `41718` and lists the PCs that answer
+(`nearby.rs`), or takes a typed address or name. Picking one asks it to connect (`pc::ask`): the
+app trusts the authority the PC shows on first use, exchanges secrets with it in the order that
+keeps the six-digit code honest, and shows the code while the PC's user decides (`pc::answer`).
+Accepted, it saves the PC by that authority, with the session token, and the addresses, tunnel and
+MAC the PC reports. The protocol is in `docs/remote.md`.
 
 ## How the app works
 
@@ -76,11 +69,13 @@ Wrong tickets count toward the same lockout as wrong passwords.
 WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-->  PC gateway :41718
                                                   \--https, tunnel key pinned-->  OpenTunnel  -->  PC gateway
          /app, /app/computers, /assets/*   served from the bundled Vite build
-         /app/api/*                        the app's own: PCs, scanning, choosing, forgetting
+         /app/api/*                        the app's own: PCs, nearby, asking, choosing, forgetting
          /engine/*, /api/*, /auth/me|logout  passed to the chosen PC with this phone's session
 ```
 
-- `src-android/` is a Tauri app with no IPC: the WebView opens
+- `src-android/` is a Tauri app with no IPC; the proxy, the PC list, linking and pinned TLS are
+  `crates/drift-remote-client`, which the desktop uses to drive another computer the same way
+  (`docs/remote.md`). The app adds only the bundled UI and `DriftPlugin.kt`. The WebView opens
   `http://127.0.0.1:<port>/app/enter?secret=<launch secret>`, which sets an `HttpOnly`,
   `SameSite=Strict` cookie. Every other request needs that cookie and the exact `Host`, so other
   apps on the phone and web pages that resolve a name to 127.0.0.1 cannot use the proxy. Loopback
@@ -104,9 +99,10 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
 - The manifest declares `RECORD_AUDIO`: the WebView's microphone prompt is only granted for a
   permission the app itself has, so dictation could not start without it.
 - `/app/computers` is `app.html`, a second Vite entry (`src/app/`): linked PCs (open, forget), each
-  marked when it can be reached from anywhere, and **Scan pairing code**.
+  marked when it can be reached from anywhere, then the PCs nearby and an address field. On a
+  desktop it lists **This PC** first.
 - Each request to a PC goes through `tls::client`, which trusts one thing. On a network that is the
-  pairing code's authority, and the leaf must be issued by it for the address connected to. Through
+  authority met when the PC was linked, and the leaf must be issued by it for the address connected to. Through
   the tunnel it is a certificate that chains to Mozilla's roots (`webpki-root-certs`), is valid for
   the tunnel's name, and carries the pinned key. The event WebSocket is passed through as an HTTP
   upgrade, so the PC answers the WebView's own handshake.
@@ -147,9 +143,7 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   plugin's actions sit under its name. These layout changes do not apply to the desktop breakpoint.
 - The computers page scrolls with the keyboard open, shows loading and retry states, and confirms
   Forget before unlinking a PC.
-- `DriftPlugin.kt` is the only other Kotlin: Google's code scanner (`play-services-code-scanner`), which
-  shows its own camera screen and needs no camera permission, and the phone's name for the PC's
-  device list. Cleartext is allowed only to 127.0.0.1 (`network_security_config.xml`).
+- `DriftPlugin.kt` is the only other Kotlin: the phone's name for the PC's device list. Cleartext is allowed only to 127.0.0.1 (`network_security_config.xml`).
 
 ## Building
 

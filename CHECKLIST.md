@@ -211,6 +211,7 @@ change the plan there when a decision changes.
 - [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
 - [x] A cyber fallback sets only that chat to the verified account (as `/account` does), so other chats keep the order and the chat stays there across restarts
 - [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
+- [x] A subagent refused or blocked by a safety classifier (`cyber_policy`, content filters) tells its parent only that it stopped early and to rephrase the request, with no filter named and no partial text, so the refusal does not cascade; calls a refused reply never ran say the same
 - [x] A chat can be set to one provider account with `/account`; it uses it while it has usage left, then the order, and returns once it frees; subagents and spawned threads inherit it
 - [x] Inline code paths: a double click selects the whole span, and copying it copies the full path, found from the files the chat touched in a drive-root workspace
 - [x] A workspace command typed in a chat that has sent nothing runs on the composer's model instead of failing with no model selected
@@ -400,6 +401,9 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [x] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, QR linking
 - [x] Reach from anywhere: OpenTunnel on the PC (loopback PROXY v2 listener, exact host check), tunnel key pinned by the app, network and tunnel raced, addresses refreshed from `/auth/me`; typed codes, discovery and the browser QR removed, browser access behind its own switch
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
+- [x] The desktop drives another computer too: the phone's proxy shared as `crates/drift-remote-client`, a computer menu in the sidebar that switches the main window, window controls only for the other computer's page
+- [x] Linking simplified in every direction: the device finds computers nearby (UDP `41718`) or takes an address, asks, and the computer's user accepts or declines after comparing a six-digit code both screens show; requests only from its own networks; the QR code, pairing link, one-time ticket and Android code scanner are gone
+- [x] Quick computer switching: optional one-click tabs under the sidebar's top row with offline computers dimmed, Ctrl+Alt+1 to 9 by place in the menu, and rebindable next and previous computer shortcuts
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [x] The composer is pinned (`position: sticky`) inside the transcript's scroller, so the browser scrolls the conversation from over it natively; no forwarded wheel; frosted under a background picture
 - [x] Settings and folded workspaces survive relaunch (the app keeps the page's storage across the proxy's changing port), microphone permission for dictation, word-boundary wrapping in settings, gutter comments in the review panel
@@ -480,6 +484,61 @@ code and Claude Code 2.1.317, then decided with Kyle item by item.
 - [x] Fetch rows show the site's icon, fetched by the engine from public hosts only
 - [x] Find in session highlights the words, opens the folded row an occurrence is in until the cursor moves on, lands on every occurrence (later steps drawn in an earlier group, scrolled output boxes), and starts from the view
 - Not doing: an LSP navigation tool, MultiEdit, multi-file read, a context and spend note, tag caps, locks, wake-ups, pinned files, language server include paths
+
+## 2.5.2: what agents kept tripping on
+
+Found in 30 days of `drift.db` (322,000 tool calls).
+
+- [x] Bash on Windows gets its command through the environment: no more changed backslashes and quotes, or heredocs cut at 8186 characters
+- [x] An unknown process id is answered with the conversation's processes
+- [x] A page whose server is slow to answer is reported still loading, not as a failed navigation
+- [x] A grep pattern naming a newline matches across lines instead of being refused
+- [x] Hex dumps, disassembly listings, checksums, `cmp`, `diff` and `command -v` count as read-only
+- [x] An edit with identical strings says how to insert; the Windows shell note warns that Python writes CRLF
+
+## 2.6.0: what Ona asked for
+
+From the Ona project's wishlist (#22): its GPU job limit and merge and bench locks were kept by hand and by sleep loops.
+
+- [x] Plugins add tools: the `tooling` world's `tools()` and `call-tool`, offered after the built-ins; a `wait` answer is asked again without spending a turn, up to ten minutes (an hour in a subagent)
+- [x] `plugins/locks`: a `lock` tool to acquire, release and list named locks; acquiring waits for the holder, and a lock frees at its ttl, when its holder is deleted, or when a subagent holding it finishes
+- [x] Subagents per tag: `task` takes `tags` and Settings > Execution caps each tag (`taskTagLimits`, such as gpu 3); past the cap a worker waits queued, in the background or in front, and starts when one with the tag ends or the cap rises
+- [x] Settings > Language servers: every built-in, plugin and drift.json server with whether it is installed, running or answers a Check; Install for a missing one whose package manager is here, its guide otherwise, a hover saying what it gives Drift, and a switch
+- [x] Slang is part of Drift: `slangd` is a built-in server and its grammar ships with the engine; the Slang plugin is gone from the registry
+- [x] A plugin's language server is used as shipped and must say how to get it (install commands, a guide, or why neither); Install runs a plugin's own commands too
+- [x] A plugin that declares no settings has no Edit button and no raw JSON editor
+
+## 2.6.0: review fixes
+
+From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
+
+- [x] A project's `instructions` and `skillPaths` are relative paths inside the project, refused before anything is opened; its skills, instructions, agents, commands and `drift.json` follow links only inside it, never into `.git` or secrets
+- [x] Language servers start from PATH only, with cmd told to skip the project folder; Check says so for one installed only inside the project; relative PATH entries are never searched
+- [x] The SSE endpoint is same-origin like the rest of the API; MCP stdio servers start suspended inside their job
+- [x] A plugin that traps or waits past 120 s is started afresh from its compiled component and keeps guarding, at load too; `http.fetch` stops reading at the body cap; `files.write` makes no folders through links out of the workspace
+- [x] Tag names are unique ignoring case and spaces; a worker runs under a running ancestor's slot for a tag they share instead of deadlocking
+- [x] The lock tool caps `ttl_minutes` at 1440 and `wait_seconds` at 3600
+- [x] apply_patch: a missing `@@` context is a miss and each line keeps or takes its neighbours' ending; overlapping matches are ambiguous; grep reads files that are not UTF-8; image tools never replace a file the agent has not read
+- [x] Compaction never summarises zero turns and a Stop is not a failure; calls a stopped or unsaved turn never ran are closed; a reply cut off at its output limit runs the calls it finished, unless that cut ends the turn
+- [x] A WebSocket silence timeout or connection-limit error no longer moves a conversation to SSE; process output never splits a character
+- [x] Snapshots refresh an existing blob's age; long credentials are written in generations so a crash never mixes two; a poisoned store lock rolls back; a backup's conversation ids must have the shape Drift makes
+- [x] Paired devices preview files only inside known workspaces; Open file opens only an existing local file and never runs scripts or executables; login lockout counts IPv6 by /64, has a global ceiling that leaves pairing alone, and refuses tunnel connections without an address
+- [x] OAuth callbacks escape their page, time out idle connections and ignore any request without the expected state; the browser masks passwords in errors too, before cutting, and as forms and JSON spell them; session search matches text JSON escapes
+- [x] Bash and background processes run without the provider keys Drift manages; the user's own tokens pass through
+- [x] Each conversation has its own scratch folder, shared with its subagents, spawned threads and forks
+- [x] Web search waits for a paused key and runs at most four requests per provider at once; webfetch saves PDFs up to 100 MB; a question without text asks its header
+- [x] `/subagent [seq|async] [model] <prompt>` starts a subagent for the user while the agent works; the conversation is told the user started it, and its result arrives like any other
+- [x] Settings > Web search > Credits checks every search and fetch key at no cost: credits left per key and in total, renewal dates, refused and rate limited keys; the answers set keys aside or back
+- [x] A provider's 403 that is not about the key (Firecrawl's "we do not support this site") no longer sets every key aside, and a refused key is tried again after an hour
+- [x] Firefox and Camoufox pane: a new tab takes a blank one kept ready (Camoufox needs 2 s to make one); address bar, back, forward and reload never hold input up; pictures are taken apart from events; clicks wait at most 150 ms on the clipboard; one copy tells the pane once; keys carry their modifiers, so Ctrl+A and Ctrl+C work however Control went down
+- [x] `/compact` and retrying a failed compaction run on the model and level the composer shows, not the one the conversation last ran on
+- [x] UTF-16 text files (a PowerShell 5 `>` writes them) are read, edited, written and patched as UTF-16, with their byte order and mark; @-mentions and instruction files decode them; binary is still refused
+- [x] `/account` works in a new chat before its first message: the pick is set on the chat just before its first prompt, on that provider
+- [x] Subagents per tag and a workspace's stored browser sign-ins open as a panel under one row, as Web search lists a provider's keys (`SettingsDisclosure`)
+- [x] Keyboard for everything (`docs/shortcuts.md`): sessions (Ctrl+Tab, Ctrl+1..9, Alt+Left/Right), workspaces (Ctrl+Alt+Up/Down), messages (Alt+Up/Down, with Shift by prompt, Ctrl+C copies), Ctrl+Shift+F session search with names or content always shown and arrow keys through results, a keyboard sidebar and menus, picker, panel, rename and sidebar shortcuts, Escape stops a turn, and /mcp opens on its server list again
+- [x] A link clicked while another computer is shown opens in this PC's browser, not in the window; a navigation guard keeps the window on Drift's own pages
+- [x] Subagents of subagents show in the sidebar, indented under the subagent that started them, while they run, wait on the user or are open
+- [x] A call you opened stays in view when the next call groups it: the group opens, and a group keeps your toggle as it grows, regroups or scrolls back in; changing the grouping setting still regroups everything closed
 
 ## Readability and tooling pass
 

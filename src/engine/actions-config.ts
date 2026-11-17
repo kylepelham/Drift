@@ -47,6 +47,11 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ delegationDepth });
     }
 
+    /** How many subagents with each tag run at once, by tag; the whole map is replaced. */
+    async function setTaskTagLimits(taskTagLimits: Record<string, number>) {
+        return requireClient().putSettings({ taskTagLimits });
+    }
+
     /** Ultra: on every substantive task the chat orchestrates subagents, cost no object. */
     async function setUltra(id: string, ultra: boolean) {
         const updated = await requireClient().updateSession(id, { ultra });
@@ -283,6 +288,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         engineSettings,
         setBackgroundTaskLimit,
         setDelegationDepth,
+        setTaskTagLimits,
         setUltra,
         setBackgroundProcesses,
         setShellHandoff,
@@ -300,6 +306,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         putWebSearch: (body: Parameters<Client["putWebSearch"]>[0]) => requireClient().putWebSearch(body),
         addWebSearchKey: (provider: string, key: string) => requireClient().addWebSearchKey(provider, key),
         removeWebSearchKey: (provider: string, index: number) => requireClient().removeWebSearchKey(provider, index),
+        checkWebSearchKeys: () => requireClient().checkWebSearchKeys(),
         imageGeneration: () => requireClient().imageGeneration(),
         putImageGeneration: (body: Parameters<Client["putImageGeneration"]>[0]) =>
             requireClient().putImageGeneration(body),
@@ -334,6 +341,15 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             requireClient().installPlugin(body),
         removePlugin: (path: string) => requireClient().removePlugin(path),
         configurePlugin: (path: string, config: unknown) => requireClient().configurePlugin(path, config),
+        /** Every language server and how it stands; with a folder, its drift.json and node_modules count too. */
+        languageServers: (directory?: string) =>
+            requireClient().languageServers(directory ? workspaces().id(directory) : undefined),
+        checkLanguageServer: (name: string, directory?: string) =>
+            requireClient().checkLanguageServer(name, directory ? workspaces().id(directory) : undefined),
+        installLanguageServer: (name: string, directory?: string) =>
+            requireClient().installLanguageServer(name, directory ? workspaces().id(directory) : undefined),
+        setLanguageServerEnabled: (name: string, enabled: boolean, directory?: string) =>
+            requireClient().setLanguageServerEnabled(name, enabled, directory ? workspaces().id(directory) : undefined),
         skills: (directory?: string) => requireClient().skills(directory ? workspaces().id(directory) : undefined),
         setSkillEnabled: (path: string, enabled: boolean, directory?: string) =>
             requireClient().setSkillEnabled(path, enabled, directory ? workspaces().id(directory) : undefined),

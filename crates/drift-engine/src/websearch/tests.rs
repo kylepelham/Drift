@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::Json;
@@ -20,6 +20,12 @@ struct Behaviour {
     asked: Mutex<Vec<String>>,
     /// The body of Firecrawl's last search.
     last_search: Mutex<Value>,
+    /// Firecrawl takes a while to answer, counting how many requests it holds at once.
+    firecrawl_slow: AtomicBool,
+    in_flight: AtomicUsize,
+    most_in_flight: AtomicUsize,
+    /// Firecrawl will not read the page, as it answers for a site it does not support.
+    firecrawl_unsupported: AtomicBool,
 }
 
 fn key(headers: &HeaderMap) -> String {
@@ -50,6 +56,12 @@ async fn firecrawl(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap, 
     if behaviour.firecrawl_broken.load(Ordering::SeqCst) {
         return (StatusCode::BAD_GATEWAY, "upstream timed out").into_response();
     }
+    if behaviour.firecrawl_slow.load(Ordering::SeqCst) {
+        let now = behaviour.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        behaviour.most_in_flight.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        behaviour.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
     let mut page = json!({ "url": "https://fire.example", "title": "Fire", "description": body["query"] });
     if body["scrapeOptions"].is_object() {
         page["markdown"] = json!(format!("# Fire\n\n{}", "word ".repeat(super::PAGE_CHARS / 4)));
@@ -59,7 +71,21 @@ async fn firecrawl(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap, 
     Json(json!({ "success": true, "data": { "web": [page] } })).into_response()
 }
 
-async fn firecrawl_scrape(Json(body): Json<Value>) -> Json<Value> {
+async fn firecrawl_scrape(
+    State(behaviour): State<Arc<Behaviour>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    behaviour
+        .asked
+        .lock()
+        .unwrap()
+        .push(format!("firecrawl-scrape:{}", key(&headers)));
+    if behaviour.firecrawl_unsupported.load(Ordering::SeqCst) {
+        let error = "We apologize for the inconvenience but we do not support this site. If you are part of an \
+                     enterprise and want to have a further conversation about this, please contact our sales team.";
+        return (StatusCode::FORBIDDEN, Json(json!({ "success": false, "error": error }))).into_response();
+    }
     let chrome = body["excludeTags"]
         .as_array()
         .is_some_and(|tags| tags.contains(&json!("footer")));
@@ -69,7 +95,7 @@ async fn firecrawl_scrape(Json(body): Json<Value>) -> Json<Value> {
         body["url"].as_str().unwrap_or_default()
     );
 
-    Json(json!({ "success": true, "data": { "markdown": markdown, "metadata": { "title": "Page" } } }))
+    Json(json!({ "success": true, "data": { "markdown": markdown, "metadata": { "title": "Page" } } })).into_response()
 }
 
 async fn firecrawl_map(Json(body): Json<Value>) -> Json<Value> {
@@ -131,6 +157,47 @@ async fn tavily(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap) -> 
         .into_response()
 }
 
+/// Firecrawl's credit for a key: overdrawn for `f-empty`, and the refused key is not let in.
+async fn firecrawl_credit(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap) -> Response {
+    let key = key(&headers);
+    if *behaviour.refused_key.lock().unwrap() == key {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Unauthorized" }))).into_response();
+    }
+    let left = if key == "f-empty" { -12 } else { 500 };
+
+    Json(json!({ "success": true, "data": {
+        "remainingCredits": left,
+        "planCredits": 1000,
+        "billingPeriodStart": "2026-11-01T00:00:00Z",
+        "billingPeriodEnd": "2026-12-01T00:00:00Z"
+    } }))
+    .into_response()
+}
+
+/// Tavily's usage as its documentation shows it.
+async fn tavily_usage() -> Json<Value> {
+    Json(json!({
+        "key": { "usage": 150, "limit": 1000 },
+        "account": {
+            "current_plan": "Bootstrap",
+            "plan_usage": 500,
+            "plan_limit": 15000,
+            "paygo_usage": 25,
+            "paygo_limit": 100
+        }
+    }))
+}
+
+async fn exa_team() -> Json<Value> {
+    Json(json!({
+        "object": "team",
+        "id": "team_1",
+        "name": "Team",
+        "concurrency": { "active": 0, "queued": 0 },
+        "limits": { "maxConcurrent": null, "maxQueued": null }
+    }))
+}
+
 /// A SearXNG instance's JSON answer, for the plugin.
 async fn searxng(axum::extract::Query(query): axum::extract::Query<Vec<(String, String)>>) -> Json<Value> {
     let asked = query
@@ -153,6 +220,9 @@ async fn serve(behaviour: Arc<Behaviour>) -> String {
         .route("/exa/contents", post(exa_contents))
         .route("/tavily/extract", post(tavily_extract))
         .route("/tavily/map", post(tavily_map))
+        .route("/firecrawl/team/credit-usage", get(firecrawl_credit))
+        .route("/tavily/usage", get(tavily_usage))
+        .route("/exa/websets/v0/teams/me", get(exa_team))
         .route("/search", get(searxng))
         .with_state(behaviour);
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -280,6 +350,52 @@ async fn a_failure_that_is_not_the_key_skips_the_providers_other_keys() {
     let (provider, _) = engine.web_search("s2", query("rust")).await.unwrap();
     assert_eq!(provider, "firecrawl", "the key was not set aside");
     assert_eq!(asked(&behaviour, "firecrawl:f1"), 2);
+}
+
+#[tokio::test]
+async fn a_search_that_meets_only_a_paused_key_waits_for_it_once() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_busy.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("firecrawl", "f1").unwrap();
+    choose(&engine, "firecrawl", &[]);
+    let calming = behaviour.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        calming.firecrawl_busy.store(false, Ordering::SeqCst);
+    });
+
+    let (provider, _) = engine.web_search("s1", query("rust")).await.unwrap();
+    assert_eq!(provider, "firecrawl");
+    assert_eq!(
+        asked(&behaviour, "firecrawl:f1"),
+        2,
+        "asked again once its Retry-After passed"
+    );
+
+    behaviour.firecrawl_busy.store(true, Ordering::SeqCst);
+    let error = engine.web_search("s2", query("rust")).await.unwrap_err();
+    assert!(
+        error.contains("rate limited") && error.contains("free again in 1 s"),
+        "{error}"
+    );
+    assert_eq!(asked(&behaviour, "firecrawl:f1"), 4, "only once more");
+}
+
+#[tokio::test]
+async fn one_provider_is_sent_only_a_few_requests_at_once() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_slow.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("firecrawl", "f1").unwrap();
+    choose(&engine, "firecrawl", &[]);
+
+    let searches = (0..10).map(|_| engine.web_search("s1", query("rust")));
+    let answered = futures_util::future::join_all(searches).await;
+
+    assert!(answered.iter().all(Result::is_ok));
+    let most = behaviour.most_in_flight.load(Ordering::SeqCst);
+    assert!((2..=super::PER_PROVIDER).contains(&most), "{most} at once");
 }
 
 #[tokio::test]
@@ -439,6 +555,97 @@ async fn a_tavily_key_past_its_plan_limit_is_set_aside() {
 
     assert_eq!(asked(&behaviour, "tavily:t-spent"), 1, "a 432 sets the key aside");
     assert_eq!(asked(&behaviour, "tavily:t-fresh"), 2);
+}
+
+#[tokio::test]
+async fn a_site_a_provider_will_not_read_sets_no_key_aside() {
+    let behaviour = Arc::new(Behaviour::default());
+    behaviour.firecrawl_unsupported.store(true, Ordering::SeqCst);
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("firecrawl", "one").unwrap();
+    engine.add_search_key("firecrawl", "two").unwrap();
+    choose(&engine, "firecrawl", &[]);
+
+    let error = engine
+        .web_scrape("s1", "https://unsupported.example")
+        .await
+        .unwrap_err();
+    assert!(error.contains("do not support this site"), "{error}");
+    assert_eq!(
+        asked(&behaviour, "firecrawl-scrape:two"),
+        0,
+        "the provider's other keys are not tried for a page it will not read"
+    );
+
+    engine.web_search("s1", query("rust")).await.unwrap();
+    assert_eq!(asked(&behaviour, "firecrawl:one"), 1, "and its keys still search");
+}
+
+#[tokio::test]
+async fn a_check_reads_each_keys_credit_and_sets_keys_aside_or_back() {
+    use super::{Balance, KeyState};
+    let behaviour = Arc::new(Behaviour::default());
+    let (engine, _) = engine(&behaviour).await;
+    for key in ["fresh", "f-empty", "spent"] {
+        engine.add_search_key("firecrawl", key).unwrap();
+    }
+    engine.add_search_key("exa", "e-ok").unwrap();
+    engine.add_search_key("tavily", "t-ok").unwrap();
+    choose(&engine, "firecrawl", &[]);
+    *behaviour.refused_key.lock().unwrap() = "fresh".into();
+    engine.web_search("s1", query("rust")).await.unwrap();
+    *behaviour.refused_key.lock().unwrap() = "spent".into();
+
+    let checks = engine.check_search_keys().await;
+    let states: Vec<_> = checks
+        .iter()
+        .map(|check| (check.provider.as_str(), check.key.as_str(), check.index, check.state))
+        .collect();
+    assert_eq!(
+        states,
+        [
+            ("firecrawl", "...resh", Some(0), KeyState::Ok),
+            ("firecrawl", "...mpty", Some(1), KeyState::Ok),
+            ("firecrawl", "...pent", Some(2), KeyState::Refused),
+            ("exa", "...e-ok", Some(0), KeyState::Ok),
+            ("tavily", "...t-ok", Some(0), KeyState::Ok),
+        ]
+    );
+    assert_eq!(
+        checks[0].balance,
+        Some(Balance {
+            left: 500,
+            total: Some(1000),
+            plan: None,
+            renews: Some("2026-12-01T00:00:00Z".into()),
+        })
+    );
+    assert_eq!(
+        checks[1].balance.as_ref().map(|balance| balance.left),
+        Some(0),
+        "an overdrawn key has nothing left"
+    );
+    assert_eq!(checks[3].balance, None, "Exa tells a plain key no balance");
+    assert_eq!(
+        checks[4].balance,
+        Some(Balance {
+            left: 850,
+            total: Some(1000),
+            plan: Some("Bootstrap".into()),
+            renews: None,
+        }),
+        "the key's own limit caps what the plan has left"
+    );
+
+    engine.web_search("s1", query("rust")).await.unwrap();
+    engine.web_search("s1", query("rust")).await.unwrap();
+    assert_eq!(
+        asked(&behaviour, "firecrawl:fresh"),
+        3,
+        "a key with credit is tried again"
+    );
+    assert_eq!(asked(&behaviour, "firecrawl:f-empty"), 1, "a spent key is set aside");
+    assert_eq!(asked(&behaviour, "firecrawl:spent"), 0, "and so is a refused one");
 }
 
 #[test]

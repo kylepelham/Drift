@@ -1,7 +1,8 @@
+import { panelForm, panelLine, panelRemove, SettingsDisclosure, SettingsGroup, SettingsRow } from "./settings-controls";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { activeWorkspace } from "../state/workspaces";
 import { useEngine } from "../engine";
+import { IconTrash } from "./icons";
 import { t } from "../state/i18n";
 
 import type { BrowserCredential, WorkspaceBrowser } from "../engine/native/client";
@@ -29,19 +30,17 @@ export function BrowserWorkspaceGroup() {
             }
         >
             {(workspace) => (
-                <>
-                    <SettingsGroup
-                        title={t("drift.settings.browser.workspaceNamed", { name: workspace().name })}
-                        action={
-                            <button class={button} onClick={() => void refetch()}>
-                                {t("drift.settings.browser.reload")}
-                            </button>
-                        }
-                    >
-                        <ProjectRows setup={setup()} />
-                    </SettingsGroup>
-                    <CredentialsGroup credentials={setup()?.credentials ?? []} />
-                </>
+                <SettingsGroup
+                    title={t("drift.settings.browser.workspaceNamed", { name: workspace().name })}
+                    action={
+                        <button class={button} onClick={() => void refetch()}>
+                            {t("drift.settings.browser.reload")}
+                        </button>
+                    }
+                >
+                    <ProjectRows setup={setup()} />
+                    <CredentialsRow credentials={setup()?.credentials ?? []} />
+                </SettingsGroup>
             )}
         </Show>
     );
@@ -104,8 +103,8 @@ function ProjectRows(props: { setup?: WorkspaceBrowser }) {
     );
 }
 
-/** Sign-ins for this workspace: names and users here, passwords only in the keychain. */
-function CredentialsGroup(props: { credentials: BrowserCredential[] }) {
+/** Sign-ins for this workspace, listed in a panel the row opens: names and users here, passwords only in the keychain. */
+function CredentialsRow(props: { credentials: BrowserCredential[] }) {
     const engine = useEngine();
     // What the engine last answered; a save or removal answers with the whole list.
     const [saved, setSaved] = createSignal<BrowserCredential[]>();
@@ -115,6 +114,7 @@ function CredentialsGroup(props: { credentials: BrowserCredential[] }) {
     const [password, setPassword] = createSignal("");
     const [domain, setDomain] = createSignal("");
     const [error, setError] = createSignal("");
+    const ready = () => !!name().trim() && !!user().trim();
 
     function edit(credential: BrowserCredential) {
         setName(credential.name);
@@ -147,68 +147,92 @@ function CredentialsGroup(props: { credentials: BrowserCredential[] }) {
     }
 
     return (
-        <SettingsGroup title={t("drift.settings.browser.credentials")}>
+        <SettingsDisclosure
+            title={t("drift.settings.browser.credentials")}
+            description={credentialsSummary(list())}
+            label={t("drift.settings.browser.credentialsManage")}
+        >
             <For each={list()}>
                 {(credential) => (
-                    <SettingsRow
-                        title={credential.name}
-                        description={[
-                            credential.user,
-                            credential.domain,
-                            credential.hasPassword
-                                ? t("drift.settings.browser.passwordStored")
-                                : t("drift.settings.browser.noPassword"),
-                        ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                    >
-                        <div class="flex gap-2">
-                            <button class={button} onClick={() => edit(credential)}>
-                                {t("common.edit")}
-                            </button>
-                            <button class={button} onClick={() => void remove(credential.name)}>
-                                {t("drift.settings.browser.remove")}
-                            </button>
-                        </div>
-                    </SettingsRow>
+                    <div class={panelLine}>
+                        <button
+                            class="flex min-w-0 flex-1 items-baseline gap-2 text-left"
+                            title={t("drift.settings.browser.editCredential", { name: credential.name })}
+                            onClick={() => edit(credential)}
+                        >
+                            <span class="shrink-0 text-xs text-ink">{credential.name}</span>
+                            <span class="min-w-0 truncate text-xs text-ink-faint">{credentialDetail(credential)}</span>
+                        </button>
+                        <button
+                            class={panelRemove}
+                            aria-label={t("drift.settings.browser.removeCredential", { name: credential.name })}
+                            title={t("drift.settings.browser.removeCredential", { name: credential.name })}
+                            onClick={() => void remove(credential.name)}
+                        >
+                            <IconTrash class="size-3.5" />
+                        </button>
+                    </div>
                 )}
             </For>
-            <div class="flex flex-wrap items-center gap-2 px-1 py-2.5">
+            <div class={panelForm}>
                 <input
                     class={`${field} w-28`}
+                    aria-label={t("drift.settings.browser.credentialName")}
                     placeholder={t("drift.settings.browser.credentialName")}
                     value={name()}
                     onInput={(event) => setName(event.currentTarget.value)}
                 />
                 <input
-                    class={`${field} w-32`}
+                    class={`${field} min-w-28 flex-1`}
+                    aria-label={t("drift.settings.browser.user")}
                     placeholder={t("drift.settings.browser.user")}
                     autocomplete="off"
                     value={user()}
                     onInput={(event) => setUser(event.currentTarget.value)}
                 />
                 <input
-                    class={`${field} w-32`}
+                    class={`${field} min-w-28 flex-1`}
                     type="password"
                     autocomplete="new-password"
+                    aria-label={t("drift.settings.browser.password")}
                     placeholder={t("drift.settings.browser.password")}
                     value={password()}
                     onInput={(event) => setPassword(event.currentTarget.value)}
                 />
                 <input
                     class={`${field} w-24`}
+                    aria-label={t("drift.settings.browser.domain")}
                     placeholder={t("drift.settings.browser.domain")}
                     value={domain()}
                     onInput={(event) => setDomain(event.currentTarget.value)}
+                    onKeyDown={(event) => event.key === "Enter" && ready() && void save()}
                 />
-                <button class={button} disabled={!name().trim() || !user().trim()} onClick={() => void save()}>
+                <button class={button} disabled={!ready()} onClick={() => void save()}>
                     {t("common.save")}
                 </button>
             </div>
-            <p class="px-1 pb-2.5 text-xs text-ink-faint">{t("drift.settings.browser.credentialsHint")}</p>
+            <p class="px-3 pb-2.5 text-xs leading-relaxed text-ink-faint">
+                {t("drift.settings.browser.credentialsHint")}
+            </p>
             <Show when={error()}>
-                <div class="px-1 pb-2 text-xs text-danger">{error()}</div>
+                <p class="px-3 pb-2.5 text-xs text-danger">{error()}</p>
             </Show>
-        </SettingsGroup>
+        </SettingsDisclosure>
     );
+}
+
+/** A sign-in's user, domain and whether its password is stored, after its name. */
+function credentialDetail(credential: BrowserCredential) {
+    const password = credential.hasPassword
+        ? "drift.settings.browser.passwordStored"
+        : "drift.settings.browser.noPassword";
+
+    return [credential.user, credential.domain, t(password)].filter(Boolean).join(" \u00b7 ");
+}
+
+/** The sign-ins as one line, for the row while it is closed. */
+function credentialsSummary(credentials: BrowserCredential[]) {
+    if (credentials.length === 0) return t("drift.settings.browser.noCredentials");
+
+    return credentials.map((credential) => credential.name).join(" \u00b7 ");
 }

@@ -11,6 +11,7 @@ export type Target = { url: string; token: string };
  */
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
+export type LspStatus = components["schemas"]["LspStatus"];
 export type Grammar = components["schemas"]["Grammar"];
 export type SkillPack = components["schemas"]["Pack"];
 export type Bundle = components["schemas"]["Bundle"];
@@ -45,6 +46,8 @@ export type VoiceTranscription = components["schemas"]["Transcription"];
 export type VoiceSpeech = components["schemas"]["Speech"];
 export type BrowserSettings = components["schemas"]["BrowserSettings"];
 export type CompactAt = components["schemas"]["CompactAt"];
+/** The model and level the composer shows, for a compaction the user asks for. */
+export type ModelChoice = components["schemas"]["ModelChoice"];
 export type ViewInput = components["schemas"]["ViewInput"];
 export type BrowserKind = components["schemas"]["BrowserKind"];
 export type EngineStatus = components["schemas"]["EngineStatus"];
@@ -104,6 +107,8 @@ export function createClient(target: Target) {
         workspaceConfig: (id: string) => request<Json<"workspaceConfig", 200>>("GET", `/workspaces/${id}/config`),
         runCommand: (id: string, name: string, args: string) =>
             request<Json<"runCommand", 202>>("POST", `/sessions/${id}/command`, { name, arguments: args }),
+        startSubagent: (id: string, args: string) =>
+            request<Json<"startSubagent", 202>>("POST", `/sessions/${id}/subagent`, { arguments: args }),
         createWorkspace: (body: NewWorkspace) => request<Json<"createWorkspace", 201>>("POST", "/workspaces", body),
         sessions: (params: operations["listSessions"]["parameters"]["query"] = {}) =>
             request<Json<"listSessions", 200>>("GET", `/sessions${query({ ...params })}`),
@@ -118,7 +123,7 @@ export function createClient(target: Target) {
             request<Json<"importSessions", 200>>("POST", "/sessions/import", { workspaceId, backup }),
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
-        compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+        compactSession: (id: string, choice?: ModelChoice) => request<void>("POST", `/sessions/${id}/compact`, choice),
         queue: (id: string) => request<Json<"listQueue", 200>>("GET", `/sessions/${id}/queue`),
         queuePrompt: (id: string, prompt: components["schemas"]["Prompt"]) =>
             request<Json<"queuePrompt", 201>>("POST", `/sessions/${id}/queue`, prompt),
@@ -144,6 +149,7 @@ export function createClient(target: Target) {
                 "DELETE",
                 `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
             ),
+        checkWebSearchKeys: () => request<Json<"checkWebSearchKeys", 200>>("POST", "/websearch/check"),
         imageGeneration: () => request<Json<"getImageGeneration", 200>>("GET", "/image-generation"),
         putImageGeneration: (body: components["schemas"]["ImageGeneration"]) =>
             request<Json<"putImageGeneration", 200>>("PUT", "/image-generation", body),
@@ -195,6 +201,17 @@ export function createClient(target: Target) {
             request<Json<"setBundlePart", 200>>("PUT", "/bundles/parts", { id, kind, name, enabled }),
         configurePlugin: (path: string, config: unknown) =>
             request<Json<"configurePlugin", 200>>("PUT", "/plugins/config", { path, config }),
+        languageServers: (workspaceId?: string) =>
+            request<Json<"listLanguageServers", 200>>(
+                "GET",
+                `/lsp${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`,
+            ),
+        checkLanguageServer: (name: string, workspace?: string) =>
+            request<Json<"checkLanguageServer", 200>>("POST", "/lsp/check", { name, workspace }),
+        installLanguageServer: (name: string, workspace?: string) =>
+            request<Json<"installLanguageServer", 200>>("POST", "/lsp/install", { name, workspace }),
+        setLanguageServerEnabled: (name: string, enabled: boolean, workspace?: string) =>
+            request<Json<"setLanguageServerEnabled", 200>>("PUT", "/lsp/enabled", { name, enabled, workspace }),
         tools: (workspaceId?: string) =>
             request<Json<"listTools", 200>>(
                 "GET",

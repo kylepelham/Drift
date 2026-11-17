@@ -1,8 +1,8 @@
-//! What only Android can do, in `DriftPlugin.kt`: scan a QR code, and name this phone.
+//! What only Android can do, in `DriftPlugin.kt`: name this phone.
 
 use tauri::Manager;
 
-/// The Kotlin plugin on Android; elsewhere (the tests' host) there is no camera and the phone has no name.
+/// The Kotlin plugin on Android; elsewhere (the tests' host) the phone has no name.
 pub(crate) struct Native {
     #[cfg(target_os = "android")]
     handle: tauri::plugin::PluginHandle<tauri::Wry>,
@@ -10,19 +10,6 @@ pub(crate) struct Native {
 
 #[cfg(target_os = "android")]
 impl Native {
-    /// Opens the camera on a QR code; `None` when the user backs out.
-    pub(crate) fn scan(&self) -> Result<Option<String>, String> {
-        #[derive(serde::Deserialize)]
-        struct Scanned {
-            text: Option<String>,
-        }
-
-        self.handle
-            .run_mobile_plugin::<Scanned>("scan", ())
-            .map(|scanned| scanned.text)
-            .map_err(|error| error.to_string())
-    }
-
     /// The name the user gave this phone in its settings, else its model; how the PC lists it.
     pub(crate) fn device_name(&self) -> String {
         #[derive(serde::Deserialize)]
@@ -38,10 +25,6 @@ impl Native {
 
 #[cfg(not(target_os = "android"))]
 impl Native {
-    pub(crate) fn scan(&self) -> Result<Option<String>, String> {
-        Err("scanning needs the camera of an Android phone".into())
-    }
-
     pub(crate) fn device_name(&self) -> String {
         "Android".into()
     }

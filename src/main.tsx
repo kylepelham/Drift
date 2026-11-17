@@ -1,5 +1,5 @@
 import { bootstrapMirror, registerMirrorApplier, startMirrorEvents } from "./state/mirror";
-import { appRuntimeFrom, runtimeNameFrom } from "./runtime";
+import { appRuntimeFrom, runtimeNameFrom, signInPath } from "./runtime";
 import { loadDictionary, t } from "./state/i18n";
 import { keepAppStorage } from "./app-storage";
 import { language } from "./state/language";
@@ -55,11 +55,18 @@ async function start() {
 
         const message = cause instanceof Error ? cause.message : String(cause);
         await dictionary;
-        root.innerHTML = `<main class="flex h-full items-center justify-center bg-bg p-6 text-ink"><section class="max-w-md text-center"><div class="text-sm font-semibold"></div><p class="mt-2 text-xs leading-relaxed text-ink-muted"></p><button class="mt-4 rounded-md border border-edge px-3 py-2 text-xs"></button></section></main>`;
+        root.innerHTML = `<main class="flex h-full items-center justify-center bg-bg p-6 text-ink"><section class="max-w-md text-center"><div class="text-sm font-semibold"></div><p class="mt-2 text-xs leading-relaxed text-ink-muted"></p><div class="mt-4 flex justify-center gap-2"><button class="rounded-md border border-edge px-3 py-2 text-xs"></button></div></section></main>`;
         root.querySelector("div")!.textContent = t("drift.host.unreachable");
         root.querySelector("p")!.textContent = message;
         const retry = root.querySelector("button")!;
         retry.textContent = t("drift.preview.retry");
         retry.addEventListener("click", () => location.reload());
+        // The app's proxy can show another computer, or on a desktop this PC's own Drift, instead.
+        if (appRuntimeFrom(window.location)) {
+            const switchComputer = retry.cloneNode() as HTMLButtonElement;
+            switchComputer.textContent = t("drift.remote.device.switch");
+            switchComputer.addEventListener("click", () => location.replace(signInPath()));
+            retry.after(switchComputer);
+        }
     }
 }

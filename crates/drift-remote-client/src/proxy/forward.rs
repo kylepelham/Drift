@@ -1,4 +1,4 @@
-//! Passes the UI's requests to the chosen PC with this phone's session, and its event socket through as is.
+//! Passes the UI's requests to the chosen PC with this device's session, and its event socket through as is.
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -21,7 +21,7 @@ const HOP: [&str; 8] = [
     "transfer-encoding",
     "upgrade",
 ];
-/// What the WebView sends that is this proxy's, not the PC's: the PC gets the phone's session instead.
+/// What the WebView sends that is this proxy's, not the PC's: the PC gets the device's session instead.
 const LOCAL: [&str; 5] = ["host", "cookie", "origin", "authorization", "content-length"];
 const UNREACHABLE: &str = "the computer could not be reached";
 
@@ -40,6 +40,7 @@ pub(super) async fn forward(State(proxy): State<Proxy>, request: Request) -> Res
         .path_and_query()
         .map_or("/", |path| path.as_str())
         .to_string();
+    let logout = request.uri().path() == "/auth/logout";
     let (parts, body) = request.into_parts();
     let mut outgoing = route
         .pc
@@ -53,20 +54,29 @@ pub(super) async fn forward(State(proxy): State<Proxy>, request: Request) -> Res
 
     let Ok(response) = outgoing.send().await else {
         // The next request looks for the PC again, at any of its addresses.
-        proxy.route.lock().unwrap().take();
+        drop_route(&proxy, &route);
         return refuse(StatusCode::BAD_GATEWAY, UNREACHABLE);
     };
 
-    if path == "/auth/logout" && response.status().is_success() {
+    if logout && response.status().is_success() {
         forget(&proxy, &route.id);
     }
     relay(response)
 }
 
-/// Signing out from the UI removes the PC from this phone too: its session is gone.
+/// Signing out from the UI removes the PC from this device too: its session is gone.
 fn forget(proxy: &Proxy, id: &str) {
-    proxy.route.lock().unwrap().take();
+    proxy.route.lock().unwrap().take_if(|current| current.id == id);
     let _ = proxy.computers.lock().unwrap().remove(id);
+}
+
+/// Clears the route a failed request went by, unless another computer or address was chosen meanwhile.
+fn drop_route(proxy: &Proxy, used: &Route) {
+    proxy
+        .route
+        .lock()
+        .unwrap()
+        .take_if(|current| current.id == used.id && current.pc.base == used.pc.base);
 }
 
 /// The event socket: the PC answers the WebView's own handshake, then bytes flow both ways untouched.
@@ -88,7 +98,7 @@ async fn upgrade(proxy: &Proxy, route: Route, mut request: Request) -> Response 
     }
 
     let Ok(response) = outgoing.send().await else {
-        proxy.route.lock().unwrap().take();
+        drop_route(proxy, &route);
         return refuse(StatusCode::BAD_GATEWAY, UNREACHABLE);
     };
     if response.status() != StatusCode::SWITCHING_PROTOCOLS {
@@ -139,4 +149,60 @@ fn passed(name: &HeaderName, local: &[&str]) -> bool {
 
 fn refuse(status: StatusCode, message: &str) -> Response {
     (status, axum::Json(json!({ "error": message }))).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pc::{Endpoint, Pc};
+    use crate::tls::Trust;
+
+    fn route(id: &str, port: u16) -> Route {
+        let endpoint = Endpoint::Lan(([127, 0, 0, 1], port).into());
+        Route {
+            id: id.into(),
+            pc: Pc::new(endpoint, Trust::Authority([0u8; 32])),
+            token: "session".into(),
+        }
+    }
+
+    #[test]
+    fn a_failed_request_clears_only_the_route_it_went_by() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let path = crate::test_dir().join("drift-forward-route.json");
+        let proxy = super::super::Shared::new(
+            crate::computers::Computers::load(path.clone()),
+            std::sync::Arc::new(NoHost),
+            "secret".into(),
+            0,
+            path.with_extension("storage.json"),
+        );
+        let (old, switched) = (route("old", 1), route("new", 2));
+
+        *proxy.route.lock().unwrap() = Some(switched.clone());
+        drop_route(&proxy, &old);
+        assert_eq!(
+            proxy.route.lock().unwrap().as_ref().map(|route| route.id.as_str()),
+            Some("new")
+        );
+        drop_route(&proxy, &route("new", 3));
+        assert!(
+            proxy.route.lock().unwrap().is_some(),
+            "the same computer at a newer address stays"
+        );
+        drop_route(&proxy, &switched);
+        assert!(proxy.route.lock().unwrap().is_none());
+    }
+
+    struct NoHost;
+
+    impl crate::Host for NoHost {
+        fn asset(&self, _: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+            None
+        }
+
+        fn device_name(&self) -> String {
+            "Phone".into()
+        }
+    }
 }

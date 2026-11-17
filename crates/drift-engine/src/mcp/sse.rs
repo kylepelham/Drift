@@ -55,9 +55,7 @@ impl SseTransport {
             let events = parser.feed(&chunk);
             if let Some(at) = events.iter().position(|e| e.event == "endpoint") {
                 pending.extend(events[at + 1..].iter().map(|e| e.data.clone()));
-                break base
-                    .join(events[at].data.trim())
-                    .map_err(|e| format!("bad message endpoint: {e}"))?;
+                break endpoint_of(&base, events[at].data.trim())?;
             }
         };
 
@@ -86,6 +84,26 @@ impl SseTransport {
             reader,
         })
     }
+}
+
+/// Where the server says to POST, refused unless it is the stream's own origin, since posts carry its credentials.
+fn endpoint_of(base: &reqwest::Url, named: &str) -> Result<reqwest::Url, String> {
+    let endpoint = base.join(named).map_err(|e| format!("bad message endpoint: {e}"))?;
+    let origin = |url: &reqwest::Url| {
+        (
+            url.scheme().to_owned(),
+            url.host_str().map(str::to_owned),
+            url.port_or_known_default(),
+        )
+    };
+    if origin(&endpoint) != origin(base) {
+        return Err(format!(
+            "the server named a message endpoint on another origin ({endpoint}); Drift only posts to {}",
+            base.origin().ascii_serialization()
+        ));
+    }
+
+    Ok(endpoint)
 }
 
 /// A message the server streamed, passed on if it parses; anything else on the stream is not for us.
@@ -134,5 +152,28 @@ impl rmcp::transport::Transport<RoleClient> for SseTransport {
     async fn close(&mut self) -> Result<(), Self::Error> {
         self.reader.abort();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::endpoint_of;
+
+    #[test]
+    fn a_message_endpoint_stays_on_the_streams_origin() {
+        let base = reqwest::Url::parse("https://mcp.example.com/sse").unwrap();
+        let joined = endpoint_of(&base, "/messages?session=1").unwrap();
+        assert_eq!(joined.as_str(), "https://mcp.example.com/messages?session=1");
+        assert!(endpoint_of(&base, "https://mcp.example.com:443/messages").is_ok());
+
+        for elsewhere in [
+            "https://evil.example.net/messages",
+            "//evil.example.net/messages",
+            "http://mcp.example.com/messages",
+            "https://mcp.example.com:8443/messages",
+        ] {
+            let refused = endpoint_of(&base, elsewhere).unwrap_err();
+            assert!(refused.contains("another origin"), "{elsewhere}: {refused}");
+        }
     }
 }

@@ -1,7 +1,9 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces";
+import { comboFor, formatCombo, runKeybind } from "../state/keybinds";
 import { findInConversation } from "./transcript-find";
 import { selectSession } from "../state/selection";
+import { showSidebar } from "../state/navigation";
 import { sessionsFor } from "../engine/store";
 import { createStore } from "solid-js/store";
 import { driftStore } from "../state/store";
@@ -30,6 +32,10 @@ const [results, setResults] = createStore<SessionSearchState>({
     error: "",
 });
 
+// The result Enter opens; arrow keys in the search field move it.
+const [active, setActive] = createSignal(0);
+let searchInput: HTMLInputElement | undefined;
+
 /** Set when a content result is opened, so the transcript can scroll to the message that matched. */
 const [pendingReveal, setPendingReveal] = createSignal<{ sessionId: string; messageId: string } | null>(null);
 
@@ -55,6 +61,42 @@ export function toggleSessionSearch() {
     setExpanded(true);
 }
 
+/** The search shortcut opens the search, and pressed again in it switches between names and content. */
+export function sessionSearchShortcut() {
+    showSidebar();
+    if (!expanded()) {
+        setExpanded(true);
+        return;
+    }
+    if (searchInput && document.activeElement === searchInput) {
+        setMode(mode() === "name" ? "content" : "name");
+        return;
+    }
+    searchInput?.focus();
+    searchInput?.select();
+}
+
+function openHit(hit: SessionSearchHit) {
+    if (hit.messageId) {
+        setPendingReveal({ sessionId: hit.sessionId, messageId: hit.messageId });
+        findInConversation(hit.sessionId, results.query.trim(), hit.messageId);
+    }
+    if (hit.workspaceId) selectWorkspace(hit.workspaceId);
+    selectSession(hit.sessionId);
+}
+
+function searchKey(event: KeyboardEvent) {
+    const count = results.hits.length;
+    if (event.key === "Escape") {
+        closeSessionSearch();
+        runKeybind("focusComposer");
+    } else if (event.key === "ArrowDown" && count) setActive((active() + 1) % count);
+    else if (event.key === "ArrowUp" && count) setActive((active() - 1 + count) % count);
+    else if (event.key === "Enter" && results.hits[active()]) openHit(results.hits[active()]);
+    else return;
+    event.preventDefault();
+}
+
 export function revealTarget(sessionId: string) {
     const pending = pendingReveal();
     return pending?.sessionId === sessionId ? pending.messageId : undefined;
@@ -72,10 +114,10 @@ function updatedLabel(updatedAt: number) {
 
 export function SessionSearchBar() {
     const engine = useEngine();
-    let input: HTMLInputElement | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    onMount(() => input?.focus());
+    onMount(() => searchInput?.focus());
+    onCleanup(() => (searchInput = undefined));
 
     // Titles come from already hydrated sessions; the sidebar lists every workspace at startup.
     const searchable = () =>
@@ -112,21 +154,29 @@ export function SessionSearchBar() {
         if (timer !== undefined) clearTimeout(timer);
     });
 
+    const switchHint = () => {
+        const combo = comboFor("searchSessions");
+        return combo ? `${t("drift.search.mode.switch")} (${formatCombo(combo)})` : t("drift.search.mode.switch");
+    };
+
     return (
         <div class="shrink-0 px-2 pb-1.5">
-            <div class="flex items-center gap-1.5 rounded-md border border-edge bg-raised/45 px-2 transition-colors focus-within:border-accent">
+            <div class="flex items-center gap-1.5 rounded-md border border-edge bg-raised/45 pr-1 pl-2 transition-colors focus-within:border-accent">
                 <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
                 <input
-                    ref={input}
+                    ref={(element) => (searchInput = element)}
                     class="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint"
-                    placeholder={t("drift.search.sessions.placeholder")}
+                    placeholder={t(
+                        mode() === "name" ? "drift.search.name.placeholder" : "drift.search.content.placeholder",
+                    )}
+                    aria-label={t("drift.search.sessions.placeholder")}
+                    role="combobox"
+                    aria-expanded={sessionSearchActive()}
+                    aria-controls="session-search-results"
+                    aria-activedescendant={results.hits.length ? `session-search-${active()}` : undefined}
                     value={query()}
                     onInput={(event) => setQuery(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                        if (event.key !== "Escape") return;
-                        event.preventDefault();
-                        closeSessionSearch();
-                    }}
+                    onKeyDown={searchKey}
                 />
                 <Show when={query()}>
                     <button
@@ -134,48 +184,58 @@ export function SessionSearchBar() {
                         title={t("drift.search.clear")}
                         onClick={() => {
                             setQuery("");
-                            input?.focus();
+                            searchInput?.focus();
                         }}
                     >
                         <IconX class="size-3" />
                     </button>
                 </Show>
-            </div>
-            <Show when={sessionSearchActive()}>
-                <div class="mt-1.5 flex items-center gap-1 rounded-md border border-edge bg-overlay/40 p-0.5 text-[length:calc(0.7rem*var(--ui-text-scale,1))]">
+                <div
+                    class="flex shrink-0 rounded bg-overlay/60 p-px text-[length:calc(0.62rem*var(--ui-text-scale,1))]"
+                    role="radiogroup"
+                    aria-label={switchHint()}
+                    title={switchHint()}
+                >
                     <For each={["name", "content"] as SessionSearchMode[]}>
                         {(option) => (
                             <button
-                                class="flex-1 rounded px-2 py-1 transition-colors"
+                                role="radio"
+                                aria-checked={mode() === option}
+                                tabIndex={-1}
+                                class="rounded-[3px] px-1.5 py-0.5 transition-colors"
                                 classList={{
                                     "bg-raised text-ink shadow-sm shadow-black/10": mode() === option,
                                     "text-ink-faint hover:text-ink-muted": mode() !== option,
                                 }}
-                                onClick={() => setMode(option)}
+                                onPointerDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                    setMode(option);
+                                    searchInput?.focus();
+                                }}
                             >
                                 {t(option === "name" ? "drift.search.mode.name" : "drift.search.mode.content")}
                             </button>
                         )}
                     </For>
                 </div>
-            </Show>
+            </div>
         </div>
     );
 }
 
 /** The result list, rendered in place of the workspace tree while a search is active. */
 export function SessionSearchResults() {
-    function open(hit: SessionSearchHit) {
-        if (hit.messageId) {
-            setPendingReveal({ sessionId: hit.sessionId, messageId: hit.messageId });
-            findInConversation(hit.sessionId, results.query.trim(), hit.messageId);
-        }
-        if (hit.workspaceId) selectWorkspace(hit.workspaceId);
-        selectSession(hit.sessionId);
-    }
+    let list!: HTMLDivElement;
+    createEffect(
+        on(
+            () => results.hits,
+            () => setActive(0),
+        ),
+    );
+    createEffect(() => list.querySelector(`#session-search-${active()}`)?.scrollIntoView({ block: "nearest" }));
 
     return (
-        <div class="space-y-0.5 px-1">
+        <div ref={list} id="session-search-results" role="listbox" class="space-y-0.5 px-1">
             <Show when={results.error}>
                 <div class="px-2 py-3 text-xs text-danger">{results.error}</div>
             </Show>
@@ -186,11 +246,23 @@ export function SessionSearchResults() {
                 <div class="px-2 py-3 text-xs text-ink-faint">{t("drift.search.empty")}</div>
             </Show>
             <For each={results.hits}>
-                {(hit) => (
+                {(hit, index) => (
                     <button
+                        id={`session-search-${index()}`}
+                        role="option"
+                        aria-selected={active() === index()}
+                        tabIndex={-1}
                         data-sidebar-navigation
-                        class="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised/60"
-                        onClick={() => open(hit)}
+                        data-sidebar-row="thread"
+                        data-thread-row={hit.sessionId}
+                        data-workspace-id={hit.workspaceId}
+                        class="w-full rounded-md px-2 py-1.5 text-left transition-colors"
+                        classList={{
+                            "bg-raised/70": active() === index(),
+                            "hover:bg-raised/45": active() !== index(),
+                        }}
+                        onMouseEnter={() => setActive(index())}
+                        onClick={() => openHit(hit)}
                     >
                         <div class="flex items-center gap-1.5">
                             <span class="min-w-0 flex-1 truncate text-sm text-ink">{hit.title}</span>

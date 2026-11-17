@@ -6,6 +6,7 @@ pub mod bedrock;
 pub mod catalog;
 pub mod compat;
 mod credential_file;
+pub use credential_file::KEY_VARIABLE as CREDENTIALS_KEY_VARIABLE;
 pub mod credentials;
 mod eventstream;
 mod files;
@@ -65,9 +66,14 @@ pub enum Credential {
 pub fn ambient(provider: &str) -> Option<Option<String>> {
     match provider {
         "amazon-bedrock" => Some(aws::detect()),
-        "google-vertex" | "google-vertex-anthropic" => Some(google::detect()),
+        _ if cloud_route(provider) => Some(google::detect()),
         _ => None,
     }
+}
+
+/// A route signed with a cloud's own credentials; its catalog variables are never an API key.
+pub fn cloud_route(provider: &str) -> bool {
+    matches!(provider, "amazon-bedrock" | "google-vertex" | "google-vertex-anthropic")
 }
 
 /// A token this close to its end is refreshed before a request, not after the provider refuses it mid-turn.
@@ -620,6 +626,22 @@ pub fn mentions_context_overflow(text: &str) -> bool {
     OVERFLOW_PHRASES.iter().any(|phrase| text.contains(phrase))
 }
 
+/// How providers say a safety classifier blocked the request outright: the policy codes Codex treats as blocks.
+const SAFETY_BLOCK_PHRASES: [&str; 6] = [
+    "cyber_policy",
+    "flagged for possible cybersecurity risk",
+    "bio_policy",
+    "misalignment_policy_violation",
+    "content_filter",
+    "content_policy_violation",
+];
+
+/// Read from an error already flattened to text, as a failed reply stores it.
+pub fn mentions_safety_block(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    SAFETY_BLOCK_PHRASES.iter().any(|phrase| text.contains(phrase))
+}
+
 /// The readable message in an error body, from the layouts providers and gateways use (AWS's `Message`, RFC 9457's
 /// `detail`); the body itself when none holds one.
 pub(crate) fn error_message(text: &str) -> String {
@@ -675,6 +697,21 @@ mod overflow_tests {
             "a rate limit is not an overflow"
         );
         assert!(!Error::Transport("prompt is too long".into()).is_context_overflow());
+    }
+
+    #[test]
+    fn a_safety_block_is_recognised_and_other_failures_are_not() {
+        let cyber = "cyber_policy (400): This content was flagged for possible cybersecurity risk. \
+                     If this seems wrong, try rephrasing your request.";
+        assert!(super::mentions_safety_block(cyber));
+        assert!(super::mentions_safety_block(
+            "bio_policy (400): flagged for possible biological risk."
+        ));
+        assert!(super::mentions_safety_block(
+            "The response was filtered: content_filter"
+        ));
+        assert!(!super::mentions_safety_block("overloaded_error (529): Overloaded"));
+        assert!(!super::mentions_safety_block("prompt is too long"));
     }
 
     #[test]

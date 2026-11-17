@@ -130,6 +130,35 @@ async fn a_silent_server_times_out_without_switching_transport() {
         |chunk: &Result<Chunk, Error>| matches!(chunk, Err(Error::Transport(message)) if message.contains("no event"));
     assert!(chunks.iter().any(timed_out));
     assert_eq!((h.server.requests(), h.server.posts()), (1, 0));
+
+    collect(&h.provider, &request(), &key()).await;
+    assert_eq!(
+        (h.server.requests(), h.server.posts()),
+        (2, 0),
+        "the next request still goes over a socket"
+    );
+}
+
+#[tokio::test]
+async fn a_connection_at_its_lifetime_limit_is_replaced_without_resting_on_sse() {
+    let h = fixture(Server::default(), None).await;
+    h.server.limit_next.store(true, Ordering::SeqCst);
+
+    let first = collect(&h.provider, &request(), &key()).await;
+    assert!(first.iter().all(Result::is_ok), "{first:?}");
+    assert_eq!(
+        (h.server.requests(), h.server.posts()),
+        (1, 1),
+        "the lost request went over SSE"
+    );
+
+    let next = collect(&h.provider, &request(), &key()).await;
+    assert!(next.iter().all(Result::is_ok), "{next:?}");
+    assert_eq!(
+        (h.server.requests(), h.server.posts(), h.server.connections()),
+        (2, 1, 2),
+        "the next request opens a new socket"
+    );
 }
 
 #[tokio::test]
@@ -177,4 +206,8 @@ async fn a_conversation_whose_new_sockets_keep_failing_rests_longer_each_time() 
         "a failure long after the last rest starts over"
     );
     assert!(!dropped.resting("other"));
+
+    dropped.note(Some("quiet"), &super::super::socket::limit_reached());
+    dropped.note(Some("quiet"), &Error::api(500, "server_error", "busy"));
+    assert!(!dropped.resting("quiet"), "only a dropped socket rests");
 }

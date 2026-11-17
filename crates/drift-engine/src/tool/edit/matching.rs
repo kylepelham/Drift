@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use super::super::text::ascii;
+use super::super::text::{ascii, dominant};
 
 /// Lines compared to keep a region's endings; past this the replacement pairs lines by position.
 const MAX_ALIGN_CELLS: usize = 4_000_000;
@@ -35,12 +35,13 @@ pub(super) fn replace(source: &str, old: &str, new: &str, replace_all: bool) -> 
         in_view(source, old, new)
     };
 
-    let count = found.len();
-    match (count, replace_all) {
+    let found = match (found.len(), replace_all) {
         (0, _) => return Err(Refusal::Missing),
-        (1, _) | (_, true) => {}
+        (1, _) => found,
+        (_, true) => apart(found),
         (places, false) => return Err(Refusal::Ambiguous(places)),
-    }
+    };
+    let count = found.len();
     let mut text = source.to_string();
     for (range, with) in found.into_iter().rev() {
         text.replace_range(range, &with);
@@ -52,12 +53,29 @@ pub(super) fn replace(source: &str, old: &str, new: &str, replace_all: bool) -> 
     Ok((text, count))
 }
 
-/// Non-overlapping places `needle` appears.
+/// The earliest matches that do not overlap, which replace_all changes.
+fn apart(found: Found) -> Found {
+    let mut kept: Found = Vec::with_capacity(found.len());
+    for (range, with) in found {
+        if kept.last().is_none_or(|(previous, _)| previous.end <= range.start) {
+            kept.push((range, with));
+        }
+    }
+
+    kept
+}
+
+/// Every place `needle` starts, overlapping ones too, so `aa` in `aaa` is two places.
 fn occurrences(haystack: &str, needle: &str) -> Vec<Range<usize>> {
-    haystack
-        .match_indices(needle)
-        .map(|(start, found)| start..start + found.len())
-        .collect()
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = haystack.get(from..).and_then(|rest| rest.find(needle)) {
+        let start = from + at;
+        found.push(start..start + needle.len());
+        from = start + haystack[start..].chars().next().map_or(1, char::len_utf8);
+    }
+
+    found
 }
 
 fn in_view(source: &str, old: &str, new: &str) -> Found {
@@ -149,7 +167,7 @@ fn lines(view: &str) -> Vec<Line> {
     found
 }
 
-/// Whole lines that match ignoring trailing whitespace, earliest first, never overlapping.
+/// Whole lines that match ignoring trailing whitespace, earliest first, overlapping ones too.
 fn line_occurrences(view: &str, search: &str) -> Vec<Range<usize>> {
     let trailing_newline = search.ends_with('\n');
     let wanted: Vec<&str> = search
@@ -171,24 +189,10 @@ fn line_occurrences(view: &str, search: &str) -> Vec<Range<usize>> {
             continue;
         }
         let range = lines[index].start..if trailing_newline { last.end } else { last.content_end };
-        if found.last().is_none_or(|previous| previous.end <= range.start) {
-            found.push(range);
-        }
+        found.push(range);
     }
 
     found
-}
-
-/// The line ending most of `text` uses, or `fallback` when neither has more.
-fn dominant(text: &str, fallback: &'static str) -> &'static str {
-    let crlf = text.matches("\r\n").count();
-    let lf = text.matches('\n').count() - crlf;
-
-    match crlf.cmp(&lf) {
-        std::cmp::Ordering::Greater => "\r\n",
-        std::cmp::Ordering::Less => "\n",
-        std::cmp::Ordering::Equal => fallback,
-    }
 }
 
 /// The replacement's lines joined with endings from the region it replaces: a line that keeps a region

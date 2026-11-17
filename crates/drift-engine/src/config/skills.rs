@@ -239,21 +239,21 @@ pub fn list() -> Vec<Pack> {
     packs
 }
 
-/// The folders skills are read from, as the engine walks them: the workspace's up to its repository root, then the user's.
-fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, bool)> {
+/// The folders skills are read from, as the engine walks them: the workspace's up to its repository root, each
+/// with the folder its files must stay inside, then the user's.
+fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, Option<PathBuf>)> {
     let home = super::home();
     let user: Vec<PathBuf> = home
         .iter()
         .flat_map(|home| super::HOME_SKILL_DIRS.map(|skills| home.join(skills)))
         .collect();
-    let mut dirs: Vec<(PathBuf, bool)> = workspace
+    let mut dirs: Vec<(PathBuf, Option<PathBuf>)> = workspace
         .map(|workspace| super::skill_folders(workspace, home.as_deref(), Vec::new()))
         .unwrap_or_default()
         .into_iter()
-        .filter(|dir| !user.contains(dir))
-        .map(|dir| (dir, true))
+        .filter(|(dir, within)| within.is_some() && !user.contains(dir))
         .collect();
-    dirs.extend(user.into_iter().map(|dir| (dir, false)));
+    dirs.extend(user.into_iter().map(|dir| (dir, None)));
     dirs
 }
 
@@ -261,8 +261,8 @@ fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, bool)> {
 pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> {
     let packs = packs_dir().unwrap_or_default();
     let mut skills = Vec::new();
-    for (dir, in_workspace) in skill_dirs(workspace) {
-        for file in super::skill_files(&dir) {
+    for (dir, within) in skill_dirs(workspace) {
+        for file in super::skill_files(&dir, within.as_deref()) {
             let Ok(text) = std::fs::read_to_string(&file) else {
                 continue;
             };
@@ -277,7 +277,7 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
                 description: doc.field("description").unwrap_or_default(),
                 path: folder.to_string_lossy().into_owned(),
                 pack,
-                workspace: in_workspace,
+                workspace: within.is_some(),
                 enabled: !off.contains(&crate::tool::canonical(folder)),
             });
         }

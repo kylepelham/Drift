@@ -1,5 +1,5 @@
 //! The language servers Drift knows, with opencode's root markers. Each is used only when its command
-//! is installed (on PATH, or a project's `node_modules/.bin`); Drift never downloads one.
+//! is on PATH; Drift never downloads one, and never starts a project's own `node_modules/.bin` copy.
 
 use std::path::{Path, PathBuf};
 
@@ -235,6 +235,13 @@ pub(super) const BUILTIN: &[Builtin] = &[
         &["dockerfile"],
         Root::Nearest(&[]),
     ),
+    // A shader tree is often a vendored repository, so slangd roots at its own.
+    server(
+        "slang",
+        &[&["slangd"]],
+        &[".slang", ".slangh"],
+        Root::Nearest(&[&[".git"]]),
+    ),
 ];
 
 /// Where the server for `file` roots, or `None` when it is not used for that file.
@@ -285,18 +292,33 @@ fn holds(dir: &Path, marker: &str) -> bool {
     }
 }
 
-/// The first of `commands` installed: on PATH, else in a `node_modules/.bin` from `root` up to the workspace.
-pub(super) fn installed(commands: &[Vec<String>], root: &Path, workspace: &Path) -> Option<(PathBuf, Vec<String>)> {
+/// The first of `commands` on PATH. A copy in a project's `node_modules/.bin` is that project's code, so it
+/// never starts on its own.
+pub(super) fn installed(commands: &[Vec<String>]) -> Option<(PathBuf, Vec<String>)> {
+    commands.iter().find_map(|command| {
+        let (program, args) = command.split_first()?;
+        let found = crate::platform::process::which(program)?;
+        Some((found, args.to_vec()))
+    })
+}
+
+/// As [`installed`], else in a `node_modules/.bin` from `root` up to the workspace: what Settings shows as found.
+pub(super) fn installed_or_local(
+    commands: &[Vec<String>],
+    root: &Path,
+    workspace: &Path,
+) -> Option<(PathBuf, Vec<String>)> {
     let local: Vec<PathBuf> = root
         .ancestors()
         .take_while(|dir| dir.starts_with(workspace))
         .map(|dir| dir.join("node_modules").join(".bin"))
         .collect();
 
-    commands.iter().find_map(|command| {
-        let (program, args) = command.split_first()?;
-        let found = crate::platform::process::which(program)
-            .or_else(|| crate::platform::process::find_in(program, local.iter().cloned()))?;
-        Some((found, args.to_vec()))
+    installed(commands).or_else(|| {
+        commands.iter().find_map(|command| {
+            let (program, args) = command.split_first()?;
+            let found = crate::platform::process::find_in(program, local.iter().cloned())?;
+            Some((found, args.to_vec()))
+        })
     })
 }

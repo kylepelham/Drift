@@ -445,22 +445,26 @@ fn read_only_refusal(plan: &Plan, context: &crate::tool::Context, tool: &dyn Too
         return None;
     }
     let plans = context.plans_dir().filter(|_| found.kind.runs_conversations());
-    let Some(plans) = plans else {
-        return Some(format!(
-            "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
-        ));
-    };
-
     let touched = tool.touches(context, input).unwrap_or_default();
-    let only_plans = !touched.is_empty()
-        && touched
-            .iter()
-            .all(|path| crate::session::plans::is_plan_file(&plans, path));
+    let only_plans = plans.as_ref().is_some_and(|plans| {
+        !touched.is_empty()
+            && touched
+                .iter()
+                .all(|path| crate::session::plans::is_plan_file(plans, path))
+    });
 
-    (!only_plans).then(|| {
-        format!(
+    (!only_plans).then(|| read_only_reason(agent, plans.as_deref()))
+}
+
+/// What a read-only agent is told about a call that would change something; `plans` is its own plans folder.
+pub(in crate::session) fn read_only_reason(agent: &str, plans: Option<&std::path::Path>) -> String {
+    match plans {
+        None => format!(
+            "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
+        ),
+        Some(plans) => format!(
             "The {agent} agent only reads, so this call was not run: it would change something outside {}. It may write Markdown plans there (a `.md` file in that folder) and nowhere else.",
             plans.display()
-        )
-    })
+        ),
+    }
 }

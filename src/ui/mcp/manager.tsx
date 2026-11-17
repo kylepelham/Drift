@@ -538,6 +538,8 @@ function Tab(props: {
         <button
             type="button"
             autofocus={props.autofocus}
+            // The manager loads lazily, after the dialog has already placed focus on its first button.
+            ref={(button) => props.autofocus && queueMicrotask(() => button.focus({ preventScroll: true }))}
             aria-pressed={props.active}
             class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
             classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}

@@ -33,11 +33,13 @@ pub use file::{
     WorktreeFile,
 };
 pub use overrides::{AgentOverride, ModelPin};
-pub use user::{set_local_server, user_plugins, user_providers};
+pub use user::{set_local_server, set_lsp_enabled, user_lsp, user_plugins, user_providers};
 
 use crate::permission::{Decision, Policy, Rule};
 use crate::session::types::ModelRef;
-use discovery::{ancestors_to_repo_root, instruction_file, instruction_files, markdown_files};
+use discovery::{
+    ancestors_to_repo_root, confined, instruction_file, instruction_files, markdown_files, relative_entry,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -139,9 +141,10 @@ pub struct Config {
     /// Settings read but not applied (an agent's sampling fields); nothing is refused for them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
-    /// The `skillPaths` the files list, resolved; read once the files are applied.
+    /// The `skillPaths` the files list, resolved, each with the project folder it must stay inside; read once the
+    /// files are applied.
     #[serde(skip)]
-    skill_paths: Vec<PathBuf>,
+    skill_paths: Vec<(PathBuf, Option<PathBuf>)>,
     /// Folders of programs the shell finds after its own PATH: the `bin/` of each bundle whose programs are on.
     #[serde(skip)]
     pub programs: Vec<PathBuf>,
@@ -198,19 +201,19 @@ impl Config {
         roots.push(workspace.to_path_buf());
 
         for root in &roots {
-            config.apply_file(root, root == workspace, home);
-            // Workspace definitions live under .drift; home definitions sit beside the user's drift.json.
-            let definitions = if root == workspace {
-                root.join(DIR)
+            let project = root == workspace;
+            config.apply_file(root, project, home);
+            // Workspace definitions live under .drift, kept inside it; home ones sit beside the user's drift.json.
+            if project {
+                config.apply_dir(&root.join(DIR), Some(root));
             } else {
-                root.clone()
-            };
-            config.apply_dir(&definitions);
+                config.apply_dir(root, None);
+            }
         }
 
         let listed = std::mem::take(&mut config.skill_paths);
-        for directory in skill_folders(workspace, home, listed) {
-            config.add_skills(&directory, off);
+        for (directory, within) in skill_folders(workspace, home, listed) {
+            config.add_skills(&directory, within.as_deref(), off);
         }
         for bundle in bundles {
             config.add_bundle_skills(bundle);
@@ -312,6 +315,9 @@ impl Config {
 
     fn apply_file(&mut self, root: &Path, project: bool, home: Option<&Path>) {
         let path = root.join(FILE);
+        if project && !confined(root, &path) {
+            return self.unreadable(&path, "it links outside the project");
+        }
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
@@ -322,6 +328,12 @@ impl Config {
             Err(error) => return self.unreadable(&path, &error.to_string()),
         };
 
+        let resolve = |listed: &String| match (listed.strip_prefix("~/"), home) {
+            (Some(relative), Some(home)) => home.join(relative),
+            _ => root.join(listed),
+        };
+        self.apply_references(&file.references, |listed| resolve(&listed.to_string()), project);
+        self.apply_listed(root, project, &file, resolve);
         if file.model.is_some() {
             self.model = file.model;
         }
@@ -352,23 +364,49 @@ impl Config {
         }
         self.limits.repeats = file.limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = file.limits.polls.unwrap_or(self.limits.polls).max(2);
+    }
 
-        let resolve = |listed: &String| match (listed.strip_prefix("~/"), home) {
-            (Some(relative), Some(home)) => home.join(relative),
-            _ => root.join(listed),
+    /// The `instructions` and `skillPaths` a file lists. A project's file (committed by others) may only name files
+    /// inside its own folder, by relative paths checked before anything is opened, and never secrets.
+    fn apply_listed(&mut self, root: &Path, project: bool, file: &File, resolve: impl Fn(&String) -> PathBuf) {
+        let allowed = |kind: &str, listed: Option<&str>, path: &Path| {
+            let relative = listed.is_none_or(|listed| relative_entry(Path::new(listed)));
+            let kept = !project || (relative && confined(root, path));
+            if !kept {
+                eprintln!(
+                    "drift.json {kind}: {} is outside the project or a secret; ignored",
+                    path.display()
+                );
+            }
+            kept
         };
-        self.apply_references(&file.references, |listed| resolve(&listed.to_string()), project);
         for listed in &file.instructions {
-            for (name, path) in instruction_files(listed, &resolve(listed)) {
-                if let Ok(text) = std::fs::read_to_string(&path) {
-                    self.instructions.push(Instruction {
-                        name,
-                        text: clip(&text),
-                    });
-                }
+            let resolved = resolve(listed);
+            if allowed("instructions", Some(listed), &resolved) {
+                self.add_listed_instructions(listed, &resolved, |path| allowed("instructions", None, path));
             }
         }
-        self.skill_paths.extend(file.skill_paths.iter().map(resolve));
+        for listed in &file.skill_paths {
+            let path = resolve(listed);
+            if allowed("skillPaths", Some(listed), &path) {
+                self.skill_paths.push((path, project.then(|| root.to_path_buf())));
+            }
+        }
+    }
+
+    /// The files an `instructions` entry names that `allowed` lets in, each checked again once a glob is expanded.
+    fn add_listed_instructions(&mut self, listed: &str, resolved: &Path, allowed: impl Fn(&Path) -> bool) {
+        for (name, path) in instruction_files(listed, resolved) {
+            if !allowed(&path) {
+                continue;
+            }
+            if let Ok(text) = crate::tool::encoding::read_to_string(&path) {
+                self.instructions.push(Instruction {
+                    name,
+                    text: clip(&text),
+                });
+            }
+        }
     }
 
     fn unreadable(&mut self, path: &Path, error: &str) {
@@ -410,12 +448,12 @@ impl Config {
         }
     }
 
-    fn apply_dir(&mut self, dir: &Path) {
-        for (name, document) in markdown_files(&dir.join("agents")) {
+    fn apply_dir(&mut self, dir: &Path, within: Option<&Path>) {
+        for (name, document) in markdown_files(&dir.join("agents"), within) {
             self.apply_agent(name, document);
         }
 
-        for (name, document) in markdown_files(&dir.join("commands")) {
+        for (name, document) in markdown_files(&dir.join("commands"), within) {
             self.apply_command(name, document);
         }
     }
@@ -539,14 +577,15 @@ impl Config {
         ttl
     }
 
-    /// Every `SKILL.md` under `dir`, at any depth up to [`discovery::SKILL_DEPTH`]; a name already found nearer wins.
-    fn add_skills(&mut self, dir: &Path, off: &[PathBuf]) {
-        for path in skill_files(dir) {
+    /// Every `SKILL.md` under `dir`, at any depth up to [`discovery::SKILL_DEPTH`], kept inside `within` for a
+    /// project's folder; a name already found nearer wins.
+    fn add_skills(&mut self, dir: &Path, within: Option<&Path>, off: &[PathBuf]) {
+        for path in skill_files(dir, within) {
             let folder = path.parent().unwrap_or(dir);
             if off.contains(&crate::tool::canonical(folder)) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else {
+            let Ok(text) = crate::tool::encoding::read_to_string(&path) else {
                 continue;
             };
             let document = frontmatter::parse(&text);
@@ -580,10 +619,11 @@ impl Config {
                 (home.join(".config/drift/AGENTS.md"), "~/.config/drift/AGENTS.md"),
                 (home.join(".claude/CLAUDE.md"), "~/.claude/CLAUDE.md"),
             ];
-            if let Some((text, name)) = global
-                .iter()
-                .find_map(|(path, name)| std::fs::read_to_string(path).ok().map(|text| (text, *name)))
-            {
+            if let Some((text, name)) = global.iter().find_map(|(path, name)| {
+                crate::tool::encoding::read_to_string(path)
+                    .ok()
+                    .map(|text| (text, *name))
+            }) {
                 found.push(Instruction {
                     name: name.into(),
                     text: clip(&text),
@@ -592,8 +632,9 @@ impl Config {
         }
 
         let chain = ancestors_to_repo_root(workspace);
+        let top = chain.last().map_or(workspace, PathBuf::as_path);
         for (depth, dir) in chain.iter().enumerate().rev() {
-            if let Some((name, text)) = instruction_file(dir) {
+            if let Some((name, text)) = instruction_file(dir, top) {
                 let shown = format!("{}{name}", "../".repeat(depth));
                 found.push(Instruction {
                     name: shown,

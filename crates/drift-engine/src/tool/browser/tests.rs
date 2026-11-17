@@ -29,9 +29,18 @@ fn looking_is_a_read_and_acting_is_not() {
 #[test]
 fn a_password_is_hidden_as_written_and_as_an_address_encodes_it() {
     let text = "typed p@ss word, at https://u:p%40ss%20word@x/?q=p@ss%20word#p@ss%20word, or p%40ss%20word";
-    let masked = mask(text, "p@ss word");
+    let masked = mask(text, &["p@ss word".into()]);
     let hidden = "typed [password], at https://u:[password]@x/?q=[password]#[password], or [password]";
     assert_eq!(masked, hidden);
+}
+
+#[test]
+fn a_password_is_hidden_as_a_form_posts_it_and_as_json_escapes_it() {
+    let password = r#"p@ss "w\rd"#.to_string();
+    let text = r#"body pw=p%40ss+%22w%5Crd&next=1, json {"pw":"p@ss \"w\\rd"}"#;
+    let hidden = r#"body pw=[password]&next=1, json {"pw":"[password]"}"#;
+    assert_eq!(mask(text, &[password, "other one".into()]), hidden);
+    assert_eq!(mask("nothing here", &[]), "nothing here");
 }
 
 #[test]

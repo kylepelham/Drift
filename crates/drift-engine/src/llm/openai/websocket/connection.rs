@@ -104,9 +104,7 @@ async fn response(socket: &mut Socket, job: &Job, previous: &mut Option<cache::P
 
 fn decode(state: &mut StreamState, event: &Value) -> Result<Vec<Chunk>, Error> {
     if error_code(event) == Some("websocket_connection_limit_reached") {
-        return Err(Error::Transport(
-            "the Responses WebSocket reached its connection lifetime; reconnecting".into(),
-        ));
+        return Err(socket::limit_reached());
     }
 
     state.chunks_value(event)

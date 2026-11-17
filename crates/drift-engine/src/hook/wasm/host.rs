@@ -61,13 +61,32 @@ impl State {
         Ok(real)
     }
 
-    /// Time a host call took is the plugin's to keep, not charged against its own budget.
+    /// Time a host call took is the plugin's to keep, not charged against its own budget, up to the call's ceiling.
     async fn clocked<T>(&mut self, work: impl std::future::Future<Output = T>) -> T {
         let started = Instant::now();
         let result = work.await;
-        self.deadline += started.elapsed();
+        self.deadline = (self.deadline + started.elapsed()).min(self.ceiling);
 
         result
+    }
+
+    /// Refuses a folder to be made at `dir` unless its nearest existing ancestor, links resolved, is in the workspace.
+    fn may_create(&self, path: &str, dir: &Path) -> Result<(), HostError> {
+        let workspace = std::fs::canonicalize(&self.workspace).map_err(HostError::Workspace)?;
+        let existing = dir
+            .ancestors()
+            .find(|ancestor| ancestor.symlink_metadata().is_ok())
+            .ok_or(HostError::NoPath)?;
+        let real = std::fs::canonicalize(existing).map_err(|source| HostError::Path {
+            path: path.to_owned(),
+            source,
+        })?;
+
+        if real.starts_with(&workspace) {
+            Ok(())
+        } else {
+            Err(HostError::Outside(path.to_owned()))
+        }
     }
 
     fn store_key(&self) -> String {
@@ -145,6 +164,7 @@ impl files::Host for State {
         }
 
         if let Some(parent) = self.workspace.join(&path).parent() {
+            self.may_create(&path, parent).map_err(|error| error.to_string())?;
             let _ = std::fs::create_dir_all(parent);
         }
         let fresh = self.workspace.join(&path).symlink_metadata().is_err();
@@ -237,15 +257,27 @@ impl http::Host for State {
 
             let response = request.send().await.map_err(|error| error.to_string())?;
             let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+            let body = capped(response, BODY_BYTES).await?;
 
             Ok(http::Response {
                 status,
-                body: bounded(bytes.to_vec(), BODY_BYTES),
+                body: bounded(body, BODY_BYTES),
             })
         })
         .await
     }
+}
+
+/// The body read chunk by chunk, stopping once it reaches `limit` bytes.
+async fn capped(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while body.len() < limit
+        && let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())?
+    {
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(body)
 }
 
 impl notify::Host for State {
@@ -272,4 +304,94 @@ fn bounded(mut bytes: Vec<u8>, limit: usize) -> String {
     bytes.truncate(limit);
 
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(workspace: &Path) -> State {
+        let mut state = State::new("test".into(), super::super::tests::site(), Vec::new());
+        state.workspace = workspace.to_path_buf();
+
+        state
+    }
+
+    #[tokio::test]
+    async fn host_time_moves_the_deadline_on_but_never_past_the_calls_ceiling() {
+        let mut state = state(Path::new(""));
+        let now = Instant::now();
+        state.deadline = now;
+        state.ceiling = now + Duration::from_millis(30);
+
+        state.clocked(tokio::time::sleep(Duration::from_millis(100))).await;
+        assert_eq!(state.deadline, state.ceiling, "a long host call stops at the ceiling");
+
+        state.ceiling = Instant::now() + Duration::from_secs(60);
+        let before = state.deadline;
+        state.clocked(tokio::time::sleep(Duration::from_millis(20))).await;
+        assert!(state.deadline >= before + Duration::from_millis(20));
+    }
+
+    #[tokio::test]
+    async fn a_write_through_a_link_out_of_the_workspace_makes_no_folder_there() {
+        let root = crate::platform::temp::test_run().join(format!("drift-host-write-{}", crate::random_hex(4)));
+        let (workspace, outside) = (root.join("ws"), root.join("outside"));
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let link = workspace.join("link");
+        // Directory junctions do not require the elevation Windows symlinks need.
+        #[cfg(windows)]
+        let made = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&outside, &link).is_ok();
+        assert!(made, "the link could not be made");
+        let mut state = state(&workspace);
+
+        let refused = files::Host::write(&mut state, "link/new/file.txt".into(), "x".into()).await;
+        assert!(refused.is_err_and(|why| why.contains("outside the workspace")));
+        assert!(!outside.join("new").exists(), "no folder was made outside");
+
+        files::Host::write(&mut state, "inside/new/file.txt".into(), "x".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("inside/new/file.txt")).unwrap(),
+            "x"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn a_body_that_never_ends_is_read_only_up_to_the_cap() {
+        use tokio::io::AsyncWriteExt;
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut request).await;
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n";
+            socket.write_all(head.as_bytes()).await.unwrap();
+            let chunk = format!("{:x}\r\n{}\r\n", 64 * 1024, "a".repeat(64 * 1024));
+            while socket.write_all(chunk.as_bytes()).await.is_ok() {}
+        });
+
+        let response = reqwest::Client::new().get(&url).send().await.unwrap();
+        let body = tokio::time::timeout(Duration::from_secs(10), capped(response, BODY_BYTES))
+            .await
+            .expect("it stops reading at the cap")
+            .unwrap();
+        assert!((BODY_BYTES..2 * BODY_BYTES).contains(&body.len()), "{}", body.len());
+        assert_eq!(bounded(body, BODY_BYTES).len(), BODY_BYTES);
+    }
 }

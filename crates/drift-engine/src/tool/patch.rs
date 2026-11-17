@@ -22,6 +22,10 @@ pub enum HunkError {
         "hunk {hunk} did not match the file; read the file and copy the context lines exactly. Looking for:\n{wanted}"
     )]
     Missing { hunk: usize, wanted: String },
+    #[error(
+        "hunk {hunk}'s context line `@@ {context}` was not found in the file; read the file and copy that line exactly"
+    )]
+    Context { hunk: usize, context: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +50,8 @@ pub struct Chunk {
     pub context: Option<String>,
     pub old: Vec<String>,
     pub new: Vec<String>,
+    /// For each `new` line, the `old` line it keeps (a context line), so it keeps that line's ending.
+    pub kept: Vec<Option<usize>>,
     pub end_of_file: bool,
 }
 
@@ -53,6 +59,18 @@ impl Op {
     pub fn path(&self) -> &str {
         match self {
             Op::Add { path, .. } | Op::Delete { path } | Op::Update { path, .. } => path,
+        }
+    }
+}
+
+impl Chunk {
+    fn new(context: Option<String>) -> Self {
+        Self {
+            context,
+            old: vec![],
+            new: vec![],
+            kept: vec![],
+            end_of_file: false,
         }
     }
 }
@@ -146,28 +164,22 @@ fn chunks(lines: &[&str], mut i: usize, end: usize) -> (Vec<Chunk>, usize) {
         if let Some(context) = line.strip_prefix("@@") {
             chunks.extend(current.take());
             let context = context.trim();
-            current = Some(Chunk {
-                context: (!context.is_empty()).then(|| context.to_string()),
-                old: vec![],
-                new: vec![],
-                end_of_file: false,
-            });
+            current = Some(Chunk::new((!context.is_empty()).then(|| context.to_string())));
         } else if line == "*** End of File" {
             if let Some(chunk) = &mut current {
                 chunk.end_of_file = true;
             }
         } else {
-            let chunk = current.get_or_insert_with(|| Chunk {
-                context: None,
-                old: vec![],
-                new: vec![],
-                end_of_file: false,
-            });
+            let chunk = current.get_or_insert_with(|| Chunk::new(None));
             match line.chars().next() {
                 Some('-') => chunk.old.push(line[1..].into()),
-                Some('+') => chunk.new.push(line[1..].into()),
+                Some('+') => {
+                    chunk.new.push(line[1..].into());
+                    chunk.kept.push(None);
+                }
                 _ => {
                     let kept = line.strip_prefix(' ').unwrap_or(line).to_string();
+                    chunk.kept.push(Some(chunk.old.len()));
                     chunk.old.push(kept.clone());
                     chunk.new.push(kept);
                 }
@@ -180,31 +192,90 @@ fn chunks(lines: &[&str], mut i: usize, end: usize) -> (Vec<Chunk>, usize) {
     (chunks, i)
 }
 
-/// Applies every chunk in order; each search starts where the last one ended.
+/// Applies every chunk in order; each search starts where the last one ended. A line a hunk keeps keeps its own
+/// ending, and a changed or added line takes the one around it ([`new_endings`]).
 pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, HunkError> {
-    let mut lines: Vec<String> = content.lines().map(String::from).collect();
+    let ending = super::text::dominant(content, "\n");
+    let (mut lines, mut endings): (Vec<String>, Vec<&str>) = content.split_inclusive('\n').map(split_ending).unzip();
     let trailing_newline = content.ends_with('\n') || content.is_empty();
     let mut cursor = 0;
 
     for (index, chunk) in chunks.iter().enumerate() {
-        let at = locate(&lines, chunk, cursor).ok_or_else(|| miss(content, index, chunk))?;
+        let start = after_context(&lines, chunk, cursor, index + 1)?;
+        let at = locate(&lines, chunk, start).ok_or_else(|| miss(content, index, chunk))?;
+        let kept = new_endings(chunk, &endings, at, ending);
         lines.splice(at..at + chunk.old.len(), chunk.new.iter().cloned());
+        endings.splice(at..at + chunk.old.len(), kept);
         cursor = at + chunk.new.len();
     }
 
-    let mut out = lines.join("\n");
-    if trailing_newline && !out.is_empty() {
-        out.push('\n');
-    }
-    Ok(out)
+    Ok(joined(&lines, &endings, ending, trailing_newline))
 }
 
-fn locate(lines: &[String], chunk: &Chunk, from: usize) -> Option<usize> {
-    let start = match &chunk.context {
-        Some(context) => seek(lines, std::slice::from_ref(context), from, false).map_or(from, |at| at + 1),
-        None => from,
+/// The ending of each of a hunk's new lines, the hunk found at `at`: a kept line its own, a changed line the one it
+/// replaces (the last one for extra lines), an inserted line its neighbour's, and `fallback` when there is none.
+fn new_endings(chunk: &Chunk, endings: &[&'static str], at: usize, fallback: &'static str) -> Vec<&'static str> {
+    let mut out = Vec::with_capacity(chunk.kept.len());
+    let (mut block_start, mut added) = (0, 0);
+    for (index, kept) in chunk.kept.iter().enumerate() {
+        if let Some(old) = *kept {
+            out.push(endings[at + old]);
+            (block_start, added) = (old + 1, 0);
+            continue;
+        }
+        let block_end = chunk.kept[index..]
+            .iter()
+            .find_map(|kept| *kept)
+            .unwrap_or(chunk.old.len());
+        let replaced = (block_start < block_end).then(|| endings[at + (block_start + added).min(block_end - 1)]);
+        let before = (at + block_start).checked_sub(1).map(|line| endings[line]);
+        let after = endings.get(at + block_end).copied();
+        let neighbour = before.into_iter().chain(after).find(|ending| !ending.is_empty());
+        out.push(replaced.or(neighbour).unwrap_or(fallback));
+        added += 1;
+    }
+
+    out
+}
+
+fn split_ending(line: &str) -> (String, &'static str) {
+    if let Some(text) = line.strip_suffix("\r\n") {
+        (text.into(), "\r\n")
+    } else if let Some(text) = line.strip_suffix('\n') {
+        (text.into(), "\n")
+    } else {
+        (line.into(), "")
+    }
+}
+
+/// The lines as text: a line without an ending that is no longer last takes `ending`; the last ends only if the file did.
+fn joined(lines: &[String], endings: &[&str], ending: &str, trailing_newline: bool) -> String {
+    let mut out = String::with_capacity(lines.iter().map(|line| line.len() + 2).sum());
+    for (index, (line, own)) in lines.iter().zip(endings).enumerate() {
+        out.push_str(line);
+        if index + 1 < lines.len() || trailing_newline {
+            out.push_str(if own.is_empty() { ending } else { own });
+        }
+    }
+
+    out
+}
+
+/// Where a hunk's search starts: just after its `@@` line, which must be in the file, as Codex requires.
+fn after_context(lines: &[String], chunk: &Chunk, from: usize, hunk: usize) -> Result<usize, HunkError> {
+    let Some(context) = &chunk.context else {
+        return Ok(from);
     };
 
+    seek(lines, std::slice::from_ref(context), from, false)
+        .map(|at| at + 1)
+        .ok_or_else(|| HunkError::Context {
+            hunk,
+            context: context.clone(),
+        })
+}
+
+fn locate(lines: &[String], chunk: &Chunk, start: usize) -> Option<usize> {
     if chunk.old.is_empty() {
         return Some(if chunk.end_of_file {
             lines.len()
@@ -359,6 +430,57 @@ mod tests {
             "an exact match anywhere beats a loose one earlier"
         );
         assert!(apply_chunks("something else\n", &patch("nothing like it", "x")).is_err());
+    }
+
+    #[test]
+    fn a_context_line_not_in_the_file_is_a_miss() {
+        let chunks = |patch: &str| {
+            let Op::Update { chunks, .. } = parse(patch).unwrap().into_iter().next().unwrap() else {
+                panic!()
+            };
+            chunks
+        };
+        let file = "fn one() {\n    x\n}\n";
+        let change = chunks("*** Begin Patch\n*** Update File: f\n@@ fn three() {\n-    x\n+    y\n*** End Patch\n");
+        let insert = chunks("*** Begin Patch\n*** Update File: f\n@@ fn three() {\n+    z\n*** End Patch\n");
+        for chunks in [change, insert] {
+            let err = apply_chunks(file, &chunks).unwrap_err();
+            assert_eq!(
+                err,
+                HunkError::Context {
+                    hunk: 1,
+                    context: "fn three() {".into()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn changed_lines_take_the_ending_of_the_line_they_replace_and_kept_lines_keep_theirs() {
+        let apply = |patch: &str, file: &str| {
+            let ops = parse(&format!("*** Begin Patch\n*** Update File: f\n{patch}*** End Patch\n")).unwrap();
+            let Op::Update { chunks, .. } = &ops[0] else { panic!() };
+            apply_chunks(file, chunks).unwrap()
+        };
+        assert_eq!(
+            apply(" a\n-b\n+B\n+C\n c\n", "a\nb\r\nc\r\nd\r\n"),
+            "a\nB\r\nC\r\nc\r\nd\r\n"
+        );
+        assert_eq!(
+            apply(" x\n-y\n+Y\n", "a\r\nb\r\nc\r\nx\ny\n"),
+            "a\r\nb\r\nc\r\nx\nY\n",
+            "not the file's most common ending"
+        );
+        assert_eq!(
+            apply(" x\n+N\n y\n", "a\r\nb\r\nc\r\nx\ny\n"),
+            "a\r\nb\r\nc\r\nx\nN\ny\n",
+            "an inserted line takes its neighbour's"
+        );
+        assert_eq!(
+            apply("@@\n+top\n", "a\nb\r\nc\r\n"),
+            "top\na\nb\r\nc\r\n",
+            "with no line before it, the one after"
+        );
     }
 
     #[test]

@@ -9,6 +9,8 @@ use serde_json::{Map, Value};
 mod error;
 pub use error::FileError;
 
+/// The variable a headless host passes the store's key in.
+pub const KEY_VARIABLE: &str = "DRIFT_CREDENTIALS_KEY";
 const AES_HEADER: &[u8] = b"DRIFT-AES1\n";
 #[cfg(windows)]
 const DPAPI_HEADER: &[u8] = b"DRIFT-DPAPI1\n";
@@ -26,7 +28,7 @@ enum Protection {
 
 impl ProtectedFile {
     pub(super) fn open(dir: &Path) -> Result<Self, FileError> {
-        let protection = match std::env::var("DRIFT_CREDENTIALS_KEY") {
+        let protection = match std::env::var(KEY_VARIABLE) {
             Ok(key) => Protection::Aes(aes_key(
                 &base64::engine::general_purpose::STANDARD
                     .decode(key)

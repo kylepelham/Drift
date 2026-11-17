@@ -20,15 +20,17 @@ async fn finds_lines_with_numbers_and_filters_by_include() {
 }
 
 #[tokio::test]
-async fn a_file_the_search_cannot_read_is_said_to_be_missing() {
-    let sandbox = Sandbox::new("grep-unreadable");
-    sandbox.file("a.rs", "needle\n");
-    std::fs::write(sandbox.ctx.workspace.join("latin1.txt"), b"needle caf\xe9\n").unwrap();
+async fn a_line_that_is_not_utf8_is_shown_lossily_and_the_file_searched_whole() {
+    let sandbox = Sandbox::new("grep-lossy");
+    std::fs::write(
+        sandbox.ctx.workspace.join("latin1.txt"),
+        b"needle caf\xe9\nplain\nneedle again\n",
+    )
+    .unwrap();
     let out = Grep.run(&sandbox.ctx, json!({ "pattern": "needle" })).await.unwrap();
 
-    assert!(out.output.starts_with("a.rs:1: needle"), "{}", out.output);
-    assert!(
-        out.output.contains("1 files or folders could not be read"),
+    assert_eq!(
+        out.output, "latin1.txt:1: needle caf\u{fffd}\nlatin1.txt:3: needle again",
         "{}",
         out.output
     );
@@ -294,4 +296,28 @@ async fn bad_regex_is_reported() {
     let sandbox = Sandbox::new("grep-bad");
     let err = Grep.run(&sandbox.ctx, json!({ "pattern": "(" })).await.unwrap_err();
     assert!(err.0.starts_with("invalid regex"));
+}
+
+#[tokio::test]
+async fn a_pattern_naming_a_newline_matches_across_lines_without_multiline() {
+    let sandbox = Sandbox::new("grep-newline");
+    sandbox.file("a.h", "typedef struct\n{\n  int x;\n} INFO;\nint a; // x.y\n");
+    let found = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": r"typedef struct[^\n]*\n\{", "output_mode": "count" }),
+        )
+        .await
+        .unwrap();
+    assert!(found.output.contains("a.h:1"), "{}", found.output);
+    // An escaped backslash before `n` is a backslash and a letter, and `.` still stops at a line's end.
+    assert!(!names_newline(r"C:\\new") && names_newline(r"a\nb") && names_newline("a\nb"));
+    let one_line = Grep
+        .run(
+            &sandbox.ctx,
+            json!({ "pattern": r"int.*\n?x", "output_mode": "content" }),
+        )
+        .await
+        .unwrap();
+    assert!(!one_line.output.contains("INFO"), "{}", one_line.output);
 }

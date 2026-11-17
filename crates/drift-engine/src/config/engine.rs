@@ -42,6 +42,14 @@ impl Engine {
                 self.me.clone(),
             )
             .await;
+        for tool in self.hooks.tools() {
+            if self.tools.get(&tool.spec().name).is_some() {
+                eprintln!(
+                    "drift: a plugin's tool {} is left out: a built-in tool has that name",
+                    tool.spec().name
+                );
+            }
+        }
         if self.hooks.grammars() != grammars {
             self.hub.publish(crate::event::Event::GrammarsUpdated {});
         }

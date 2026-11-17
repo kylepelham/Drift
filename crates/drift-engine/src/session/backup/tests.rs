@@ -66,6 +66,39 @@ async fn an_undone_tail_stays_out_of_the_backup_and_other_files_are_refused() {
     assert!(matches!(refused, Err(BackupError::Unreadable(_))));
 }
 
+#[tokio::test]
+async fn a_subagent_whose_conversation_is_nowhere_is_left_out_of_a_restore() {
+    let h = harness().await;
+    let backup = h.engine.export_sessions(std::slice::from_ref(&h.session.id)).unwrap();
+    let entry = |id: &str, parent: &str, visibility: Visibility| {
+        let mut entry = backup.sessions[0].clone();
+        entry.session.id = id.into();
+        entry.session.parent_id = Some(parent.into());
+        entry.session.visibility = visibility;
+        entry.messages.clear();
+        entry
+    };
+    let sessions = vec![
+        entry("ses_orphan", "ses_gone", Visibility::Hidden),
+        entry("ses_orphan_child", "ses_orphan", Visibility::Hidden),
+        entry("ses_thread", "ses_gone", Visibility::Sibling),
+        entry("ses_kept", &h.session.id, Visibility::Hidden),
+    ];
+
+    let restored = h
+        .engine
+        .import_sessions(Backup { sessions, ..backup }, &h.session.workspace_id)
+        .unwrap();
+
+    assert_eq!(restored.skipped, ["ses_orphan", "ses_orphan_child"]);
+    assert_eq!(restored.imported, ["ses_thread", "ses_kept"]);
+    assert!(h.engine.store.session("ses_orphan").unwrap().is_none());
+    let thread = h.engine.store.session("ses_thread").unwrap().unwrap();
+    assert_eq!(thread.parent_id, None, "a spawned thread stands on its own");
+    let kept = h.engine.store.session("ses_kept").unwrap().unwrap();
+    assert_eq!(kept.parent_id.as_deref(), Some(h.session.id.as_str()));
+}
+
 #[test]
 fn a_restored_undo_record_names_only_files_inside_the_workspace() {
     assert!(inside_workspace("src/a.rs") && inside_workspace("./a.rs"));

@@ -3,11 +3,11 @@ import { accountPresets, choosesAccount, setSessionAccount } from "./slash-accou
 import { previousUserMessage, resolveModel, savedChoice } from "../engine/store";
 import { activeWorkspace, archiveSession } from "../state/workspaces";
 import { selectedSession, selectSession } from "../state/selection";
+import { composerChoice, restoreReverted } from "./revert";
 import { setTheme, theme, themes } from "../state/theme";
 import { prefsFor, seedPrefs } from "../state/prefs";
 import { emitThreadArchived } from "../plugins";
 import { archiveFailed } from "./workspaces";
-import { restoreReverted } from "./revert";
 import { openMcpServers } from "./mcp";
 import { t } from "../state/i18n";
 
@@ -25,6 +25,8 @@ export type SlashItem = {
     name: string;
     description: string;
     needsSession?: boolean;
+    /** Only in a conversation the engine still runs: not a subagent's transcript, not an archived chat. */
+    needsLiveConversation?: boolean;
     engine?: boolean;
     requiredArgs?: boolean;
     usage?: string;
@@ -60,11 +62,19 @@ const builtins: SlashItem[] = [
         requiredArgs: true,
         usage: "<instruction>",
     },
+    {
+        name: "subagent",
+        description: "drift.slash.subagent",
+        needsSession: true,
+        needsLiveConversation: true,
+        requiredArgs: true,
+        usage: "[seq|async] [model] <prompt>",
+    },
     { name: "archive", description: "command.session.archive", needsSession: true },
     { name: "undo", description: "command.session.undo.description", needsSession: true },
     { name: "redo", description: "command.session.redo.description", needsSession: true },
     { name: "compact", description: "command.session.compact.description", needsSession: true },
-    { name: "account", description: "drift.slash.account", needsSession: true, usage: "[auto|<account>]" },
+    { name: "account", description: "drift.slash.account", usage: "[auto|<account>]" },
     { name: "theme", description: "command.theme.cycle" },
     { name: "mcp", description: "drift.slash.mcp" },
 ];
@@ -97,8 +107,14 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
     const session = selectedSession();
     return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
         .filter((item) => !item.needsSession || session)
+        .filter((item) => !item.needsLiveConversation || liveConversation(engine, session))
         .filter((item) => item.name.toLowerCase().startsWith(needle))
         .flatMap((item) => (item.name === "account" && !item.engine ? withAccounts(engine, item, session) : [item]));
+}
+
+function liveConversation(engine: Engine, session: string | null) {
+    const info = session ? engine.state.sessions[session] : undefined;
+    return !info || (info.visibility !== "hidden" && !info.archivedAt);
 }
 
 /** `/account` lists the chat's provider's accounts as they stand now, and only when there is more than one. */
@@ -136,6 +152,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
 
     if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length]);
     if (item.name === "mcp") openMcpServers();
+    if (item.name === "account") return setSessionAccount(engine, current, args);
 
     if (current) return runSessionSlash(engine, current, item.name, args);
 }
@@ -146,15 +163,12 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
             return forkSession(engine, current, args);
         case "spawn":
             return spawnSession(engine, current, args);
+        case "subagent":
+            return startSubagent(engine, current, args);
         case "archive":
             return archiveCurrentSession(engine, current);
-        case "account":
-            return setSessionAccount(engine, current, args);
         case "compact":
-            return engine.actions.summarize(
-                current,
-                resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
-            );
+            return engine.actions.summarize(current, composerChoice(engine.state, current));
         case "undo":
             return undoCurrentSession(engine, current);
         case "redo": {
@@ -183,6 +197,16 @@ async function spawnSession(engine: Engine, current: string, args: string) {
 
     const session = await engine.actions.spawn(current, args.trim());
     if (session && selectedSession() === current) selectSession(session.id);
+}
+
+async function startSubagent(engine: Engine, current: string, args: string) {
+    // The job runs on the session's model, which a chat that has sent nothing yet does not have.
+    if (!engine.state.sessions[current]?.model)
+        await engine.actions.useModel(
+            current,
+            resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
+        );
+    await engine.actions.startSubagent(current, args);
 }
 
 function archiveCurrentSession(engine: Engine, current: string) {

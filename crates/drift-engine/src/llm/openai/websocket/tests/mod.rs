@@ -36,6 +36,8 @@ struct Server {
     lose_previous: AtomicBool,
     /// Close the socket after the next reply.
     close_after_reply: AtomicBool,
+    /// Answer the next request by ending the connection at its lifetime limit.
+    limit_next: AtomicBool,
     /// Close the socket on every request before answering anything, with this close code.
     drop_unanswered: Option<u16>,
     /// The Codex turn pin the handshake answers with, as Codex's backend does.
@@ -187,6 +189,12 @@ async fn serve(mut socket: WebSocket, headers: HeaderMap, server: Arc<Server>) {
             let error = json!({ "code": "previous_response_not_found", "message": "evicted" });
             event(&mut socket, json!({ "type": "error", "status": 400, "error": error })).await;
             continue;
+        }
+        if server.limit_next.swap(false, Ordering::SeqCst) {
+            let error = json!({ "code": "websocket_connection_limit_reached", "message": "60 minutes" });
+            event(&mut socket, json!({ "type": "error", "status": 400, "error": error })).await;
+            let _ = socket.send(Message::Close(None)).await;
+            return;
         }
 
         if !reply(&mut socket, number, &server).await {

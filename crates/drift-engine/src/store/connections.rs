@@ -51,7 +51,7 @@ impl Readers {
         let count = self.slots.len();
         let free = (0..count).find_map(|offset| match self.slots[(start + offset) % count].try_lock() {
             Ok(guard) => Some(guard),
-            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::Poisoned(poisoned)) => Some(recover(&self.slots[(start + offset) % count], poisoned)),
             Err(TryLockError::WouldBlock) => None,
         });
 
@@ -63,9 +63,23 @@ impl Readers {
 pub(super) fn acquire(mutex: &Mutex<Connection>) -> MutexGuard<'_, Connection> {
     match mutex.try_lock() {
         Ok(guard) => guard,
-        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-        Err(TryLockError::WouldBlock) => blocking(|| mutex.lock().unwrap_or_else(PoisonError::into_inner)),
+        Err(TryLockError::Poisoned(poisoned)) => recover(mutex, poisoned),
+        Err(TryLockError::WouldBlock) => blocking(|| mutex.lock().unwrap_or_else(|poisoned| recover(mutex, poisoned))),
     }
+}
+
+/// A connection whose holder panicked, with any transaction it left open rolled back so the next BEGIN works.
+fn recover<'a>(
+    mutex: &'a Mutex<Connection>,
+    poisoned: PoisonError<MutexGuard<'a, Connection>>,
+) -> MutexGuard<'a, Connection> {
+    let connection = poisoned.into_inner();
+    if !connection.is_autocommit() {
+        let _ = connection.execute_batch("ROLLBACK");
+    }
+    mutex.clear_poison();
+
+    connection
 }
 
 /// Runs `work` as blocking work: on a multi-threaded runtime's worker the worker's other tasks move to another
@@ -95,6 +109,29 @@ mod tests {
         drop(held);
 
         assert_eq!(listed.len(), 1, "read on a reader without waiting for the writer");
+    }
+
+    #[test]
+    fn a_panic_inside_a_transaction_leaves_the_writer_able_to_begin_again() {
+        let store = crate::store::tests::store();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let connection = store.lock();
+            let _ = crate::store::sessions::transaction(&connection, |connection| -> rusqlite::Result<()> {
+                connection.execute_batch("CREATE TABLE lost(x)")?;
+                panic!("a write went wrong");
+            });
+        }));
+        assert!(panicked.is_err());
+
+        let connection = store.lock();
+        crate::store::sessions::transaction(&connection, |connection| connection.execute_batch("SELECT 1"))
+            .expect("the open transaction was rolled back");
+        let lost: i64 = connection
+            .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'lost'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(lost, 0, "the panicked transaction's writes are gone");
     }
 
     #[test]

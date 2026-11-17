@@ -1,5 +1,6 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
+import { onKeybind, withShortcut, type KeybindAction } from "../state/keybinds";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { IconCheck, IconSliders, IconX } from "./icons";
 import { createDismissOnOutside } from "./dismiss";
@@ -38,6 +39,8 @@ export function Picker(props: {
     checked?: string[];
     /** Below the list: a setting that belongs with the choice, such as Ultra beside the thinking level. */
     footer?: JSX.Element;
+    /** The shortcut that opens or closes this list from anywhere. */
+    keybind?: KeybindAction;
     onPick: (id: string) => void;
 }) {
     const [open, setOpen] = createSignal(false);
@@ -61,11 +64,38 @@ export function Picker(props: {
         );
     });
 
+    onMount(() => {
+        const action = props.keybind;
+        if (action) onCleanup(onKeybind(action, () => setOpen(!untrack(open))));
+    });
+
+    // Focus goes back where it was, the composer when a shortcut opened the list, unless a click moved it on.
+    let returnFocus: HTMLElement | undefined;
+    createEffect(
+        on(open, (now, before) => {
+            if (now) {
+                returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+                return;
+            }
+            if (!before || !returnFocus?.isConnected) return;
+            const target = returnFocus;
+            queueMicrotask(() => {
+                if (document.activeElement === document.body || !document.activeElement)
+                    target.focus({ preventScroll: true });
+            });
+        }),
+    );
+
+    createEffect(() => {
+        if (!open() || !panel) return;
+        panel.querySelector(`[data-picker-index="${cursor()}"]`)?.scrollIntoView({ block: "nearest" });
+    });
+
     createEffect(() => {
         if (!open()) return;
 
         setQuery("");
-        setCursor(0);
+        setCursor(Math.max(0, untrack(filtered).findIndex(isOn)));
         if (props.floating && !narrow()) {
             const rect = root.getBoundingClientRect();
             const width = 288;
@@ -177,6 +207,7 @@ export function Picker(props: {
                                 </div>
                             </Show>
                             <button
+                                data-picker-index={index()}
                                 class="flex w-full items-center px-3 py-1.5 text-left text-sm transition-colors"
                                 classList={{
                                     "bg-raised text-ink": index() === cursor(),
@@ -221,7 +252,7 @@ export function Picker(props: {
                 class="picker-trigger flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
                 classList={{ "border border-edge bg-raised hover:border-edge-strong": !!props.bordered }}
                 style={{ width: props.width }}
-                title={props.label}
+                title={props.keybind ? withShortcut(props.label, props.keybind) : props.label}
                 aria-label={`${props.label}: ${selectedLabel()}`}
                 aria-expanded={open()}
                 aria-haspopup={narrow() ? "dialog" : undefined}

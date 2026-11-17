@@ -1,4 +1,5 @@
 import { backendInvoke } from "../backend";
+import { createSignal } from "solid-js";
 import { shellEvents } from "../shell";
 import { persisted } from "./persist";
 import { t } from "./i18n";
@@ -152,8 +153,14 @@ const [storedToolGroups, setStoredToolGroups] = persisted<Record<ToolGroupKind, 
 export function toolGroups(): Record<ToolGroupKind, boolean> {
     return { ...toolGroupDefaults, ...storedToolGroups() };
 }
+let toolGroupsChangedAt = 0;
 export function setToolGroup(kind: ToolGroupKind, on: boolean) {
+    toolGroupsChangedAt = Date.now();
     setStoredToolGroups({ ...toolGroups(), [kind]: on });
+}
+/** Whether the grouping setting changed a moment ago, so rows regrouping now are not regrouping for a new call. */
+export function toolGroupsJustChanged(now = Date.now()) {
+    return now - toolGroupsChangedAt < 1000;
 }
 /** The card at the end of a turn listing the files it changed. */
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
@@ -325,6 +332,19 @@ export function seedPrefs(sessionId: string) {
         ...sessionPrefs(),
         [sessionId]: { model: modelPref(), agent: agentPref(), variant: variantPref() },
     });
+}
+
+/** The account `/account` picked for a chat that has sent nothing yet; its first prompt takes it, on that provider. */
+type DraftAccount = { provider: string; account: string };
+const [draftAccount, setDraftAccount] = createSignal<DraftAccount | null>(null);
+export { draftAccount, setDraftAccount };
+
+/** The picked account for a first prompt on `provider`, taken so the next new chat starts on the account order. */
+export function takeDraftAccount(provider: string | undefined) {
+    const picked = draftAccount();
+    setDraftAccount(null);
+
+    return picked && picked.provider === provider ? picked.account : undefined;
 }
 
 export function setModelVisible(id: string, visible: boolean) {

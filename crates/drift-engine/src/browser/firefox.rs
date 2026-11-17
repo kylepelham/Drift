@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, watch};
 
 use super::bidi::{Bidi, Event, plain};
 use super::driver::{Common, Driver, Language, Pointer, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
-use super::input::{Key, parse_chord};
-use super::view::{Clipboard, Frame, PaneFit, ViewInput, pane_viewport};
+use super::input::{Key, KeyInput, parse_chord, webdriver_modifiers};
+use super::view::{Clipboard, Frame, PaneFit, ViewInput, may_zoom, pane_viewport};
 use super::{DialogRecord, Kind, PageRecord, with_scheme};
 use crate::Engine;
 use crate::platform::process::{Tree, spawn_owned};
@@ -95,6 +95,8 @@ struct TabState {
     requests: VecDeque<Request>,
     loading: bool,
     scale: Option<f64>,
+    /// The last picture's size in pixels and the page's size in CSS pixels when it was taken.
+    size: Option<((u32, u32), (f64, f64))>,
 }
 
 pub(crate) struct FoxTab {
@@ -121,6 +123,17 @@ pub(crate) struct Firefox {
     unchanged: AtomicU32,
     pane_fit: PaneFit,
     pointer: Pointer,
+    /// A blank tab made ahead and kept out of sight, since Camoufox takes about 2 s to make a tab usable.
+    spare: Mutex<Spare>,
+    /// Held while a tab is made, so a new tab asked for meanwhile waits for the spare rather than making its own.
+    making: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct Spare {
+    /// The spare is being made: the next top-level tab the browser announces is it.
+    pending: bool,
+    id: Option<String>,
 }
 
 /// Launches the browser and reads the BiDi port it prints.
@@ -200,6 +213,8 @@ impl Firefox {
             unchanged: AtomicU32::new(0),
             pane_fit: PaneFit::default(),
             pointer: Pointer::default(),
+            spare: Mutex::default(),
+            making: tokio::sync::Mutex::default(),
         });
         let tree = bidi
             .call("browsingContext.getTree", json!({ "maxDepth": 0 }))
@@ -212,6 +227,7 @@ impl Firefox {
             firefox.pass_as_firefox().await;
         }
         tokio::spawn(firefox.clone().run(events, child));
+        firefox.make_spare();
 
         Ok(firefox)
     }
@@ -259,6 +275,7 @@ impl Firefox {
         if self.tab(&id).is_some() {
             return None;
         }
+        let spare = self.claim_spare(&id, popup);
 
         let tab = Arc::new(FoxTab {
             context: id.clone(),
@@ -277,6 +294,9 @@ impl Firefox {
             let fitting = tab.clone();
             tokio::spawn(async move { fitting.fit_pane().await });
         }
+        if spare {
+            return Some(tab);
+        }
         let mut active = self.active.lock().unwrap();
         if active.is_none() || popup {
             *active = Some(id);
@@ -287,28 +307,89 @@ impl Firefox {
         Some(tab)
     }
 
+    /// Whether a tab the browser announced is the spare being made, which then stays out of sight.
+    fn claim_spare(&self, id: &str, popup: bool) -> bool {
+        let mut spare = self.spare.lock().unwrap();
+        if spare.pending && !popup {
+            spare.pending = false;
+            spare.id = Some(id.to_string());
+        }
+
+        spare.id.as_deref() == Some(id)
+    }
+
+    /// Makes a spare tab in the background when there is none.
+    fn make_spare(&self) {
+        let Some(firefox) = self.me.upgrade() else {
+            return;
+        };
+
+        tokio::spawn(async move {
+            let _making = firefox.making.lock().await;
+            if firefox.spare.lock().unwrap().id.is_none() {
+                let _ = firefox.create_tab(true).await;
+            }
+        });
+    }
+
+    /// A blank tab in sight: the spare when there is one, else a new one; either way a spare is made for next time.
+    async fn new_tab(&self) -> Result<Arc<FoxTab>, String> {
+        let making = self.making.lock().await;
+        let spare = self.spare.lock().unwrap().id.take();
+        let tab = match spare.and_then(|id| self.tab(&id)) {
+            Some(tab) => tab,
+            None => self.create_tab(false).await?,
+        };
+        drop(making);
+        self.make_spare();
+
+        Ok(tab)
+    }
+
+    async fn create_tab(&self, spare: bool) -> Result<Arc<FoxTab>, String> {
+        self.spare.lock().unwrap().pending = spare;
+        // Headless Firefox never answers a create that brings the tab to the front; every tab paints anyway.
+        let created = self
+            .bidi
+            .call("browsingContext.create", json!({ "type": "tab", "background": true }))
+            .await;
+        let claimed = {
+            let mut slot = self.spare.lock().unwrap();
+            slot.pending = false;
+            let context = created.as_ref().ok().and_then(|created| created["context"].as_str());
+            // Another tab announced meanwhile (a page's window) was taken for the spare: the spare is this one.
+            match context.filter(|_| spare) {
+                Some(context) => slot.id.replace(context.to_string()).as_deref() != Some(context),
+                None => false,
+            }
+        };
+        if claimed {
+            self.changed();
+        }
+        let context = created?["context"].as_str().unwrap_or_default().to_string();
+
+        match self.tab(&context) {
+            Some(tab) => Ok(tab),
+            None => self
+                .add(&json!({ "context": context, "url": "about:blank" }), false)
+                .ok_or_else(|| "the new tab closed at once".to_string()),
+        }
+    }
+
     async fn run(self: Arc<Self>, mut events: mpsc::UnboundedReceiver<Event>, mut child: tokio::process::Child) {
-        let mut every = tokio::time::interval(FRAME_EVERY);
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut ticks: u32 = 0;
+        let frames = tokio::spawn(self.clone().frames());
         loop {
             tokio::select! {
                 event = events.recv() => match event {
                     Some(event) => self.dispatch(&event),
                     None => break,
                 },
-                _ = every.tick() => {
-                    ticks = ticks.wrapping_add(1);
-                    let still = self.unchanged.load(Ordering::SeqCst) >= STILL_AFTER;
-                    if self.common.watched() && (!still || ticks.is_multiple_of(STILL_EVERY)) {
-                        self.send_frame().await;
-                    }
-                }
                 _ = child.wait() => break,
                 () = self.common.stopping.cancelled() => break,
             }
         }
 
+        frames.abort();
         self.common.mark_ended();
         self.tabs.lock().unwrap().clear();
         self.tree.kill();
@@ -317,6 +398,21 @@ impl Firefox {
 
         if let (Some(engine), Some(driver)) = (self.common.engine.upgrade(), self.as_driver()) {
             engine.browser_ended(&driver).await;
+        }
+    }
+
+    /// Pictures the active page while a pane watches, apart from the events, which a slow picture must not hold up.
+    async fn frames(self: Arc<Self>) {
+        let mut every = tokio::time::interval(FRAME_EVERY);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut ticks: u32 = 0;
+        loop {
+            every.tick().await;
+            ticks = ticks.wrapping_add(1);
+            let still = self.unchanged.load(Ordering::SeqCst) >= STILL_AFTER;
+            if self.common.watched() && (!still || ticks.is_multiple_of(STILL_EVERY)) {
+                self.send_frame().await;
+            }
         }
     }
 
@@ -359,9 +455,20 @@ impl Firefox {
     }
 
     fn forget(&self, context: &str) {
+        let spare = {
+            let mut spare = self.spare.lock().unwrap();
+            if spare.id.as_deref() == Some(context) {
+                spare.id = None;
+            }
+            spare.id.clone()
+        };
         let mut tabs = self.tabs.lock().unwrap();
         tabs.retain(|tab| tab.context != context);
-        let fallback = tabs.last().map(|tab| tab.context.clone());
+        let fallback = tabs
+            .iter()
+            .rev()
+            .find(|tab| Some(&tab.context) != spare.as_ref())
+            .map(|tab| tab.context.clone());
         drop(tabs);
 
         let mut active = self.active.lock().unwrap();
@@ -407,6 +514,10 @@ impl Firefox {
             .active()
             .and_then(|id| self.tab(&id))
             .ok_or("the browser has no page open")?;
+        // A zoom changes the page's size in CSS pixels but not its picture's.
+        if may_zoom(&input) {
+            tab.state.lock().unwrap().size = None;
+        }
         match input {
             ViewInput::Mouse(mouse) => {
                 let button = match mouse.button.as_deref() {
@@ -424,13 +535,12 @@ impl Firefox {
                 tab.pointer(actions).await?;
                 self.follow_pointer(mouse.x, mouse.y);
             }
-            ViewInput::Key(key) => {
-                let kind = if key.event == "up" { "keyUp" } else { "keyDown" };
-                let value = Key::from_input(&key).webdriver_value();
-                tab.keys(vec![json!({ "type": kind, "value": value })]).await?;
-            }
+            ViewInput::Key(key) => tab.keys(key_actions(&key)).await?,
             ViewInput::Text { text } => tab.type_text(&text).await?,
-            ViewInput::Navigate { url } => tab.go(&url).await?,
+            // Firefox answers even an unwaited navigate only once the server does, which input must not wait for.
+            ViewInput::Navigate { url } => {
+                tokio::spawn(async move { tab.start_going(&url).await });
+            }
             ViewInput::Dialog { accept, text } => tab.answer_dialog(accept, text.as_deref()).await?,
             _ => {}
         }
@@ -483,6 +593,29 @@ fn push<T>(list: &mut VecDeque<T>, item: T) {
     list.push_back(item);
 }
 
+/// One pane key as WebDriver actions, with the modifiers it was pressed with held around it: the page may never
+/// have seen Control go down, when it went down before the pane had the focus.
+fn key_actions(key: &KeyInput) -> Vec<Value> {
+    let value = Key::from_input(key).webdriver_value();
+    let modifier = ["Control", "Shift", "Alt", "Meta"].contains(&key.key.as_str());
+    let held = if modifier {
+        Vec::new()
+    } else {
+        webdriver_modifiers(key.modifiers)
+    };
+    let action = |kind: &str, value: &str| json!({ "type": kind, "value": value });
+
+    if key.event == "up" {
+        let mut actions = vec![action("keyUp", &value)];
+        actions.extend(held.iter().rev().map(|held| action("keyUp", held)));
+        return actions;
+    }
+    let mut actions: Vec<Value> = held.iter().map(|held| action("keyDown", held)).collect();
+    actions.push(action("keyDown", &value));
+
+    actions
+}
+
 impl FoxTab {
     async fn full_picture(&self) -> Result<Vec<u8>, String> {
         use base64::Engine as _;
@@ -513,6 +646,7 @@ impl FoxTab {
             }
             "browsingContext.load" | "browsingContext.fragmentNavigated" | "browsingContext.historyUpdated" => {
                 state.loading = false;
+                state.size = None;
                 params["url"].as_str().unwrap_or_default().clone_into(&mut state.url);
                 drop(state);
                 self.loads.send_modify(|count| *count += 1);
@@ -641,14 +775,59 @@ impl FoxTab {
         }
     }
 
-    /// A picture for the pane at the page's own resolution, with the page's size in CSS pixels.
+    /// The call that loads `url`, or goes `back`, `forward` or `reload`s, waiting for the page as `wait` says.
+    fn going(&self, url: &str, wait: &str) -> (&'static str, Value) {
+        let context = &self.context;
+        match url {
+            "back" => (
+                "browsingContext.traverseHistory",
+                json!({ "context": context, "delta": -1 }),
+            ),
+            "forward" => (
+                "browsingContext.traverseHistory",
+                json!({ "context": context, "delta": 1 }),
+            ),
+            "reload" => ("browsingContext.reload", json!({ "context": context, "wait": wait })),
+            _ => (
+                "browsingContext.navigate",
+                json!({ "context": context, "url": with_scheme(url), "wait": wait }),
+            ),
+        }
+    }
+
+    /// Starts loading for the pane, whose input must not wait for a page; its load events tell the rest.
+    async fn start_going(&self, url: &str) -> Result<(), String> {
+        let (method, params) = self.going(url, "none");
+        self.bidi.call(method, params).await?;
+
+        Ok(())
+    }
+
+    /// A picture for the pane at the page's own resolution, with the page's size in CSS pixels. The size is asked of
+    /// the page only when the picture's own size changes, so a frame costs one call.
     async fn picture(&self) -> Result<(Vec<u8>, (f64, f64)), String> {
         let jpeg = self.full_picture().await?;
-        let size = self.sandboxed("[innerWidth, innerHeight]").await?;
-        let width = size[0].as_f64().unwrap_or_default();
-        let height = size[1].as_f64().unwrap_or_default();
+        let pixels = image::ImageReader::new(std::io::Cursor::new(&jpeg))
+            .with_guessed_format()
+            .ok()
+            .and_then(|reader| reader.into_dimensions().ok());
+        let known = self.state.lock().unwrap().size;
+        if let Some((seen, size)) = known
+            && Some(seen) == pixels
+        {
+            return Ok((jpeg, size));
+        }
 
-        Ok((jpeg, (width, height)))
+        let size = self.sandboxed("[innerWidth, innerHeight]").await?;
+        let size = (
+            size[0].as_f64().unwrap_or_default(),
+            size[1].as_f64().unwrap_or_default(),
+        );
+        if let Some(pixels) = pixels {
+            self.state.lock().unwrap().size = Some((pixels, size));
+        }
+
+        Ok((jpeg, size))
     }
 
     /// Lays the page out at the size its pane asks for, unless the agent chose one.
@@ -810,7 +989,7 @@ impl Tab for FoxTab {
     }
 
     async fn press(&self, key: &Key, modifiers: u8) -> Result<(), String> {
-        let held = super::input::webdriver_modifiers(modifiers);
+        let held = webdriver_modifiers(modifiers);
         let mut actions: Vec<Value> = held
             .iter()
             .map(|value| json!({ "type": "keyDown", "value": value }))
@@ -843,24 +1022,7 @@ impl Tab for FoxTab {
     }
 
     async fn go(&self, url: &str) -> Result<(), String> {
-        let (method, params) = match url {
-            "back" => (
-                "browsingContext.traverseHistory",
-                json!({ "context": self.context, "delta": -1 }),
-            ),
-            "forward" => (
-                "browsingContext.traverseHistory",
-                json!({ "context": self.context, "delta": 1 }),
-            ),
-            "reload" => (
-                "browsingContext.reload",
-                json!({ "context": self.context, "wait": "complete" }),
-            ),
-            _ => (
-                "browsingContext.navigate",
-                json!({ "context": self.context, "url": with_scheme(url), "wait": "complete" }),
-            ),
-        };
+        let (method, params) = self.going(url, "complete");
         let before = *self.loads.borrow();
         self.bidi.call(method, params).await?;
         if method == "browsingContext.traverseHistory" {
@@ -885,6 +1047,7 @@ impl Tab for FoxTab {
             title: state.title.clone(),
             navigated: state.url != url_before,
             dialog: state.dialog.clone(),
+            loading: false,
         }
     }
 
@@ -979,10 +1142,12 @@ impl Driver for Firefox {
     }
 
     fn tabs(&self) -> Vec<Arc<dyn Tab>> {
+        let spare = self.spare.lock().unwrap().id.clone();
         self.tabs
             .lock()
             .unwrap()
             .iter()
+            .filter(|tab| Some(&tab.context) != spare.as_ref())
             .map(|tab| tab.clone() as Arc<dyn Tab>)
             .collect()
     }
@@ -992,19 +1157,8 @@ impl Driver for Firefox {
     }
 
     async fn open_tab(&self, url: &str) -> Result<Arc<dyn Tab>, String> {
-        // Headless Firefox never answers a create that brings the tab to the front; every tab paints anyway.
-        let created = self
-            .bidi
-            .call("browsingContext.create", json!({ "type": "tab", "background": true }))
-            .await?;
-        let context = created["context"].as_str().unwrap_or_default().to_string();
-        let tab = match self.tab(&context) {
-            Some(tab) => tab,
-            None => self
-                .add(&json!({ "context": context, "url": "about:blank" }), false)
-                .ok_or("the new tab closed at once")?,
-        };
-        self.select(&context).await?;
+        let tab = self.new_tab().await?;
+        self.select(&tab.context).await?;
         if url != "about:blank" {
             tab.go(url).await?;
         }
@@ -1019,6 +1173,7 @@ impl Driver for Firefox {
         // No browsingContext.activate: headless it never answers, and blocked the pane's input behind it.
         *self.active.lock().unwrap() = Some(id.to_string());
         *self.last_frame.lock().unwrap() = 0;
+        self.unchanged.store(0, Ordering::SeqCst);
         self.changed();
 
         Ok(())
@@ -1119,6 +1274,41 @@ mod tests {
             Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0")
         );
         assert_eq!(firefox_agent("Mozilla/5.0 (X11) Gecko/20100101 Firefox/156.0"), None);
+    }
+
+    #[test]
+    fn a_key_holds_the_modifiers_it_was_pressed_with() {
+        let key = |event: &str, key: &str, modifiers| KeyInput {
+            event: event.into(),
+            key: key.into(),
+            code: String::new(),
+            key_code: 0,
+            modifiers,
+        };
+        let values = |actions: Vec<Value>| -> Vec<String> {
+            actions
+                .iter()
+                .map(|action| {
+                    format!(
+                        "{} {}",
+                        action["type"].as_str().unwrap(),
+                        action["value"].as_str().unwrap()
+                    )
+                })
+                .collect()
+        };
+
+        assert_eq!(
+            values(key_actions(&key("down", "a", 2))),
+            ["keyDown \u{E009}", "keyDown a"]
+        );
+        assert_eq!(values(key_actions(&key("up", "a", 2))), ["keyUp a", "keyUp \u{E009}"]);
+        assert_eq!(values(key_actions(&key("down", "a", 0))), ["keyDown a"]);
+        assert_eq!(
+            values(key_actions(&key("down", "Control", 2))),
+            ["keyDown \u{E009}"],
+            "a modifier is itself"
+        );
     }
 
     #[test]

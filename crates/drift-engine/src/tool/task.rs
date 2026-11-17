@@ -20,6 +20,7 @@ use crate::store::{Launch, NewSession, NewTask};
 pub const DELEGATION: [&str; 4] = ["task", "task_output", "task_stop", "read_thread"];
 
 const SUMMARY_CHARS: usize = 4_000;
+const TAGS: &str = "What it uses that may be limited, such as gpu: Settings can cap how many subagents with a tag run at once, and past that cap this one waits for a slot by itself, so never sleep or poll for one. Default: none.";
 
 pub struct Task;
 
@@ -42,11 +43,25 @@ impl Tool for Task {
                     "task_id": { "type": "string", "description": "Continue a finished subagent from this conversation instead of starting a new one: it keeps everything it saw and did, so `prompt` only needs the follow-up. Its agent stays as it was." },
                     "workdir": { "type": "string", "description": "A folder inside the workspace for it to work in: its commands, relative paths and searches start there, and that folder's AGENTS.md applies. Default: this conversation's working directory." },
                     "model": { "type": "string", "description": "`provider/model` to run it on, such as a cheaper one for a read-only search. Default: the subagent's own model, else this conversation's." },
-                    "effort": { "type": "string", "description": "Its reasoning level, as the model names them (such as low, medium, high). Default: the subagent's own, else this conversation's; a level the model lacks runs at its default." }
+                    "effort": { "type": "string", "description": "Its reasoning level, as the model names them (such as low, medium, high). Default: the subagent's own, else this conversation's; a level the model lacks runs at its default." },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": TAGS }
                 },
                 "required": ["description", "prompt"]
             }),
         }
+    }
+
+    /// The tags' description names the limits Settings has set, so the model knows which tags matter.
+    fn spec_for(&self, engine: &crate::Engine) -> ToolSpec {
+        let mut spec = self.spec();
+        let limits = engine.task_tag_limits();
+        if !limits.is_empty() {
+            let named: Vec<String> = limits.iter().map(|(tag, limit)| format!("{tag} {limit}")).collect();
+            spec.input_schema["properties"]["tags"]["description"] =
+                Value::String(format!("{TAGS} Limits now: {}.", named.join(", ")));
+        }
+
+        spec
     }
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
@@ -80,12 +95,10 @@ impl Tool for Task {
                 |earlier| earlier.agent.as_str(),
             );
             let config = &ctx.config;
-            let (mode, reason) = match parent.visibility {
-                Visibility::Hidden => (Mode::Foreground, "a subagent's own"),
-                Visibility::Sibling => task_mode(ctx, &input, agent)?,
-            };
+            let (mode, reason) = launch_mode(ctx, &input, agent, &parent)?;
             let model = worker_model(ctx, &input, agent, &parent)?;
             let workdir = asked_workdir(ctx, &input)?;
+            let tags = asked_tags(&input);
             let title = format!("{description} (@{agent} subagent)");
             let (scope, generation) = ctx.engine.worker_scope(&parent.id);
             let new = NewTask {
@@ -96,6 +109,7 @@ impl Tool for Task {
                 mode,
                 reason,
                 generation,
+                tags: &tags,
             };
             let Launch {
                 task,
@@ -162,6 +176,28 @@ impl Tool for Task {
     }
 }
 
+/// How the worker runs and why: a subagent's own run in front, and a command's calls are the user's doing.
+fn launch_mode(
+    ctx: &Context,
+    input: &Value,
+    agent: &str,
+    parent: &crate::session::types::Session,
+) -> Result<(Mode, &'static str), ToolError> {
+    let (mode, reason) = match parent.visibility {
+        Visibility::Hidden => (Mode::Foreground, "a subagent's own"),
+        Visibility::Sibling => task_mode(ctx, input, agent)?,
+    };
+
+    Ok((
+        mode,
+        if ctx.by_command {
+            crate::session::command::subagent::USER_REASON
+        } else {
+            reason
+        },
+    ))
+}
+
 fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'static str), ToolError> {
     let background_default = match ctx.config.agent(agent) {
         Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError::from)?.background,
@@ -179,6 +215,22 @@ fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'stati
         ctx.engine.background_enabled(),
     )
     .map_err(|error| ToolError(error.to_string()))
+}
+
+/// The tags this call gives its worker, each once, as Settings names them.
+fn asked_tags(input: &Value) -> Vec<String> {
+    let mut tags: Vec<String> = input["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(crate::session::tasks::task_tag)
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    tags.sort();
+    tags.dedup();
+
+    tags
 }
 
 /// The folder this call names for its worker, relative to where the conversation works; it must be a folder inside it.
@@ -646,7 +698,9 @@ impl Tool for ReadThread {
                     "It kept repeating the same calls with the same results and wrote up where it got to:\n{}",
                     clip(&write_up, SUMMARY_CHARS)
                 )),
-                Attempt::Refused(_) => lines.push("Its latest reply was ended by the provider's safety filter.".into()),
+                Attempt::Refused => lines.push(
+                    "Its latest reply stopped early without finishing; rephrase the request and try again.".into(),
+                ),
                 Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
                 Attempt::Replied(_) | Attempt::None => {}
             }

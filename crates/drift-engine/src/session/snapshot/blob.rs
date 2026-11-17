@@ -63,7 +63,8 @@ pub(super) fn store(objects: &Path, bytes: &[u8]) -> Result<String, Error> {
     let id = hex(hasher);
     let dir = objects.join(&id[..2]);
     let target = dir.join(&id[2..]);
-    if target.exists() {
+    // Freshened as git does, so a prune's grace period counts from this recording, not the first.
+    if target.exists() && freshen(&target).is_ok() {
         return Ok(id);
     }
 
@@ -85,6 +86,20 @@ pub(super) fn store(objects: &Path, bytes: &[u8]) -> Result<String, Error> {
             if target.exists() { Ok(id) } else { Err(failed(error)) }
         }
     }
+}
+
+/// Sets a stored object's modification time to now; git writes objects read-only, so only attributes are opened.
+fn freshen(path: &Path) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::access_mode(
+        &mut options,
+        windows_sys::Win32::Storage::FileSystem::FILE_WRITE_ATTRIBUTES,
+    );
+    #[cfg(not(windows))]
+    options.read(true);
+
+    options.open(path)?.set_modified(std::time::SystemTime::now())
 }
 
 fn hasher(len: u64) -> Sha1 {

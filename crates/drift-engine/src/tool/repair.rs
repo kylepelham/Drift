@@ -111,6 +111,12 @@ fn number(value: &Value, integer: bool) -> Value {
     let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
         return value.clone();
     };
+    if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        return u64::from_str_radix(hex, 16)
+            .ok()
+            .filter(|parsed| integer && *parsed as f64 <= SAFE_INTEGER)
+            .map_or_else(|| value.clone(), Value::from);
+    }
     let Some(parsed) = text.parse::<f64>().ok().filter(|parsed| parsed.is_finite()) else {
         return value.clone();
     };

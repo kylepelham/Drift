@@ -3,6 +3,7 @@ use std::fmt::Write;
 use serde_json::{Value, json};
 
 use super::ToolMetadata;
+use super::encoding::{Encoding, decode};
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
@@ -160,11 +161,14 @@ fn read_bytes(
         ctx.files.mark_read(path);
         return attached(ctx, path, mime, bytes);
     }
+    if let Some((text, encoding @ (Encoding::Utf16Le | Encoding::Utf16Be))) = decode(bytes) {
+        return read_text(ctx, path, &text, encoding, span);
+    }
     if bytes.iter().take(8000).any(|byte| *byte == 0) {
         return Err(ToolError(format!("{name} is binary")));
     }
 
-    read_text(ctx, path, bytes, span)
+    read_text(ctx, path, &String::from_utf8_lossy(bytes), Encoding::Utf8, span)
 }
 
 fn part_attached(ctx: &Context, path: &std::path::Path, selected: &pdf::Selected) -> Result<Output, ToolError> {
@@ -180,9 +184,14 @@ fn part_attached(ctx: &Context, path: &std::path::Path, selected: &pdf::Selected
     Ok(output)
 }
 
-fn read_text(ctx: &Context, path: &std::path::Path, bytes: &[u8], span: Span) -> Result<Output, ToolError> {
-    let text = String::from_utf8_lossy(bytes);
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+fn read_text(
+    ctx: &Context,
+    path: &std::path::Path,
+    text: &str,
+    encoding: Encoding,
+    span: Span,
+) -> Result<Output, ToolError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let total = text.lines().count();
     let name = display(path, ctx.workdir());
     let offset = span.from.line(total);
@@ -207,6 +216,13 @@ fn read_text(ctx: &Context, path: &std::path::Path, bytes: &[u8], span: Span) ->
             "\n\n({} more lines; read with offset {})",
             total - (offset - 1 + shown),
             offset + shown
+        )
+        .expect("writing to a String cannot fail");
+    }
+    if let Some(label) = encoding.label() {
+        write!(
+            output,
+            "\n\n({name} is {label} text; edit, write and apply_patch keep it {label}, so change it with them, not the shell)"
         )
         .expect("writing to a String cannot fail");
     }
@@ -269,7 +285,16 @@ async fn read_large(ctx: &Context, path: &std::path::Path, span: Span) -> Result
     }
     let Large { lines, more, binary } = read;
     if binary {
-        return Err(ToolError(format!("{name} is binary")));
+        let mut head = [0u8; 2];
+        let marked = std::fs::File::open(path)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut head))
+            .is_ok_and(|()| matches!(head, [0xFF, 0xFE] | [0xFE, 0xFF]));
+        return Err(ToolError(match marked {
+            true => format!(
+                "{name} is UTF-16 text over 10 MB, which read pages only as UTF-8; convert a copy to UTF-8 to read it"
+            ),
+            false => format!("{name} is binary"),
+        }));
     }
     let shown = lines.len();
     if shown == 0 {
@@ -740,6 +765,11 @@ mod tests {
             .join("ses_someone_else")
             .join("call_1.log");
         assert!(ask(&escape).is_some(), "resolved before it is judged");
+
+        let mut odd = sandbox.ctx_clone();
+        odd.session_id = "..".into();
+        let ask_odd = Read.ask(&odd, &json!({ "path": data.join("drift.db").to_string_lossy() }));
+        assert!(ask_odd.is_some(), "a restored id that is not an id owns nothing");
     }
 
     #[test]

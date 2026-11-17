@@ -33,7 +33,7 @@ impl Tool for Question {
                                 "multiple": { "type": "boolean", "description": "Allow choosing more than one option." },
                                 "custom": { "type": "boolean", "description": "Allow a typed answer. Default true." }
                             },
-                            "required": ["question", "header", "options"]
+                            "required": ["header", "options"]
                         }
                     },
                     "async": { "type": "boolean", "description": "Default true: ask and carry on; the answer arrives later as its own message. False waits here for the answer, for a decision nothing else can go ahead without." }
@@ -49,7 +49,7 @@ impl Tool for Question {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let items: Vec<Item> = serde_json::from_value(input["questions"].clone())
+            let items: Vec<Item> = serde_json::from_value(with_questions(&input["questions"]))
                 .map_err(|error| ToolError(format!("invalid questions: {error}")))?;
             if items.is_empty() {
                 return Err(ToolError("at least one question is required".into()));
@@ -86,6 +86,22 @@ impl Tool for Question {
             })
         })
     }
+}
+
+/// The questions with `header` asked in place of a `question` that is missing or empty, as models sometimes send.
+fn with_questions(questions: &Value) -> Value {
+    let mut questions = questions.clone();
+    for item in questions.as_array_mut().into_iter().flatten() {
+        let asked = item["question"].as_str().is_some_and(|text| !text.trim().is_empty());
+        if let Some(header) = item["header"]
+            .as_str()
+            .filter(|header| !asked && !header.trim().is_empty())
+        {
+            item["question"] = Value::String(header.to_string());
+        }
+    }
+
+    questions
 }
 
 /// Asks without waiting; the answer reaches the conversation later as its own message.
@@ -134,6 +150,29 @@ mod tests {
         });
         let out = out.unwrap();
         assert_eq!(out.output, "Database: sqlite");
+    }
+
+    #[tokio::test]
+    async fn a_question_sent_with_only_its_header_asks_the_header() {
+        let sandbox = Sandbox::new("question-header");
+        let ctx = sandbox.ctx_clone();
+        let mut rx = ctx.engine.hub.attach(None).rx;
+        let input = json!({ "async": false, "questions": [{ "question": " ", "header": "Pick a database", "options": [{ "label": "sqlite" }] }, { "header": "Port", "options": [] }] });
+        let schema = Question.spec().input_schema;
+        assert!(crate::tool::schema::problems(&schema, &input).is_empty());
+        let (out, ()) = tokio::join!(Question.run(&ctx, input), async {
+            let Event::QuestionAsked { request } = rx.recv().await.unwrap().event else {
+                panic!()
+            };
+            let asked: Vec<&str> = request.questions.iter().map(|item| item.question.as_str()).collect();
+            assert_eq!(asked, ["Pick a database", "Port"]);
+            let answers = Some(vec![vec!["sqlite".into()], vec!["8080".into()]]);
+            ctx.engine
+                .questions
+                .reply(&ctx.engine.hub, &request.id, answers)
+                .unwrap();
+        });
+        assert_eq!(out.unwrap().output, "Pick a database: sqlite\nPort: 8080");
     }
 
     #[tokio::test]

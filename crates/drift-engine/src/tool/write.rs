@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use super::ToolMetadata;
 use super::edit::{Change, diff};
+use super::encoding::{Encoding, decode};
 use super::text::TextFormat;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
@@ -35,7 +36,7 @@ impl Tool for Write {
         let ask = ctx.ask_to_write(&path, "Write")?;
 
         let before = std::fs::read(&path)
-            .map(|bytes| String::from_utf8_lossy(&bytes).replace("\r\n", "\n"))
+            .map(|bytes| lossy(&bytes).0.replace("\r\n", "\n"))
             .unwrap_or_default();
         let format = TextFormat::detect(&before);
         let proposed = input["content"].as_str().map(|content| {
@@ -65,11 +66,13 @@ impl Tool for Write {
                 .ok_or(ToolError("`content` is required".into()))?;
             let name = display(&path, ctx.workdir());
             let existing = existing(ctx, &path, &name).await?;
+            let encoding = existing.as_ref().map(|(_, encoding)| *encoding).unwrap_or_default();
+            let existing = existing.map(|(text, _)| text);
 
             let ending = existing.as_deref().map(TextFormat::detect).unwrap_or_default();
-            let written = ending.apply(content);
+            let written = encoding.encode(&ending.apply(content));
             super::fits_history(&name, written.len())?;
-            super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            super::stage::replace(&ctx.engine.store, &path, &written).await?;
             ctx.files.mark_read(&path);
 
             let created = existing.is_none();
@@ -102,32 +105,57 @@ impl Tool for Write {
     }
 }
 
-/// The file's current text, or `None` when there is none; an existing file must have been read.
-async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<Option<String>, ToolError> {
+/// The file's current text and the encoding it is written back in, or `None` when there is none; an existing file
+/// must have been read.
+async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<Option<(String, Encoding)>, ToolError> {
     // Only a missing file is new; one that cannot be read or decoded still exists.
     let existing = match tokio::fs::read(path).await {
-        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Ok(bytes) => Some(lossy(&bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => {
-            return Err(ToolError(format!(
-                "{name} could not be read ({error}), so it was not overwritten"
-            )));
-        }
+        Err(error) => return Err(unreadable(name, &error)),
     };
 
+    if existing.is_some() {
+        overwritable(ctx, path, name)?;
+    }
+    Ok(existing)
+}
+
+/// UTF-8 or UTF-16 text as it is; anything else as UTF-8, which the whole file is then written as.
+fn lossy(bytes: &[u8]) -> (String, Encoding) {
+    decode(bytes).unwrap_or_else(|| (String::from_utf8_lossy(bytes).into_owned(), Encoding::Utf8))
+}
+
+/// For a tool that writes a whole file without reading it first: a file already there must pass [`overwritable`].
+pub(super) async fn may_replace(ctx: &Context, path: &std::path::Path, name: &str) -> Result<(), ToolError> {
+    match tokio::fs::metadata(path).await {
+        Ok(_) => overwritable(ctx, path, name),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(unreadable(name, &error)),
+    }
+}
+
+/// An existing file is replaced only once read this session and unchanged on disk since.
+fn overwritable(ctx: &Context, path: &std::path::Path, name: &str) -> Result<(), ToolError> {
     // A file the model's own command just wrote is not someone else's work to protect.
-    let own = existing.is_some() && ctx.files.shell_wrote(path);
-    if existing.is_some() && !own && !ctx.files.was_read(path) {
+    if ctx.files.shell_wrote(path) {
+        return Ok(());
+    }
+    if !ctx.files.was_read(path) {
         return Err(ToolError(format!(
             "{name} exists and has not been read this session; read it before overwriting"
         )));
     }
-    if existing.is_some() && !own && ctx.files.changed_since_seen(path) {
+    if ctx.files.changed_since_seen(path) {
         return Err(ToolError(format!(
             "{name} changed on disk since it was last read; read it again before overwriting"
         )));
     }
-    Ok(existing)
+    Ok(())
+}
+
+fn unreadable(name: &str, error: &std::io::Error) -> ToolError {
+    ToolError(format!("{name} could not be read ({error}), so it was not overwritten"))
 }
 
 fn lines(count: usize) -> String {

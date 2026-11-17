@@ -194,11 +194,17 @@ test("retrying a failed compaction undoes its boundary and summarises again", as
     const { retryCompaction, revertPreview } = await import("../src/ui/revert");
     const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
     const engine = fakeEngine([...transcript, assistant("06"), boundary("07"), assistant("08")]);
-    const summarize = (id: string) => (engine.calls.push(`summarize:${id}`), Promise.resolve());
+    const summarize = (id: string, choice?: { model?: { model: string } | null }) => (
+        engine.calls.push(`summarize:${id}:${choice?.model?.model}`),
+        Promise.resolve()
+    );
     setComposerDraft(composerScope("s1"), { text: "typing", staged: [], mentions: [], comments: [] });
+    const picked = { model: { provider: "zai", model: "glm-5.3-flash" } };
 
-    expect(await retryCompaction({ ...engine, actions: { ...engine.actions, summarize } }, "s1", "08")).toBeTrue();
-    expect(engine.calls).toEqual(["revert:s1:07", "summarize:s1"]);
+    expect(
+        await retryCompaction({ ...engine, actions: { ...engine.actions, summarize } }, "s1", "08", picked),
+    ).toBeTrue();
+    expect(engine.calls).toEqual(["revert:s1:07", "summarize:s1:glm-5.3-flash"]);
     expect(composerDraft(composerScope("s1")).text).toBe("typing");
     expect(revertPreview(boundary("07"))).toBe("Context compacted");
 });
@@ -209,8 +215,8 @@ test("retry never undoes a prompt, and a failed undo does not summarise", async 
     const summarize = (id: string) => (engine.calls.push(`summarize:${id}`), Promise.resolve());
     const host = { ...engine, actions: { ...engine.actions, summarize } };
 
-    expect(await retryCompaction(host, "s1", "06")).toBeFalse();
+    expect(await retryCompaction(host, "s1", "06", {})).toBeFalse();
     host.actions.revert = () => Promise.resolve(false);
-    expect(await retryCompaction(host, "s1", "08")).toBeFalse();
+    expect(await retryCompaction(host, "s1", "08", {})).toBeFalse();
     expect(engine.calls).toEqual([]);
 });

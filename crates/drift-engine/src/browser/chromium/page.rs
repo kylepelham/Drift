@@ -435,13 +435,15 @@ impl Page {
         }
     }
 
-    /// Loads `url` and waits for it, at most 15 s; a page that cannot load is an error naming why.
+    /// Loads `url` and waits for it, at most 15 s; a page that cannot load is an error naming why. A server slow to
+    /// answer at all (a dev server building on first load) is not an error: the page goes on loading.
     async fn navigate(&self, url: &str) -> Result<(), String> {
         let before = *self.loads.borrow();
-        let result = self
-            .call("Page.navigate", json!({ "url": url }))
-            .await
-            .map_err(|error| error.to_string())?;
+        let result = match self.call("Page.navigate", json!({ "url": url })).await {
+            Ok(result) => result,
+            Err(CdpError::Timeout(_)) => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        };
         if let Some(error) = result["errorText"].as_str().filter(|error| !error.is_empty()) {
             return Err(format!("{url} did not load: {error}"));
         }
@@ -512,6 +514,7 @@ impl Page {
             title: state.title.clone(),
             navigated: state.url != url_before,
             dialog: state.dialog.clone(),
+            loading: state.loading,
         }
     }
 

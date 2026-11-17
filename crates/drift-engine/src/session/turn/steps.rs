@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use super::*;
 
 /// Replies cut off at their output limit that a turn goes on after, in a row; the next one ends it.
@@ -26,7 +28,12 @@ impl Engine {
             early: early::Early::new(abort),
         };
 
-        self.run_calls(plan, &message, batch, abort).await != Outcome::Aborted
+        if self.run_calls(plan, &message, batch, abort).await == Outcome::Aborted {
+            self.settle_unrun(&message, "the turn was stopped before this call ran.");
+            return false;
+        }
+
+        true
     }
 
     fn record_bootstrap(
@@ -123,12 +130,14 @@ impl Engine {
                 }
                 Step::Done => break,
                 // A third stop at the output limit in a row ends the turn with that ending.
-                Step::Length(reply) if lengths < MAX_LENGTH_CONTINUES => {
+                Step::Length(cut) => {
+                    let going_on = lengths < MAX_LENGTH_CONTINUES;
+                    let ControlFlow::Continue(()) = self.after_cut_off(plan, *cut, going_on, abort).await else {
+                        break;
+                    };
                     lengths += 1;
                     attempts = 0;
-                    self.continue_after_length(&plan.session.id, &reply);
                 }
-                Step::Length(_) => break,
                 Step::Continue => {
                     lengths = 0;
                     attempts = 0;
@@ -202,7 +211,11 @@ impl Engine {
         if self.compaction_keeps_failing(session_id) {
             return false;
         }
-        if self.compact(session_id, Trigger::Overflow, abort).await.is_err() {
+        if self
+            .compact(session_id, Trigger::Overflow, &ModelChoice::default(), abort)
+            .await
+            .is_err()
+        {
             return false;
         }
 
@@ -242,7 +255,9 @@ impl Engine {
             return Some(transcript);
         }
 
-        let _ = self.compact(&plan.session.id, Trigger::Auto, abort).await;
+        let _ = self
+            .compact(&plan.session.id, Trigger::Auto, &ModelChoice::default(), abort)
+            .await;
         if abort.is_cancelled() {
             return None;
         }
@@ -278,43 +293,19 @@ impl Engine {
 
         record_usage(plan, &mut message, &mut streamed);
 
-        // An incomplete reply cannot supply trustworthy tool arguments.
-        let ending = match streamed.stop {
-            StopReason::MaxTokens => Some((
-                format!("{OUTPUT_LIMIT_ENDING} ({} tokens).", request.max_tokens),
-                "the reply hit its output limit, so this call's input may be cut short.",
-            )),
-            StopReason::Refused => Some((
-                REFUSED_ENDING.to_string(),
-                "the provider's safety filter ended the reply before this call ran.",
-            )),
-            StopReason::ContextFull => {
-                message.status = MessageStatus::Error;
-                Some((
-                    "The reply ran into the end of the context window.".to_string(),
-                    "the reply ran out of context, so this call's input may be cut short.",
-                ))
-            }
-            _ => None,
-        };
-        if let Some((error, _)) = &ending {
-            message.error = Some(error.clone());
-        }
-        message.refusal = streamed.refusal.filter(|_| streamed.stop == StopReason::Refused);
-        message.ending = match streamed.stop {
-            StopReason::MaxTokens => Some(types::Ending::Length),
-            StopReason::Refused => Some(types::Ending::Refused),
-            _ if request.no_tool_calls => Some(types::Ending::Limit),
-            _ => None,
-        };
+        let ending = mark_ending(&mut message, &mut streamed, request);
         if self.finish(&mut message).is_err() {
+            self.settle_unrun(&message, "the reply could not be saved, so this call was not run.");
             return Step::Done;
         }
 
         if let Some((_, unrun)) = ending {
             if streamed.stop == StopReason::MaxTokens && !request.no_tool_calls {
-                self.settle_cut_off(&message);
-                return Step::Length(message.id);
+                let batch = CallBatch {
+                    rows: self.settle_cut_off(&message, streamed.calls),
+                    early: streamed.early,
+                };
+                return Step::Length(Box::new(CutOff { message, batch }));
             }
             self.settle_unrun(&message, unrun);
             return if streamed.stop == StopReason::ContextFull {
@@ -342,6 +333,32 @@ impl Engine {
             }
             _ => Step::Continue,
         }
+    }
+
+    /// After a reply cut off at its output limit: runs the calls it finished and goes on when `going_on`, else closes
+    /// them unrun, since the turn ends there and their results would never reach the model.
+    async fn after_cut_off(
+        self: &Arc<Self>,
+        plan: &Plan,
+        cut: CutOff,
+        going_on: bool,
+        abort: &CancellationToken,
+    ) -> ControlFlow<()> {
+        let CutOff { message, batch } = cut;
+        if !going_on {
+            self.settle_unrun(
+                &message,
+                "the reply hit its output limit again and the turn ended there, so this call was not run.",
+            );
+            return ControlFlow::Break(());
+        }
+        if !batch.rows.is_empty() && self.run_calls(plan, &message, batch, abort).await == Outcome::Aborted {
+            self.settle_unrun(&message, "the turn was stopped before this call ran.");
+            return ControlFlow::Break(());
+        }
+
+        self.continue_after_length(&plan.session.id, &message.id);
+        ControlFlow::Continue(())
     }
 
     fn failed_step(&self, message: &mut Message, error: StreamError) -> Step {
@@ -510,4 +527,39 @@ async fn unless_stopped(abort: &CancellationToken, switch: impl std::future::Fut
         switched = switch => switched,
         () = abort.cancelled() => false,
     }
+}
+
+/// Records how a reply ended on its message; for an incomplete one, its error and what its unrun calls are told.
+fn mark_ending(message: &mut Message, streamed: &mut Streamed, request: &Request) -> Option<(String, &'static str)> {
+    // An incomplete reply cannot supply trustworthy tool arguments.
+    let ending = match streamed.stop {
+        StopReason::MaxTokens => Some((
+            format!("{OUTPUT_LIMIT_ENDING} ({} tokens).", request.max_tokens),
+            "the reply hit its output limit, so this call's input may be cut short.",
+        )),
+        StopReason::Refused => Some((
+            REFUSED_ENDING.to_string(),
+            "the reply stopped early before this call ran; rephrase the request and try again.",
+        )),
+        StopReason::ContextFull => {
+            message.status = MessageStatus::Error;
+            Some((
+                "The reply ran into the end of the context window.".to_string(),
+                "the reply ran out of context, so this call's input may be cut short.",
+            ))
+        }
+        _ => None,
+    };
+    if let Some((error, _)) = &ending {
+        message.error = Some(error.clone());
+    }
+    message.refusal = streamed.refusal.take().filter(|_| streamed.stop == StopReason::Refused);
+    message.ending = match streamed.stop {
+        StopReason::MaxTokens => Some(types::Ending::Length),
+        StopReason::Refused => Some(types::Ending::Refused),
+        _ if request.no_tool_calls => Some(types::Ending::Limit),
+        _ => None,
+    };
+
+    ending
 }

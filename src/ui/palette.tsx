@@ -1,11 +1,12 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { comboFor, formatCombo, hasKeybind, keybindDefs, onKeybind, runKeybind } from "../state/keybinds";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { setTheme, theme, themes } from "../state/theme";
+import { keybindLabels } from "./settings-shortcuts";
 import { selectSession } from "../state/selection";
 import { openSettings } from "../state/settings";
 import { sessionsFor } from "../engine/store";
-import { onKeybind } from "../state/keybinds";
 import { openMcpServers } from "./mcp";
 import { Portal } from "solid-js/web";
 import { useEngine } from "../engine";
@@ -17,8 +18,15 @@ const [open, setOpen] = createSignal(false);
 
 export function PaletteHost() {
     onMount(() => {
-        onKeybind("palette", () => setOpen(!open()));
-        onKeybind("newThread", () => selectSession(null));
+        const bindings = [
+            onKeybind("palette", () => setOpen(!open())),
+            onKeybind("newThread", () => selectSession(null)),
+            onKeybind("settings", () => openSettings()),
+            onKeybind("showShortcuts", () => openSettings("Shortcuts")),
+            onKeybind("mcpServers", openMcpServers),
+            onKeybind("cycleTheme", () => setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])),
+        ];
+        onCleanup(() => bindings.forEach((remove) => remove()));
     });
     return (
         <Show when={open()}>
@@ -37,16 +45,17 @@ function Palette(props: { onClose: () => void }) {
     onMount(() => onCleanup(activateModal(dialog, props.onClose)));
 
     const items = createMemo<PaletteItem[]>(() => {
-        const actions: PaletteItem[] = [
-            { label: t("drift.thread.new"), hint: t("command.category.suggested"), run: () => selectSession(null) },
-            { label: t("sidebar.settings"), hint: t("drift.palette.action"), run: openSettings },
-            { label: t("dialog.mcp.title"), hint: t("command.category.suggested"), run: openMcpServers },
-            {
-                label: t("command.theme.cycle"),
-                hint: t("command.category.suggested"),
-                run: () => setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length]),
-            },
-        ];
+        // Every shortcut that does something here, so the palette doubles as the list of them.
+        const actions: PaletteItem[] = keybindDefs
+            .filter((def) => def.action !== "palette" && hasKeybind(def.action))
+            .map((def) => {
+                const combo = comboFor(def.action);
+                return {
+                    label: t(keybindLabels[def.action]),
+                    hint: combo ? formatCombo(combo) : t("drift.palette.action"),
+                    run: () => runKeybind(def.action),
+                };
+            });
         const spaces = workspaces().map((workspace) => ({
             label: workspace.name,
             hint: t("command.category.workspace"),
@@ -71,7 +80,7 @@ function Palette(props: { onClose: () => void }) {
         const value = query().toLowerCase();
         return items()
             .filter((item) => item.label.toLowerCase().includes(value) || item.hint.toLowerCase().includes(value))
-            .slice(0, 12);
+            .slice(0, 60);
     });
 
     const pick = (item: PaletteItem) => {
@@ -118,6 +127,12 @@ function Palette(props: { onClose: () => void }) {
                     <For each={filtered()}>
                         {(item, index) => (
                             <button
+                                ref={(row) =>
+                                    createEffect(() => {
+                                        if (index() === Math.min(cursor(), filtered().length - 1))
+                                            row.scrollIntoView({ block: "nearest" });
+                                    })
+                                }
                                 class="flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors"
                                 classList={{
                                     "bg-raised text-ink": index() === Math.min(cursor(), filtered().length - 1),

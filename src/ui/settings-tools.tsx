@@ -5,6 +5,7 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { PromptCacheGroup } from "./settings-prompt-cache";
 import { ToolSearchGroup } from "./settings-tool-search";
 import { WebSearchGroup } from "./settings-web-search";
+import { TagLimitsRow } from "./settings-tag-limits";
 import { TurnsGroup } from "./settings-turns";
 import { Segmented } from "./controls";
 import { useEngine } from "../engine";
@@ -194,6 +195,7 @@ function BackgroundLimitGroup() {
                 <div class="text-xs text-danger">{error()}</div>
             </Show>
             <DelegationDepthRow />
+            <TagLimitsRow />
         </SettingsGroup>
     );
 }

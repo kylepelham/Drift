@@ -89,7 +89,8 @@ fn a_browser_address_is_offered_only_while_browser_access_is_on() {
 fn remote_access_management_is_not_remotely_invokable() {
     for command in [
         "remote_access_enable",
-        "remote_access_pairing",
+        "remote_access_requests",
+        "remote_access_answer",
         "remote_access_set_browser",
         "remote_access_set_tunnel",
         "remote_access_revoke",

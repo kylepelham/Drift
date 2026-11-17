@@ -195,7 +195,11 @@ Every visible tool renderer shares one context-action registry. Built-in edit, w
 and patch providers offer file and first-change opens; Drift plugins register through
 the same API for custom or wildcard tool behavior. Positioned file opens cross one
 Tauri command boundary, use a cached direct GUI executable without shell probing, and
-fall back to the system association if no supported editor is installed.
+fall back to the system association if no supported editor is installed. `open_file`
+accepts only an existing file on a local disk by absolute path, never a share. A file the
+system would run (a program, script, installer, shortcut or disk image, a `PATHEXT`
+extension, or one with an execute bit) never reaches the system association: it opens
+in the editor, or failing that is revealed in its folder.
 
 Chat Markdown resolves local links from their raw `href` against the owning session's
 directory, never the selected workspace or the webview URL. Windows paths, file URIs,
@@ -240,7 +244,8 @@ invalidate an open viewer. Closing or replacing the lightbox revokes that URL.
 A link whose target is an image file (with image previews enabled) opens the lightbox, not the
 file preview dialog. Because the user explicitly clicked it, its read boundary is the image's own
 folder rather than the session workspace, so screenshots a tool saved to the temp directory
-open. This does not widen any server-side grant: the reader's root is already request-supplied.
+open. This does not widen any server-side grant: the reader's root is already request-supplied,
+and on a paired device it must still lie in a workspace or worktree.
 Automatic reads (embedded images and nested document links) keep the original workspace root.
 
 Spawned-thread tool rows finish when the spawn call succeeds, independently of the
@@ -271,7 +276,9 @@ reject symlink and path-swap escapes. Windows and Linux support this handle chec
 platforms fail closed. Metadata checks and a limit-plus-one read reject oversized files,
 including growth past the limit, with a backend ceiling of 40 MiB. The frontend also
 validates response size.
-The workspace root comes from the request, not a separate server-side workspace grant.
+On the desktop the workspace root comes from the request, not a separate server-side
+workspace grant. A paired device's root must lie inside a workspace Drift knows or one of
+its worktrees, or the read is refused.
 
 Markdown documents use a separate sanitized rendering policy. Relative links and images
 resolve beside the document while all preview reads retain the original workspace root.
@@ -453,7 +460,9 @@ on by default), labelled None, All or the kinds chosen: two or more consecutive 
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
 progress while one runs. Its time is the wall time at least one of its calls ran, ticking
 while any still runs: calls side by side count once, calls one after another add up, and the
-gaps between them do not count. Any
+gaps between them do not count. A row starts as the user left it: a call they opened that a new
+call folds into a group opens the group, and a group keeps their toggle as it grows, regroups or
+scrolls back into view; changing the setting regroups everything closed. Any
 tool row leaves out a duration under a second. A
 disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
 2 patterns · <latest target>`, and a lone read, search or listing is its own row, since a group

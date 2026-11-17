@@ -1,5 +1,6 @@
 import { buttonName, isPasteShortcut, modifierBits, pagePoint } from "./browser-input";
 import { createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
+import { reservedKey } from "../state/keybinds";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 
@@ -116,7 +117,7 @@ export function BrowserView(props: {
     }
 
     function key(kind: "down" | "up", event: KeyboardEvent) {
-        if (event.isComposing || isPasteShortcut(event)) return;
+        if (event.isComposing || isPasteShortcut(event) || reservedKey(event)) return;
 
         event.preventDefault();
         view.send({
@@ -158,6 +159,7 @@ export function BrowserView(props: {
         >
             <canvas
                 ref={canvas}
+                data-own-keys
                 tabIndex={0}
                 class="block max-h-full max-w-full outline-none"
                 classList={{ invisible: !size() }}

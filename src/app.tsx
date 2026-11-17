@@ -5,6 +5,7 @@ import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
 import { messageText, createRunWatcher } from "./engine/store";
 import { ToolContextMenuHost } from "./ui/tool-context-menu";
+import { ConnectRequestHost } from "./ui/connect-requests";
 import { browserPaneShowing } from "./state/browser-pane";
 import { syncDictationConsent } from "./voice/dictation";
 import { initDevtoolsShortcut } from "./state/devtools";
@@ -29,6 +30,7 @@ import { settingsOpen } from "./state/settings";
 import { bindAppIcon } from "./state/app-icon";
 import { bindPathCopy } from "./ui/path-copy";
 import { StartupSplash } from "./ui/startup";
+import { isRemoteRuntime } from "./runtime";
 import { McpServersModal } from "./ui/mcp";
 import { PaletteHost } from "./ui/palette";
 import { bindTheme } from "./state/theme";
@@ -102,6 +104,9 @@ export function App() {
                 <ImportSummaryHost />
                 <NoticeHost />
                 <MirrorConnectionNotice />
+                <Show when={!isRemoteRuntime()}>
+                    <ConnectRequestHost />
+                </Show>
             </div>
             <StartupSplash />
         </EngineProvider>

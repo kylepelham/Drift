@@ -186,7 +186,10 @@ function GenericBody(props: { part: ToolPart }) {
     const fields = createMemo(() => inputFields(state().input));
     const output = createMemo(() => {
         const current = state();
-        return current.status === "completed" ? outputView(stripAnsi(current.output)) : null;
+        if (current.status === "completed") return outputView(stripAnsi(current.output));
+        // A plugin's tool that is waiting says what for, as a running command shows its output so far.
+        const running = toolMeta(props.part)?.output;
+        return current.status === "running" && typeof running === "string" ? outputView(running) : null;
     });
     const images = createMemo(() => returnedImages(props.part));
     const returned = () => !!output()?.text || images().length > 0;

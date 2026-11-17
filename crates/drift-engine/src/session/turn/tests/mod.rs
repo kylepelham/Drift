@@ -48,6 +48,7 @@ mod tool_catalog;
 mod tool_order;
 mod tool_validation;
 mod unreadable_images;
+mod unrun_calls;
 mod variants;
 mod warming;
 mod worktrees;

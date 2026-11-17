@@ -2,9 +2,11 @@ import { collapseCompaction, compactionCollapsed, showReasoning, toolGroups, wai
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { compareMessages, messageRevisionKey, sessionWaiting, type MessageEntry } from "../engine/store";
 import { groupAssistantEntries, ownGroups, type OwnGroups } from "./message-groups";
+import { clearMessageCursor, messageCursor } from "../state/message-cursor";
 import { clearReveal, revealTarget } from "./session-search";
 import { createRevertBackfill } from "./revert-backfill";
 import { WaitingIndicator } from "./waiting-indicator";
+import { bindTranscriptKeys } from "./transcript-keys";
 import { selectedSession } from "../state/selection";
 import { messageProblem } from "../engine/messages";
 import { holdWheelInLock } from "./chat-wheel";
@@ -485,6 +487,7 @@ export function Chat(props: { dock: JSX.Element }) {
         on(selectedSession, () => {
             anchor = undefined;
             clearReveal();
+            clearMessageCursor();
             heights.clear();
             estimates.clear();
             scroller.scrollTop = 0;
@@ -599,6 +602,18 @@ export function Chat(props: { dock: JSX.Element }) {
         scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
     }
 
+    bindTranscriptKeys({
+        rows: timeline,
+        scroller: () => scroller,
+        dock: () => dock,
+        headerOffset,
+        scrollToMessage,
+        scrollToBottom,
+        gesture,
+        copied: () =>
+            engine.actions.notice({ message: t("drift.markdown.copied"), variant: "success", duration: 1500 }),
+    });
+
     return (
         <div class="relative min-h-0 flex-1">
             <div
@@ -650,7 +665,7 @@ export function Chat(props: { dock: JSX.Element }) {
                                             thinkingHeading={thinking()?.heading}
                                             retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                                             terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
-                                            found={revealRow() === entry.info.id}
+                                            found={revealRow() === entry.info.id || messageCursor() === entry.info.id}
                                             measure={measureRow}
                                             copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
                                             copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}

@@ -503,12 +503,20 @@ fn listed_instructions_take_globs_absolute_paths_and_home() {
     write(&workspace, "docs/rules/a.md", "rule a");
     write(&workspace, "docs/rules/deep/b.md", "rule b");
     write(&workspace, "docs/rules/skip.txt", "not markdown");
+    write(&workspace, ".env", "TOKEN=secret");
     write(&elsewhere, "team.md", "team rules");
     let absolute = elsewhere.join("team.md").to_string_lossy().replace('\\', "/");
     write(
+        &home,
+        ".config/drift/drift.json",
+        &format!(r#"{{ "instructions": ["~/notes/style.md", "{absolute}", "missing.md"] }}"#),
+    );
+    write(
         &workspace,
         "drift.json",
-        &format!(r#"{{ "instructions": ["docs/rules/**/*.md", "~/notes/style.md", "{absolute}", "missing.md"] }}"#),
+        &format!(
+            r#"{{ "instructions": ["docs/rules/**/*.md", "~/notes/style.md", "{absolute}", "../shared/team.md", ".env", "docs/../../home/notes/*.md"] }}"#
+        ),
     );
 
     let config = Config::load_with_home(&workspace, Some(&home));
@@ -521,12 +529,264 @@ fn listed_instructions_take_globs_absolute_paths_and_home() {
     assert_eq!(
         listed,
         [
+            ("~/notes/style.md", "home style"),
+            (absolute.as_str(), "team rules"),
             ("a.md", "rule a"),
             ("deep/b.md", "rule b"),
-            ("~/notes/style.md", "home style"),
-            (absolute.as_str(), "team rules")
-        ]
+        ],
+        "the user's file reaches anywhere; the project's stays inside the workspace and skips secrets"
     );
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn a_projects_skill_paths_stay_inside_the_workspace() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-skillpaths-{}", crate::random_hex(4)));
+    let (home, workspace) = (root.join("home"), root.join("ws"));
+    let skill = |name: &str| format!("---\ndescription: {name}\n---\nDo {name}.");
+    write(&home, "mine/ship/SKILL.md", &skill("ship"));
+    write(&home, "theirs/steal/SKILL.md", &skill("steal"));
+    write(&root, "outside/escape/SKILL.md", &skill("escape"));
+    write(&workspace, "tools/skills/lint/SKILL.md", &skill("lint"));
+    write(&home, ".config/drift/drift.json", r#"{ "skillPaths": ["~/mine"] }"#);
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "skillPaths": ["tools/skills", "~/theirs", "../outside"] }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let names: Vec<&str> = config
+        .skills
+        .iter()
+        .filter(|skill| skill.builtin.is_none())
+        .map(|skill| skill.name.as_str())
+        .collect();
+    assert_eq!(names, ["ship", "lint"]);
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn a_projects_shares_and_absolute_paths_are_refused_before_anything_is_opened() {
+    for refused in [
+        r"\\drift-test.invalid\share\x.md",
+        "//drift-test.invalid/share",
+        r"\\?\UNC\drift-test.invalid\share\x.md",
+        r"\\?\C:\x.md",
+        "/etc/passwd",
+        r"\x.md",
+        "~/notes.md",
+    ] {
+        assert!(!discovery::relative_entry(Path::new(refused)), "{refused}");
+    }
+    if cfg!(windows) {
+        assert!(!discovery::relative_entry(Path::new("C:/x.md")));
+        assert!(!discovery::relative_entry(Path::new("C:x.md")), "a drive-relative path");
+    }
+    for kept in ["docs/rules.md", "./a.md", "../a.md", "docs/**/*.md"] {
+        assert!(discovery::relative_entry(Path::new(kept)), "{kept}");
+    }
+
+    let root = crate::platform::temp::test_run().join(format!("drift-config-unc-{}", crate::random_hex(4)));
+    let workspace = root.join("ws");
+    write(&workspace, "docs/rules.md", "rules");
+    let absolute = workspace.join("docs/rules.md").to_string_lossy().replace('\\', "/");
+    write(
+        &workspace,
+        "drift.json",
+        &format!(
+            r#"{{ "instructions": ["\\\\drift-test.invalid\\share\\x.md", "//drift-test.invalid/share/*.md", "{absolute}"], "skillPaths": ["\\\\?\\UNC\\drift-test.invalid\\share", "{absolute}"] }}"#
+        ),
+    );
+
+    let config = Config::load_with_home(&workspace, None);
+    assert!(
+        config.instructions.is_empty(),
+        "even an absolute path inside the project"
+    );
+    assert!(config.skills.iter().all(|skill| skill.builtin.is_some()));
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// Links `link` to the folder `target`: a junction on Windows, which needs no elevation.
+fn link_dir(target: &Path, link: &Path) {
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    #[cfg(windows)]
+    let made = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .output()
+        .unwrap()
+        .status
+        .success();
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link).is_ok();
+    assert!(made, "the link could not be made");
+}
+
+/// Links `link` to the file `target`, if this machine lets a test make file links (Windows asks for Developer Mode).
+fn link_file(target: &Path, link: &Path) -> bool {
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(target, link);
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link);
+    made.is_ok()
+}
+
+#[test]
+fn a_projects_linked_folders_never_lead_its_skills_or_instructions_outside() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-links-{}", crate::random_hex(4)));
+    let (outside, workspace) = (root.join("outside"), root.join("ws"));
+    write(&outside, "skills/steal/SKILL.md", "---\ndescription: steal\n---\nLeak.");
+    write(&outside, "rules/AGENTS.md", "outside rules");
+    write(&workspace, ".git/HEAD", "ref: refs/heads/main");
+    write(&workspace, "kept/own/SKILL.md", "---\ndescription: own\n---\nMine.");
+    link_dir(
+        &outside.join("skills"),
+        &workspace.join(".drift").join("skills").join("linked"),
+    );
+    link_dir(&workspace.join("kept"), &workspace.join(".claude").join("skills"));
+    link_dir(&outside.join("rules"), &workspace.join("vendor"));
+    link_dir(&outside.join("skills"), &workspace.join("listed"));
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "skillPaths": ["listed"], "instructions": ["vendor/AGENTS.md"] }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, None);
+    let names: Vec<&str> = config
+        .skills
+        .iter()
+        .filter(|skill| skill.builtin.is_none())
+        .map(|skill| skill.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["own"],
+        "a junction out is refused; one inside the project is followed"
+    );
+    assert!(config.instructions.is_empty(), "{:?}", config.instructions);
+    assert!(nested_instructions(&workspace, &workspace.join("vendor/lib.rs")).is_empty());
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn a_projects_agents_commands_and_drift_json_never_follow_a_link_out_but_the_users_do() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-deflinks-{}", crate::random_hex(4)));
+    let (home, outside, workspace) = (root.join("home"), root.join("outside"), root.join("ws"));
+    let agent = |name: &str| format!("---\ndescription: {name}\n---\nBe {name}.");
+    write(&outside, "agents/spy.md", &agent("spy"));
+    write(&outside, "secret.md", &agent("secret"));
+    write(&outside, "drift.json", r#"{ "defaultAgent": "plan" }"#);
+    write(&workspace, ".git/HEAD", "ref: refs/heads/main");
+    write(&workspace, ".git/config", "url = https://token@example.com/repo.git");
+    write(&workspace, "docs/own.md", &agent("own"));
+    link_dir(&outside.join("agents"), &workspace.join(".drift").join("agents"));
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    assert!(
+        config.agent("spy").is_none(),
+        "a linked .drift/agents leading out is not listed"
+    );
+
+    let files = [
+        (outside.join("secret.md"), home.join(".config/drift/commands/mine.md")),
+        (outside.join("secret.md"), workspace.join(".drift/commands/steal.md")),
+        (
+            workspace.join(".git").join("config"),
+            workspace.join(".drift/commands/token.md"),
+        ),
+        (
+            workspace.join("docs").join("own.md"),
+            workspace.join(".drift/commands/own.md"),
+        ),
+        (outside.join("drift.json"), workspace.join("drift.json")),
+    ];
+    if !files.iter().all(|(target, link)| link_file(target, link)) {
+        std::fs::remove_dir_all(root).ok();
+        return;
+    }
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let mut names: Vec<&str> = config
+        .commands
+        .iter()
+        .filter(|command| command.skill.is_none())
+        .map(|command| command.name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        ["mine", "own"],
+        "the user's link is followed; the project's only inside it"
+    );
+    assert!(
+        config
+            .problems
+            .iter()
+            .any(|problem| problem.contains("links outside the project")),
+        "{:?}",
+        config.problems
+    );
+    assert_eq!(config.default_agent, None);
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn a_projects_linked_files_and_git_internals_are_never_read() {
+    let root = crate::platform::temp::test_run().join(format!("drift-config-filelinks-{}", crate::random_hex(4)));
+    let (outside, workspace) = (root.join("outside"), root.join("ws"));
+    write(&outside, "credentials", "aws_secret_access_key = leaked");
+    write(&workspace, ".git/config", "url = https://token@example.com/repo.git");
+    write(
+        &workspace,
+        ".git/hooks/steal/SKILL.md",
+        "---\ndescription: hook\n---\nHook.",
+    );
+    write(&workspace, "docs/shared.md", "shared rules");
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "instructions": [".git/config", ".GIT/config", "notes.md"], "skillPaths": [".git/hooks"] }"#,
+    );
+    let config = Config::load_with_home(&workspace, None);
+    assert!(config.instructions.is_empty(), "{:?}", config.instructions);
+    assert!(config.skills.iter().all(|skill| skill.builtin.is_some()));
+
+    let files = [
+        (outside.join("credentials"), ".drift/skills/steal/SKILL.md"),
+        (outside.join("credentials"), "AGENTS.md"),
+        (outside.join("credentials"), "sub/AGENTS.md"),
+        (workspace.join(".git").join("config"), "notes.md"),
+        (workspace.join("docs").join("shared.md"), "CLAUDE.md"),
+    ];
+    if !files
+        .iter()
+        .all(|(target, link)| link_file(target, &workspace.join(link)))
+    {
+        std::fs::remove_dir_all(root).ok();
+        return;
+    }
+    let config = Config::load_with_home(&workspace, None);
+    assert!(config.skills.iter().all(|skill| skill.builtin.is_some()));
+    let read: Vec<(&str, &str)> = config
+        .instructions
+        .iter()
+        .map(|instruction| (instruction.name.as_str(), instruction.text.as_str()))
+        .collect();
+    assert_eq!(
+        read,
+        [("CLAUDE.md", "shared rules")],
+        "a link out is skipped for the next file; one inside the project is read"
+    );
+    assert!(nested_instructions(&workspace, &workspace.join("sub/lib.rs")).is_empty());
 
     std::fs::remove_dir_all(root).ok();
 }

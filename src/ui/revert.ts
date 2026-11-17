@@ -1,6 +1,20 @@
-import { compareMessages, messageText, nextUserMessage, previousUserMessage, type MessageEntry } from "../engine/store";
 import { clearComposerDraft, composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { prefsFor, sendableVariant } from "../state/prefs";
+import { variantNames } from "../engine/catalog";
 import { t } from "../state/i18n";
+import {
+    compareMessages,
+    messageText,
+    modelInfo,
+    nextUserMessage,
+    previousUserMessage,
+    resolveModel,
+    savedChoice,
+    type EngineState,
+    type MessageEntry,
+} from "../engine/store";
+
+import type { ModelChoice } from "../engine/native/client";
 
 export type RevertHost = {
     state: { transcripts: Record<string, MessageEntry[]> };
@@ -48,16 +62,29 @@ function isCompaction(entry: MessageEntry) {
     return entry.parts.some((part) => part.type === "compaction");
 }
 
-/** Undoes a failed compaction and summarises again; compacting commits the undo, so the failed attempt goes. */
+/** The model and level the composer shows for a session, which a compaction the user asks for runs on. */
+export function composerChoice(state: EngineState, sessionID: string): ModelChoice {
+    const prefs = prefsFor(sessionID, savedChoice(state, sessionID));
+    const model = resolveModel(state, prefs.model);
+    const variant = sendableVariant(prefs.variant, variantNames(modelInfo(state, model)));
+
+    return {
+        model: model && { provider: model.providerID, model: model.modelID },
+        ...(variant === undefined ? {} : { variant }),
+    };
+}
+
+/** Undoes a failed compaction and summarises again on `choice`; compacting commits the undo, so the failed attempt goes. */
 export async function retryCompaction(
-    engine: RevertHost & { actions: { summarize: (id: string) => Promise<void> } },
+    engine: RevertHost & { actions: { summarize: (id: string, choice?: ModelChoice) => Promise<void> } },
     sessionID: string,
     summaryID: string,
+    choice: ModelChoice,
 ) {
     const boundary = previousUserMessage(engine.state.transcripts[sessionID] ?? [], summaryID);
     if (!boundary || !isCompaction(boundary)) return false;
     if (!(await engine.actions.revert(sessionID, boundary.info.id))) return false;
 
-    await engine.actions.summarize(sessionID);
+    await engine.actions.summarize(sessionID, choice);
     return true;
 }

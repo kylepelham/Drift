@@ -1,6 +1,8 @@
 //! Backups of chosen conversations as one portable file, and restoring them into a workspace. A
 //! conversation keeps its ids, so the same file restored twice, or on two machines, is one conversation.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -121,18 +123,14 @@ impl Engine {
         }
         self.store.workspace(workspace_id)?.ok_or(TreeError::NoWorkspace)?;
 
-        let ids: Vec<&str> = backup.sessions.iter().map(|entry| entry.session.id.as_str()).collect();
-        let mut parents = Vec::new();
-        for entry in &backup.sessions {
-            let parent = entry.session.parent_id.as_deref();
-            let linked = parent
-                .is_some_and(|parent| ids.contains(&parent) || self.store.session(parent).ok().flatten().is_some());
-            parents.push(linked);
-        }
-
+        let links = self.links(&backup.sessions);
         let mut restored = Restored::default();
-        for (entry, linked) in backup.sessions.into_iter().zip(parents) {
+        for (entry, link) in backup.sessions.into_iter().zip(links) {
             let id = entry.session.id.clone();
+            let Some(linked) = link else {
+                restored.skipped.push(id);
+                continue;
+            };
             match self.restore_one(entry, workspace_id, linked)? {
                 Some(session) => {
                     restored.imported.push(id);
@@ -143,6 +141,51 @@ impl Engine {
         }
 
         Ok(restored)
+    }
+
+    /// Per entry, whether its parent is here or restored with it; `None` for a subagent nothing could ever reach.
+    fn links(&self, sessions: &[SessionBackup]) -> Vec<Option<bool>> {
+        let stored: Vec<bool> = sessions
+            .iter()
+            .map(|entry| {
+                let parent = entry.session.parent_id.as_deref();
+                parent.is_some_and(|parent| self.store.session(parent).ok().flatten().is_some())
+            })
+            .collect();
+        let mut kept: HashSet<&str> = sessions.iter().map(|entry| entry.session.id.as_str()).collect();
+        let linked = |index: usize, kept: &HashSet<&str>| {
+            let parent = sessions[index].session.parent_id.as_deref();
+            stored[index] || parent.is_some_and(|parent| kept.contains(parent))
+        };
+
+        // A subagent left out takes its own subagents with it.
+        loop {
+            let orphans: Vec<&str> = sessions
+                .iter()
+                .enumerate()
+                .filter(|(index, entry)| {
+                    let session = &entry.session;
+                    session.visibility == Visibility::Hidden
+                        && session.parent_id.is_some()
+                        && kept.contains(session.id.as_str())
+                        && !linked(*index, &kept)
+                })
+                .map(|(_, entry)| entry.session.id.as_str())
+                .collect();
+            if orphans.is_empty() {
+                break;
+            }
+            for orphan in orphans {
+                kept.remove(orphan);
+            }
+        }
+
+        (0..sessions.len())
+            .map(|index| {
+                kept.contains(sessions[index].session.id.as_str())
+                    .then(|| linked(index, &kept))
+            })
+            .collect()
     }
 
     fn restore_one(&self, entry: SessionBackup, workspace_id: &str, linked: bool) -> rusqlite::Result<Option<Session>> {

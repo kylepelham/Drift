@@ -16,6 +16,9 @@ pub const CALLBACK_PORT: u16 = 1455;
 const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const SCOPES: &str = "openid profile email offline_access";
 const DEFAULT_EXPIRES_IN: i64 = 3600;
+const CALLBACK_READ: std::time::Duration = std::time::Duration::from_secs(10);
+/// The most callback connections read at once; later ones wait in the listener's backlog.
+const MAX_PENDING: usize = 32;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Started {
@@ -52,7 +55,7 @@ pub fn start() -> Started {
     }
 }
 
-/// Serves one callback on 1455 and returns the code once the browser lands, checking `state`.
+/// Serves the callback on 1455 and returns the code once the browser lands with `expected_state`.
 pub async fn wait_for_callback(expected_state: &str) -> Result<String, OAuthError> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, CALLBACK_PORT)))
         .await
@@ -61,11 +64,9 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, OAuthErro
             source,
         })?;
 
-    let (mut socket, params) = next_callback(&listener, "/auth/callback").await?;
-    let state_ok = params.get("state").map(String::as_str) == Some(expected_state);
-
-    match (params.get("code"), state_ok) {
-        (Some(code), true) => {
+    let (mut socket, params) = next_answer(&listener, "/auth/callback", expected_state).await?;
+    match params.get("code") {
+        Some(code) => {
             respond(
                 &mut socket,
                 200,
@@ -74,32 +75,59 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, OAuthErro
             .await;
             Ok(code.clone())
         }
-        _ => {
+        None => {
             respond(&mut socket, 400, "Sign-in failed: state mismatch or missing code.").await;
             Err(OAuthError::CallbackState)
         }
     }
 }
 
-/// The browser's request to `path` on `listener`, with its query; anything else gets a 404 and is skipped.
-pub(crate) async fn next_callback(
+/// The first callback to `path` carrying `state` with a code or an `error`; other requests are answered and skipped.
+/// Connections are read side by side, at most `MAX_PENDING`, so a silent one cannot hold up the browser's.
+pub(crate) async fn next_answer(
     listener: &TcpListener,
     path: &str,
+    state: &str,
 ) -> Result<(tokio::net::TcpStream, HashMap<String, String>), OAuthError> {
+    let mut reading = tokio::task::JoinSet::new();
     loop {
-        let (mut socket, _) = listener.accept().await?;
-        let mut buffer = vec![0u8; 8192];
-        let read = socket.read(&mut buffer).await.unwrap_or(0);
-        let request = String::from_utf8_lossy(&buffer[..read]);
-        let Some(target) = request.split_whitespace().nth(1) else {
-            continue;
-        };
-
-        match target.split_once('?') {
-            Some((at, query)) if at == path => return Ok((socket, parse_query(query))),
-            _ => respond(&mut socket, 404, "Not found").await,
+        tokio::select! {
+            accepted = listener.accept(), if reading.len() < MAX_PENDING => {
+                let (socket, _) = accepted?;
+                reading.spawn(read_target(socket));
+            }
+            Some(Ok((mut socket, target))) = reading.join_next(), if !reading.is_empty() => {
+                let params = target
+                    .as_deref()
+                    .and_then(|target| target.split_once('?'))
+                    .filter(|(at, _)| *at == path)
+                    .map(|(_, query)| parse_query(query));
+                match params {
+                    Some(params) if answers(&params, state) => return Ok((socket, params)),
+                    Some(_) => respond(&mut socket, 400, "Sign-in failed: this address does not finish this sign-in.").await,
+                    None if target.is_some() => respond(&mut socket, 404, "Not found").await,
+                    None => {}
+                }
+            }
         }
     }
+}
+
+/// A callback finishes the sign-in only with the state it was started with, and a code or an error.
+fn answers(params: &HashMap<String, String>, state: &str) -> bool {
+    params.get("state").map(String::as_str) == Some(state)
+        && (params.contains_key("code") || params.contains_key("error"))
+}
+
+/// The request target a connection sends within `CALLBACK_READ`; `None` when it sends nothing usable.
+async fn read_target(mut socket: tokio::net::TcpStream) -> (tokio::net::TcpStream, Option<String>) {
+    let mut buffer = vec![0u8; 8192];
+    let read = tokio::time::timeout(CALLBACK_READ, socket.read(&mut buffer)).await;
+    let read = read.ok().and_then(Result::ok).unwrap_or(0);
+    let request = String::from_utf8_lossy(&buffer[..read]);
+    let target = request.split_whitespace().nth(1).map(str::to_string);
+
+    (socket, target)
 }
 
 /// Answers the browser with Drift's sign-in page.
@@ -108,7 +136,7 @@ pub(crate) async fn respond(socket: &mut tokio::net::TcpStream, status: u16, tex
     let title = if status == 200 { "Signed in" } else { "Sign-in failed" };
     let body = include_str!("callback.html")
         .replace("{title}", title)
-        .replace("{text}", text);
+        .replace("{text}", &escape_html(text));
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\ncontent-type: text/html; charset=utf-8\r\n\
          content-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -117,6 +145,22 @@ pub(crate) async fn respond(socket: &mut tokio::net::TcpStream, status: u16, tex
 
     let _ = socket.write_all(response.as_bytes()).await;
     let _ = socket.shutdown().await;
+}
+
+fn escape_html(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+
+    escaped
 }
 
 pub async fn exchange(client: &reqwest::Client, code: &str, verifier: &str) -> Result<Credential, OAuthError> {
@@ -333,5 +377,94 @@ mod tests {
     fn query_decoding_handles_percent_and_plus() {
         assert_eq!(decode("a%20b+c"), "a b c");
         assert_eq!(decode("100%"), "100%");
+    }
+
+    #[tokio::test]
+    async fn an_idle_connection_or_a_stray_visit_does_not_end_the_wait() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let waiting = tokio::spawn(async move { next_answer(&listener, "/callback", "s").await.unwrap().1 });
+        let _idle = tokio::net::TcpStream::connect(address).await.unwrap();
+        let client = reqwest::Client::new();
+
+        for stray in [
+            "foo=1",
+            "code=x&state=y",
+            "code=x",
+            "error=access_denied",
+            "error=access_denied&state=y",
+        ] {
+            let page = client
+                .get(format!("http://{address}/callback?{stray}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(page.status(), 400, "{stray}");
+        }
+        let other = client
+            .get(format!("http://{address}/favicon.ico?x"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(other.status(), 404);
+
+        let finished = format!("http://{address}/callback?code=c&state=s");
+        tokio::spawn(async move { client.get(finished).send().await });
+        let params = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("the idle connection held up the callback")
+            .unwrap();
+        assert_eq!((params["code"].as_str(), params["state"].as_str()), ("c", "s"));
+    }
+
+    #[tokio::test]
+    async fn a_browser_connection_still_reading_survives_a_stray_answered_meanwhile() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let waiting = tokio::spawn(async move { next_answer(&listener, "/callback", "s").await.unwrap().1 });
+        let mut browser = tokio::net::TcpStream::connect(address).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let stray = reqwest::get(format!("http://{address}/callback?code=x&state=y"))
+            .await
+            .unwrap();
+        assert_eq!(stray.status(), 400);
+        browser
+            .write_all(b"GET /callback?code=c&state=s HTTP/1.1\r\nhost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let params = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("the browser's connection was dropped")
+            .unwrap();
+        assert_eq!(params["code"], "c");
+    }
+
+    #[tokio::test]
+    async fn a_server_error_ends_the_wait_and_its_text_is_escaped_on_the_page() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let waiting = tokio::spawn(async move {
+            let (mut socket, params) = next_answer(&listener, "/callback", "s").await.unwrap();
+            respond(&mut socket, 400, &format!("Sign-in failed: {}", params["error"])).await;
+        });
+
+        let page = reqwest::get(format!(
+            "http://{address}/callback?error=%3Cimg+src%3Dx+onerror%3D%22a%26b%22%3E&state=s"
+        ))
+        .await
+        .unwrap();
+        assert_eq!(page.status(), 400);
+        let body = page.text().await.unwrap();
+        assert!(
+            body.contains("Sign-in failed: &lt;img src=x onerror=&quot;a&amp;b&quot;&gt;"),
+            "{body}"
+        );
+        assert!(!body.contains("<img"));
+        waiting.await.unwrap();
+        assert_eq!(escape_html("it's"), "it&#39;s");
     }
 }

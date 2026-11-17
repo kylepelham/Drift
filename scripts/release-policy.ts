@@ -229,7 +229,15 @@ function replaceRequired(content: string, pattern: RegExp, replacement: string, 
     return content.replace(pattern, replacement);
 }
 
-const workspaceCrates = ["drift", "drift-android", "drift-engine", "drift-engined", "drift-migrate", "drift-pairing"];
+const workspaceCrates = [
+    "drift",
+    "drift-android",
+    "drift-engine",
+    "drift-engined",
+    "drift-migrate",
+    "drift-pairing",
+    "drift-remote-client",
+];
 
 export function stampReleaseVersion(tag: string, root = path.resolve(import.meta.dirname, "..")) {
     const version = versionFromTag(tag);

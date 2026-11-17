@@ -16,10 +16,11 @@ export type SessionMenuState = { x: number; y: number; sessionId: string; worksp
 function MenuItem(props: { label: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
     return (
         <button
-            class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors"
+            class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors outline-none"
             classList={{
-                "text-ink-muted hover:bg-raised hover:text-ink": !props.danger && !props.disabled,
-                "text-danger hover:bg-danger/10": props.danger && !props.disabled,
+                "text-ink-muted hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink":
+                    !props.danger && !props.disabled,
+                "text-danger hover:bg-danger/10 focus-visible:bg-danger/10": props.danger && !props.disabled,
                 "cursor-default text-ink-faint": props.disabled,
             }}
             disabled={props.disabled}

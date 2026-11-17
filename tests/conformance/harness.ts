@@ -103,7 +103,13 @@ export async function startEngine(providerUrl: string, dataDir = tempFolder("tes
     const proc = Bun.spawn([binary, "--data-dir", dataDir, "--file-credentials"], {
         stdout: "pipe",
         stderr: "inherit",
-        env: { ...process.env, DRIFT_ANTHROPIC_BASE_URL: providerUrl, DRIFT_CREDENTIALS_KEY: credentialKey },
+        // The fake answers the catalog with a 404, so the bundled catalog stays and a model models.dev retires never vanishes mid-run.
+        env: {
+            ...process.env,
+            DRIFT_ANTHROPIC_BASE_URL: providerUrl,
+            DRIFT_CATALOG_URL: `${providerUrl}/models.json`,
+            DRIFT_CREDENTIALS_KEY: credentialKey,
+        },
     });
     const { url, token } = await readTarget(proc.stdout);
     const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };

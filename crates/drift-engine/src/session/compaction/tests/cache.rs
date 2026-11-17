@@ -29,7 +29,7 @@ async fn a_warm_summary_on_the_conversations_model_is_its_next_request_with_the_
     h.provider
         .push_error(crate::llm::Error::api(529, "overloaded_error", "busy"))
         .push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let all = requests(&h);
@@ -121,7 +121,7 @@ async fn a_cold_summary_is_lean_drops_files_and_cuts_long_results() {
         .execute("UPDATE message SET finished_at = 1 WHERE role = 'assistant'", [])
         .unwrap();
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let summary = requests(&h).last().unwrap().clone();
@@ -168,7 +168,7 @@ async fn a_warm_summary_that_calls_a_tool_is_asked_again_the_lean_way() {
     })];
     calls.extend(crate::session::turn::tests::tool_call("read", r#"{"path":"x"}"#));
     h.provider.push(calls).push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let all = requests(&h);
@@ -232,7 +232,7 @@ async fn a_lean_summary_still_defines_the_workspaces_mcp_tools_its_history_may_c
         .execute("UPDATE message SET finished_at = 1 WHERE role = 'assistant'", [])
         .unwrap();
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let summarised = requests(&h).last().unwrap().clone();

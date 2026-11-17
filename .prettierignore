@@ -4,6 +4,8 @@ src/engine/native/types.ts
 src-tauri/gen/
 src-android/gen/
 crates/drift-engine/data/models.json
+# Vendored grammars, kept as their upstream publishes them.
+crates/drift-engine/data/grammars/
 bun.lock
 Cargo.lock
 # Prose stays as written; reference repos and build output are not ours.

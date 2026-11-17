@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 
 use super::assemble::Assembler;
 use super::attach::Attach;
-use super::compaction::Trigger;
+use super::compaction::{ModelChoice, Trigger};
 use super::oneshot::Resolved;
 use super::tasks::Claimant;
 use super::types::{CheckStatus, ToolCheck, ToolMetadata};
@@ -57,6 +57,7 @@ mod state;
 mod steps;
 pub mod warming;
 
+pub(super) use calls::read_only_reason;
 use hooks::{AfterTool, BeforeTool};
 #[cfg(test)]
 use limits::waits;
@@ -281,6 +282,12 @@ struct CallBatch {
     early: early::Early,
 }
 
+/// A reply cut off at its output limit and the calls it finished writing, not yet run.
+struct CutOff {
+    message: Message,
+    batch: CallBatch,
+}
+
 struct CallAsk<'a> {
     call_id: &'a str,
     name: &'a str,
@@ -298,8 +305,8 @@ enum Step {
     Overflow,
     /// The provider could not read an image the request carried.
     UnreadableImage,
-    /// The reply, by its id, stopped at its output limit; the turn may go on after it.
-    Length(String),
+    /// A reply stopped at its output limit, with the calls it finished writing; the turn may go on after it.
+    Length(Box<CutOff>),
     /// The user moved a retried request that had not answered yet to another model.
     Switched(Box<Switch>),
 }

@@ -2,7 +2,7 @@
 //! Results are delivered once, when the parent can accept them.
 //! Permissions follow the parent link; cancellation follows the owner rather than the launching turn.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,8 @@ pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How many levels of subagents a conversation may have: 1, its own only, up to [`MAX_DELEGATION_DEPTH`].
 pub const DELEGATION_DEPTH_KEY: &str = "delegationDepth";
 pub const MAX_DELEGATION_DEPTH: u8 = 3;
+/// How many subagents with each tag run at once, by tag; a tag not named has no limit of its own.
+pub const TAG_LIMITS_KEY: &str = "taskTagLimits";
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
 
@@ -104,7 +106,7 @@ pub struct TaskRecord {
     pub description: String,
     pub agent: String,
     pub mode: Mode,
-    /// Why this mode: `requested`, `agent default`, `default` or `background turned off`.
+    /// Why this mode: `requested`, `agent default`, `default`, `background turned off`, or `user` when the user started it.
     pub reason: String,
     pub state: TaskState,
     /// Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it.
@@ -126,6 +128,9 @@ pub struct TaskRecord {
     /// The owner's Stop count when it was launched.
     #[serde(skip)]
     pub generation: i64,
+    /// What it uses that Settings may cap, such as `gpu`; it waits while a tag's subagents are at its limit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -168,6 +173,31 @@ pub struct Workers {
     owners: Mutex<HashMap<String, Owner>>,
     tokens: Mutex<HashMap<String, CancellationToken>>,
     claims: Mutex<HashMap<String, Claim>>,
+    /// How many workers hold each tag, and the wake for those waiting when one lets go or the limits change.
+    tagged: Mutex<HashMap<String, usize>>,
+    tag_freed: tokio::sync::Notify,
+}
+
+/// A worker's hold on its tags, given back when it is dropped.
+pub(crate) struct TagSlots<'a> {
+    workers: &'a Workers,
+    tags: Vec<String>,
+}
+
+impl Drop for TagSlots<'_> {
+    fn drop(&mut self) {
+        let mut tagged = self.workers.tagged.lock().unwrap();
+        for tag in &self.tags {
+            if let Some(count) = tagged.get_mut(tag) {
+                *count -= 1;
+                if *count == 0 {
+                    tagged.remove(tag);
+                }
+            }
+        }
+        drop(tagged);
+        self.workers.tag_freed.notify_waiters();
+    }
 }
 
 /// What an owner's background workers run under: a token its Stop cancels, and its durable Stop count.
@@ -189,6 +219,8 @@ struct SlotLimit {
 pub enum LimitError {
     #[error("the background task limit must be from 1 to {MAX_BACKGROUND_LIMIT}")]
     OutOfRange,
+    #[error("each tag needs its own name, ignoring case and spaces, and a limit from 1 to {MAX_BACKGROUND_LIMIT}")]
+    TagOutOfRange,
     #[error(transparent)]
     Store(#[from] rusqlite::Error),
 }
@@ -220,7 +252,49 @@ impl Workers {
             owners: Mutex::default(),
             tokens: Mutex::default(),
             claims: Mutex::default(),
+            tagged: Mutex::default(),
+            tag_freed: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Waits until each of `tags` is under its limit, then holds them all; `None` if `token` stops it first.
+    pub(crate) async fn take_tags(
+        &self,
+        tags: &[String],
+        limits: impl Fn() -> BTreeMap<String, usize>,
+        token: &CancellationToken,
+    ) -> Option<TagSlots<'_>> {
+        loop {
+            // Made before the check, so a slot freed between the check and the wait still wakes it.
+            let freed = self.tag_freed.notified();
+            if self.try_tags(tags, &limits()) {
+                return Some(TagSlots {
+                    workers: self,
+                    tags: tags.to_vec(),
+                });
+            }
+            tokio::select! {
+                () = freed => {}
+                () = token.cancelled() => return None,
+            }
+        }
+    }
+
+    fn try_tags(&self, tags: &[String], limits: &BTreeMap<String, usize>) -> bool {
+        let mut tagged = self.tagged.lock().unwrap();
+        let full = |tag: &String| {
+            limits
+                .get(tag)
+                .is_some_and(|limit| tagged.get(tag).copied().unwrap_or(0) >= *limit)
+        };
+        if tags.iter().any(full) {
+            return false;
+        }
+        for tag in tags {
+            *tagged.entry(tag.clone()).or_default() += 1;
+        }
+
+        true
     }
 
     /// Changes how many workers run at once. Running workers are never stopped: a smaller limit takes
@@ -353,6 +427,24 @@ fn owner_entry<'a>(owners: &'a mut Owners, store: &crate::store::Store, owner: &
     })
 }
 
+/// Whether every tag has a name no other tag shares once trimmed and lowercased, and a limit Settings allows.
+pub(crate) fn valid_tag_limits(limits: &BTreeMap<String, usize>) -> bool {
+    let named = limits
+        .iter()
+        .all(|(tag, limit)| !tag.trim().is_empty() && (1..=MAX_BACKGROUND_LIMIT).contains(limit));
+    let distinct = limits
+        .keys()
+        .map(|tag| task_tag(tag))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    named && distinct.len() == limits.len()
+}
+
+/// A tag as it is kept and compared: trimmed and lowercased.
+pub(crate) fn task_tag(tag: &str) -> String {
+    tag.trim().to_lowercase()
+}
+
 /// The background limit saved in Settings, or the default when none is saved or it is out of range.
 pub(crate) fn stored_background_limit(store: &crate::store::Store) -> usize {
     let saved: Option<usize> = store.setting(BACKGROUND_LIMIT_KEY).ok().flatten();
@@ -399,6 +491,23 @@ impl Engine {
         }
 
         depth
+    }
+
+    /// How many subagents with each tag run at once, by tag.
+    pub fn task_tag_limits(&self) -> BTreeMap<String, usize> {
+        self.store.setting(TAG_LIMITS_KEY).ok().flatten().unwrap_or_default()
+    }
+
+    /// Saves the per-tag limits, tags trimmed and lowercased, and starts any worker they now let through.
+    pub fn set_task_tag_limits(&self, limits: &BTreeMap<String, usize>) -> Result<(), LimitError> {
+        if !valid_tag_limits(limits) {
+            return Err(LimitError::TagOutOfRange);
+        }
+        let limits: BTreeMap<String, usize> = limits.iter().map(|(tag, limit)| (task_tag(tag), *limit)).collect();
+
+        self.store.set_setting(TAG_LIMITS_KEY, &limits)?;
+        self.workers.tag_freed.notify_waiters();
+        Ok(())
     }
 
     /// Saves a new background limit and applies it to the slots straight away.
@@ -457,6 +566,18 @@ impl Engine {
         };
 
         if task.mode == Mode::Foreground {
+            let Some(_tags) = self
+                .workers
+                .take_tags(&self.tags_to_take(task), || self.task_tag_limits(), &token)
+                .await
+            else {
+                self.end_task(&task.id, TaskState::Stopped, STOPPED);
+                self.workers.forget(&task.id);
+                return Ok(Some("stopped"));
+            };
+            if self.store.start_task(&task.id).unwrap_or(false) {
+                self.publish_task(&task.id);
+            }
             return Ok(Some(self.run_worker(task, prompt, plan, &token).await));
         }
 
@@ -466,7 +587,25 @@ impl Engine {
         Ok(None)
     }
 
-    /// A queued worker: waits for a slot, then runs unless it was stopped meanwhile, however the wait ended.
+    /// The tags `task` waits for: those no running worker above it already holds, whose slot it runs under.
+    fn tags_to_take(&self, task: &TaskRecord) -> Vec<String> {
+        let mut held = Vec::new();
+        let mut parent = task.parent_session_id.clone();
+        for _ in 0..=MAX_DELEGATION_DEPTH {
+            let Some(ancestor) = self.store.task_for_session(&parent).ok().flatten() else {
+                break;
+            };
+            if ancestor.state == TaskState::Running {
+                held.extend(ancestor.tags);
+            }
+            parent = ancestor.parent_session_id;
+        }
+
+        task.tags.iter().filter(|tag| !held.contains(tag)).cloned().collect()
+    }
+
+    /// A queued worker: waits for its tags' slots and then a shared one, then runs unless it was stopped meanwhile,
+    /// however the wait ended.
     async fn work(
         self: Arc<Self>,
         task: TaskRecord,
@@ -474,9 +613,17 @@ impl Engine {
         plan: super::turn::Plan,
         token: CancellationToken,
     ) {
-        let permit = tokio::select! {
-            permit = self.workers.slots.acquire() => permit.ok(),
-            () = token.cancelled() => None,
+        // Tags first, so a worker waiting on its tag never sits on a shared slot another could use.
+        let tags = self
+            .workers
+            .take_tags(&self.tags_to_take(&task), || self.task_tag_limits(), &token)
+            .await;
+        let permit = match tags {
+            Some(_) => tokio::select! {
+                permit = self.workers.slots.acquire() => permit.ok(),
+                () = token.cancelled() => None,
+            },
+            None => None,
         };
         let dispatch = permit.is_some() && !token.is_cancelled() && self.store.start_task(&task.id).unwrap_or(false);
         if dispatch {
@@ -490,6 +637,7 @@ impl Engine {
         if let Some(permit) = permit {
             self.workers.release(permit);
         }
+        drop(tags);
         self.deliver(&task.id).await;
     }
 
@@ -550,18 +698,7 @@ impl Engine {
                 );
                 (TaskState::Failed, text, "incomplete")
             }
-            Attempt::Refused(partial) => {
-                let before = if partial.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!(" What it had written:\n\n{}", clip(&partial, RESULT_CHARS))
-                };
-                (
-                    TaskState::Failed,
-                    format!("The provider's safety filter ended the subagent's reply; this is not an answer.{before}"),
-                    "refused",
-                )
-            }
+            Attempt::Refused => (TaskState::Failed, STOPPED_EARLY.into(), "refused"),
             Attempt::Failed(error) => (TaskState::Failed, format!("The subagent failed: {error}"), "failed"),
             Attempt::Stopped => (TaskState::Stopped, STOPPED.into(), "stopped"),
             Attempt::None => (
@@ -795,6 +932,8 @@ impl Engine {
 }
 
 const STOPPED: &str = "The subagent was stopped before it finished.";
+/// Says nothing of a safety filter, so the parent's own reply is not refused in turn.
+const STOPPED_EARLY: &str = "The subagent stopped early without finishing. Rephrase the request and try again.";
 
 /// A finished worker's result as the part that carries it into its parent.
 pub(super) fn result_part(task: &TaskRecord) -> Part {
@@ -814,8 +953,8 @@ pub(crate) enum Attempt {
     Incomplete(String),
     /// The repeat check stopped it; the text is its write-up of unfinished work.
     Limited(String),
-    /// The provider's safety filter ended it; the text is whatever came before.
-    Refused(String),
+    /// A provider's safety filter ended it or blocked the request; what it wrote is dropped, lest it trip the filter again.
+    Refused,
     Failed(String),
     Stopped,
     None,
@@ -843,16 +982,17 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     };
 
     match last.info.status {
-        MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
+        MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused,
         MessageStatus::Done if last.info.ending == Some(Ending::Limit) => Attempt::Limited(text()),
         // New replies carry a typed ending; older replies are recognised by their error text.
         MessageStatus::Done if last.info.ending == Some(Ending::Length) || last.info.error.is_some() => {
             Attempt::Incomplete(text())
         }
         MessageStatus::Done => Attempt::Replied(text()),
-        MessageStatus::Error | MessageStatus::Paused => {
-            Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into()))
-        }
+        MessageStatus::Error | MessageStatus::Paused => match last.info.error.clone() {
+            Some(error) if crate::llm::mentions_safety_block(&error) => Attempt::Refused,
+            error => Attempt::Failed(error.unwrap_or_else(|| "unknown error".into())),
+        },
         MessageStatus::Aborted => Attempt::Stopped,
         MessageStatus::Streaming => Attempt::None,
     }

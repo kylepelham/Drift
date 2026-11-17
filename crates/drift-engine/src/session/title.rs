@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::compaction::ModelChoice;
 use super::oneshot::{Fallback, OneShot};
 use super::types::{Part, Role, Session};
 use crate::Engine;
@@ -43,7 +44,10 @@ impl Engine {
     }
 
     async fn model_title(&self, session_id: &str, text: &str) -> Option<String> {
-        let action = self.action_model(session_id, "title", Fallback::Small).await.ok()?;
+        let action = self
+            .action_model(session_id, "title", Fallback::Small, &ModelChoice::default())
+            .await
+            .ok()?;
         let system = action
             .config
             .agent("title")

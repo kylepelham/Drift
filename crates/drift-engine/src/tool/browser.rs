@@ -7,6 +7,7 @@ mod performance;
 
 use std::fmt::Write as _;
 
+use aho_corasick::{AhoCorasick, MatchKind};
 use percent_encoding::{AsciiSet, CONTROLS, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Value, json};
 
@@ -34,6 +35,8 @@ const USERINFO: &AsciiSet = &PATH
     .add(b']')
     .add(b'|');
 const COMPONENT: &AsciiSet = &USERINFO.add(b'$').add(b'%').add(b'&').add(b'+').add(b',');
+/// The `application/x-www-form-urlencoded` set; its space is then written `+`.
+const FORM: &AsciiSet = &NON_ALPHANUMERIC.remove(b'*').remove(b'-').remove(b'.').remove(b'_');
 const ENCODINGS: [&AsciiSet; 7] = [
     FRAGMENT,
     QUERY,
@@ -170,26 +173,41 @@ async fn batch(context: &Context, input: &Value) -> Result<Step, ToolError> {
 
 /// A password the engine typed can show up in an address afterwards; the model never sees one.
 fn hide_passwords(context: &Context, mut step: Step) -> Step {
-    let (workspace, _) = context.engine.browser_project(&context.session_id);
-    let Some(workspace) = workspace else {
-        return step;
-    };
-
-    for password in context.engine.browser_passwords(&workspace.id) {
-        step.text = mask(&step.text, &password);
-    }
-
+    step.text = hidden(context, &step.text);
     step
 }
 
-/// `text` with `password` hidden as written and as any address would percent-encode it.
-fn mask(text: &str, password: &str) -> String {
-    ENCODINGS
+/// `text` with every password stored for the conversation's workspace hidden.
+fn hidden(context: &Context, text: &str) -> String {
+    let (workspace, _) = context.engine.browser_project(&context.session_id);
+    match workspace {
+        Some(workspace) => mask(text, &context.engine.browser_passwords(&workspace.id)),
+        None => text.to_string(),
+    }
+}
+
+/// `text` with each password hidden as written, as an address or a form would encode it, and as JSON escapes it.
+fn mask(text: &str, passwords: &[String]) -> String {
+    let spellings: Vec<String> = passwords.iter().flat_map(|password| spellings(password)).collect();
+    let finder = AhoCorasick::builder()
+        .match_kind(MatchKind::LeftmostLongest)
+        .build(&spellings)
+        .expect("a few passwords always build a matcher");
+
+    finder.replace_all(text, &vec!["[password]"; spellings.len()])
+}
+
+fn spellings(password: &str) -> Vec<String> {
+    let json = Value::String(password.to_string()).to_string();
+    let form = utf8_percent_encode(password, FORM).to_string().replace("%20", "+");
+    let encoded = ENCODINGS
         .iter()
-        .map(|set| utf8_percent_encode(password, set).to_string())
-        .fold(text.replace(password, "[password]"), |text, encoded| {
-            text.replace(&encoded, "[password]")
-        })
+        .map(|set| utf8_percent_encode(password, set).to_string());
+
+    [password.to_string(), json[1..json.len() - 1].to_string(), form]
+        .into_iter()
+        .chain(encoded)
+        .collect()
 }
 
 fn output(action: &str, input: &Value, step: Step) -> Output {

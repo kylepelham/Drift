@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::ToolMetadata;
 use super::edit::Change;
+use super::encoding::{Encoding, decode};
 use super::patch::{self, Chunk, Op};
 use super::text::TextFormat;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str, stage};
@@ -173,15 +174,16 @@ impl Plan {
             .await?
             .ok_or(ToolError("does not exist".into()))?;
         // Lossy decoding would write every byte that is not UTF-8 back as U+FFFD.
-        let text = String::from_utf8(raw.clone()).map_err(|_| {
+        let (text, encoding) = decode(&raw).ok_or_else(|| {
             ToolError(
-                "is not UTF-8 text (Windows-1252, for example), so patching it would corrupt it; it was not changed"
+                "is not UTF-8 or UTF-16 text (Windows-1252, for example), so patching it would corrupt it; it was not changed"
                     .into(),
             )
         })?;
-        let ending = TextFormat::detect(&text);
-        let before = ending.normalise(&text);
-        let after = patch::apply_chunks(&before, chunks)?;
+        let bom = text.starts_with('\u{feff}');
+        let body = text.strip_prefix('\u{feff}').unwrap_or(&text);
+        let patched = patch::apply_chunks(body, chunks)?;
+        let (before, after) = (body.replace("\r\n", "\n"), patched.replace("\r\n", "\n"));
 
         let kind = if target == path { "update" } else { "move" };
         self.changes.push(Change::new(
@@ -191,7 +193,7 @@ impl Plan {
             &before,
             &after,
         ));
-        let written = ending.apply(&after).into_bytes();
+        let written = encoding.encode(&if bom { format!("\u{feff}{patched}") } else { patched });
         if target == path {
             self.steps.push(Step {
                 path: target.to_path_buf(),
@@ -227,15 +229,15 @@ impl Plan {
 
     async fn prepare_add(&mut self, ctx: &Context, path: &Path, content: &str) -> Result<(), ToolError> {
         let existing = existing(ctx, path, true).await?;
-        let before_text = match existing.as_deref().map(std::str::from_utf8) {
-            Some(Err(_)) => {
+        let (before_text, encoding) = match existing.as_deref().map(decode) {
+            Some(None) => {
                 return Err(ToolError(format!(
-                    "{} already exists and is not UTF-8 text, so Add File would overwrite it",
+                    "{} already exists and is not UTF-8 or UTF-16 text, so Add File would overwrite it",
                     display(path, ctx.workdir())
                 )));
             }
-            Some(Ok(text)) => text.to_owned(),
-            None => String::new(),
+            Some(Some(decoded)) => decoded,
+            None => (String::new(), Encoding::Utf8),
         };
         let format = TextFormat::detect(&before_text);
         let kind = if existing.is_some() { "update" } else { "add" };
@@ -250,7 +252,7 @@ impl Plan {
         self.steps.push(Step {
             path: path.to_path_buf(),
             before: existing,
-            after: Some(format.apply(content).into_bytes()),
+            after: Some(encoding.encode(&format.apply(content))),
             whole: true,
         });
 
@@ -266,7 +268,7 @@ impl Plan {
             path,
             &display(path, ctx.workdir()),
             "delete",
-            &String::from_utf8_lossy(&before),
+            &decode(&before).map_or_else(|| String::from_utf8_lossy(&before).into_owned(), |(text, _)| text),
             "",
         ));
         self.steps.push(Step {

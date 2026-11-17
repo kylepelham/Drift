@@ -220,6 +220,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/lsp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every language server Drift could use, where it comes from, and whether it is installed and answers. */
+        get: operations["listLanguageServers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts a server, waits up to 30 seconds for it to answer and stops it; the list says what it found. */
+        post: operations["checkLanguageServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Turns a server off in the user's drift.json, or on again. */
+        put: operations["setLanguageServerEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lsp/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Installs a missing server with the command the list offered: Drift's own for a built-in, its plugin's otherwise. */
+        post: operations["installLanguageServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mcp": {
         parameters: {
             query?: never;
@@ -907,7 +975,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it. */
+        /**
+         * Summarises the older history now, on the model and level given, else the conversation's. Runs as the session's
+         *     job: 409 while a turn runs, Stop cancels it.
+         */
         post: operations["compactSession"];
         delete?: never;
         options?: never;
@@ -1068,6 +1139,23 @@ export interface paths {
         put?: never;
         /** Spawns a thread from this conversation and starts it at once. It runs on its own from then on. */
         post: operations["spawnThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/subagent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts the user's own subagent as `task` would: `async` (the default) in the background, `seq` as the next turn. */
+        post: operations["startSubagent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1395,6 +1483,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/websearch/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asks each built-in key's provider what it has left, at no cost; a refused or spent key is set aside, and one with
+         *     credit is tried again.
+         */
+        post: operations["checkWebSearchKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/websearch/keys": {
         parameters: {
             query?: never;
@@ -1678,6 +1786,16 @@ export interface components {
             sessions: components["schemas"]["SessionBackup"][];
             /** Format: int32 */
             version: number;
+        };
+        /** @description What a provider says a key can still spend. */
+        Balance: {
+            /** Format: int64 */
+            left: number;
+            plan?: string | null;
+            /** @description When the plan's credits renew, as the provider wrote it. */
+            renews?: string | null;
+            /** Format: int64 */
+            total?: number | null;
         };
         BasePrompt: {
             /** @description The user's replacement, when there is one. */
@@ -2031,6 +2149,13 @@ export interface components {
              */
             shellHandoff?: boolean | null;
             /**
+             * @description How many subagents with each tag `task` gives run at once, 1 to 64 by tag, such as `gpu`; past it, more wait
+             *     for one to finish. A PUT replaces the whole map.
+             */
+            taskTagLimits?: {
+                [key: string]: number;
+            } | null;
+            /**
              * @description Load the tools of large MCP servers on request with `tool_search`, on models that take deferred tools. Left out of
              *     a PUT, it stays as it is.
              */
@@ -2057,6 +2182,9 @@ export interface components {
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
+            taskTagLimits?: {
+                [key: string]: number;
+            } | null;
             toolSearch?: boolean | null;
         };
         /** @description Whether an engine can run here, and what it would take if not. */
@@ -2267,7 +2395,7 @@ export interface components {
             grammar: Record<string, never>;
             /** @description The language's name, which a code fence uses; it replaces a bundled language of the same name. */
             name: string;
-            /** @description The plugin that added it. */
+            /** @description The plugin that added it, or `drift` for one Drift ships. */
             plugin: string;
         };
         /** @description What the user approved with "always": kept for the workspace, across sessions and restarts. */
@@ -2450,6 +2578,17 @@ export interface components {
             /** @description How the user and the model hear it named. */
             title: string;
         };
+        /** @description One key's check; Exa tells a plain key only that it works, so its balance is absent. */
+        KeyCheck: {
+            balance?: components["schemas"]["Balance"] | null;
+            error?: string | null;
+            /** @description Its place among the keys saved in Settings; absent for the environment's key. */
+            index?: number | null;
+            /** @description The key by its last four characters. */
+            key: string;
+            provider: string;
+            state: components["schemas"]["KeyState"];
+        };
         /** @description A key event from the pane, as a browser's `KeyboardEvent` describes it. */
         KeyInput: {
             code: string;
@@ -2461,6 +2600,11 @@ export interface components {
             /** Format: int32 */
             modifiers?: number;
         };
+        /**
+         * @description How a key answered a check.
+         * @enum {string}
+         */
+        KeyState: "ok" | "refused" | "rateLimited" | "failed";
         Limit: {
             /**
              * Format: int64
@@ -2549,6 +2693,44 @@ export interface components {
             extensions: string[];
             language?: string | null;
         };
+        LspEnabled: {
+            enabled: boolean;
+            name: string;
+            workspace?: string | null;
+        };
+        LspServer: {
+            name: string;
+            workspace?: string | null;
+        };
+        /** @enum {string} */
+        LspSource: "builtin" | "plugin" | "config";
+        /** @enum {string} */
+        LspState: "off" | "missing" | "found" | "running" | "works" | "failed";
+        LspStatus: {
+            /** @description The command it starts with, the first of those tried when it has several. */
+            command: string;
+            /** @description Why it did not start or answer. */
+            error?: string | null;
+            extensions: string[];
+            /** @description Where its install guide is. */
+            guide?: string | null;
+            /** @description The command Install runs, for a missing server whose package manager is here. */
+            install?: string | null;
+            /** @description The language it serves, as people name it. */
+            label: string;
+            /** @description Its name in drift.json's `lsp`. */
+            name: string;
+            /** @description The programs an install needs, when none of them is here. */
+            needs?: string[];
+            /** @description Where it comes from, for a plugin's server with neither an install nor a guide. */
+            note?: string | null;
+            /** @description The program that runs, when one is installed. */
+            path?: string | null;
+            /** @description The plugin that declares it. */
+            plugin?: string | null;
+            source: components["schemas"]["LspSource"];
+            state: components["schemas"]["LspState"];
+        };
         Message: {
             /** @description The stored account that sent the request, whose reasoning signatures only it can send back. */
             account?: string | null;
@@ -2612,6 +2794,15 @@ export interface components {
             tool_search?: boolean;
             /** @description The reasoning levels the model offers, weakest first; empty when it has none to choose. */
             variants?: components["schemas"]["Variant"][];
+        };
+        /**
+         * @description The model and reasoning level the composer shows for a compaction the user asks for, which may differ from the
+         *     conversation's own until the next prompt is sent; absent fields keep the conversation's.
+         */
+        ModelChoice: {
+            model?: components["schemas"]["ModelRef"] | null;
+            /** @description The reasoning level by variant name: absent keeps the conversation's, null asks for the model's default. */
+            variant?: string | null;
         };
         /**
          * @description A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -2911,7 +3102,7 @@ export interface components {
         };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
-            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), and `lsp` when Drift starts its language servers. */
+            /** @description The host interfaces it imports (`store`, `files`, `process`, `http`, `notify`), `lsp` when Drift starts its language servers, and `tools` when it adds tools. */
             capabilities?: string[];
             /** @description Its config object from drift.json, so Settings can show and edit it. */
             config?: unknown;
@@ -3499,6 +3690,15 @@ export interface components {
         };
         /** @enum {string} */
         State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
+        SubagentBody: {
+            /** @description What was typed after `/subagent`: `[seq|async] [model] <prompt>`. */
+            arguments?: string;
+        };
+        /** @description What `/subagent` did: the message it put in the conversation, or the queued prompt it waits in. */
+        SubagentStart: {
+            queued?: components["schemas"]["QueuedPrompt"] | null;
+            receipt?: components["schemas"]["Receipt"] | null;
+        };
         Subcommand: {
             description: string;
             name: string;
@@ -3530,13 +3730,15 @@ export interface components {
             id: string;
             mode: components["schemas"]["Mode"];
             parentSessionId: string;
-            /** @description Why this mode: `requested`, `agent default`, `default` or `background turned off`. */
+            /** @description Why this mode: `requested`, `agent default`, `default`, `background turned off`, or `user` when the user started it. */
             reason: string;
             /** @description Left out of a session's task list, which no screen reads it from; `GET /tasks/{id}` and `task.updated` carry it. */
             result?: string | null;
             /** @description The worker's own transcript. */
             sessionId: string;
             state: components["schemas"]["TaskState"];
+            /** @description What it uses that Settings may cap, such as `gpu`; it waits while a tag's subagents are at its limit. */
+            tags?: string[];
         };
         /** @enum {string} */
         TaskState: "queued" | "running" | "replied" | "failed" | "stopped" | "interrupted";
@@ -4232,6 +4434,103 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listLanguageServers: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose drift.json and `node_modules/.bin` count too. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    checkLanguageServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspServer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    setLanguageServerEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+        };
+    };
+    installLanguageServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LspServer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LspStatus"][];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5706,7 +6005,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ModelChoice"] | null;
+            };
+        };
         responses: {
             202: {
                 headers: {
@@ -6045,6 +6348,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    startSubagent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubagentBody"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubagentStart"];
                 };
             };
             400: {
@@ -6643,6 +6983,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebSearchState"];
+                };
+            };
+        };
+    };
+    checkWebSearchKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyCheck"][];
                 };
             };
         };

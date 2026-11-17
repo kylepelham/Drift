@@ -101,16 +101,26 @@ async fn a_sign_in_the_user_refuses_says_why_and_still_asks_to_sign_in() {
     let row = saved(&engine, "secure", &config).await;
     let page = engine.sign_in_mcp("secure").await.unwrap();
     let parsed = reqwest::Url::parse(&page).unwrap();
-    let redirect = parsed
-        .query_pairs()
-        .find(|(key, _)| key == "redirect_uri")
-        .unwrap()
-        .1
-        .to_string();
+    let query = |name: &str| parsed.query_pairs().find(|(key, _)| key == name).unwrap().1.to_string();
+    let (redirect, csrf) = (query("redirect_uri"), query("state"));
+    let client = crate::llm::http::client();
 
-    let refused = crate::llm::http::client()
+    for stray in [
+        "error=access_denied",
+        "error=access_denied&state=forged",
+        "code=x&state=forged",
+    ] {
+        let ignored = client.get(format!("{redirect}?{stray}")).send().await.unwrap();
+        assert_eq!(ignored.status(), 400, "{stray}");
+    }
+    assert!(
+        engine.mcp.status_of(row.clone()).error.is_none(),
+        "a page that guesses the address cannot end the sign-in"
+    );
+
+    let refused = client
         .get(format!(
-            "{redirect}?error=access_denied&error_description=The+user+said+no"
+            "{redirect}?error=access_denied&error_description=The+user+said+no&state={csrf}"
         ))
         .send()
         .await

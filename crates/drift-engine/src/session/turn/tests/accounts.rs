@@ -696,6 +696,7 @@ async fn a_cyber_refusal_of_a_compaction_summary_asks_a_verified_account_and_the
             &h.session.id,
             crate::session::compaction::Trigger::Manual,
             &Default::default(),
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -743,6 +744,7 @@ async fn a_compaction_summary_refused_in_another_policy_area_fails_on_the_accoun
         .compact(
             &h.session.id,
             crate::session::compaction::Trigger::Manual,
+            &Default::default(),
             &Default::default(),
         )
         .await;
@@ -986,6 +988,7 @@ async fn compaction_on_a_fast_model_no_account_serves_runs_at_normal_speed_as_th
             &h.session.id,
             "compaction",
             crate::session::oneshot::Fallback::Conversation,
+            &Default::default(),
         )
         .await
         .unwrap();

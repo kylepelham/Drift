@@ -180,10 +180,25 @@ async fn submit_and_wait(harness: &Harness, session_id: &str, text: &str) {
         .await
         .unwrap();
 
-    for _ in 0..200 {
-        if !harness.engine.turns.is_running(session_id) {
-            break;
+    let asked = |message: &crate::session::types::MessageWithParts| {
+        message
+            .parts
+            .iter()
+            .any(|part| matches!(&part.part, crate::session::types::Part::Text { text: said, .. } if said == text))
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let landed = harness
+            .engine
+            .store
+            .messages(session_id, None, 1000)
+            .unwrap()
+            .iter()
+            .any(asked);
+        if landed && !harness.engine.turns.is_running(session_id) {
+            return;
         }
+        assert!(std::time::Instant::now() < deadline, "{text:?} never finished its turn");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }

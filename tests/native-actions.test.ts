@@ -518,15 +518,20 @@ test("a skill's documented choices reach the slash menu, and an MCP prompt's arg
     expect(plain).toEqual({ name: "plain", description: "Plain", template: "Do it." });
 });
 
-test("/compact asks the engine to compact and reports a refusal; the auto setting round-trips", async () => {
+test("/compact asks the engine to compact on the composer's model and reports a refusal; the auto setting round-trips", async () => {
+    const sent: unknown[] = [];
     const h = harness({
-        compactSession: (id: string) =>
-            id === "ses_busy"
+        compactSession: (id: string, choice?: unknown) => {
+            sent.push(choice);
+            return id === "ses_busy"
                 ? Promise.reject(new EngineError(409, "/sessions/ses_busy/compact", "busy", "a turn is running"))
-                : Promise.resolve(undefined),
+                : Promise.resolve(undefined);
+        },
         putSettings: (body: { autoCompact: boolean }) => Promise.resolve(body),
     } as Partial<Client>);
-    await h.actions.summarize("ses_1");
+    const picked = { model: { provider: "zai", model: "glm-5.3-flash" }, variant: "high" };
+    await h.actions.summarize("ses_1", picked);
+    expect(sent).toEqual([picked]);
     expect(h.state.notices.length).toBe(0);
     await h.actions.summarize("ses_busy");
     expect(h.state.notices.some((n) => n.title === "Couldn't compact" && n.message === "a turn is running")).toBeTrue();

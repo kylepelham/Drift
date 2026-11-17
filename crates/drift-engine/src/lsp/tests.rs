@@ -266,6 +266,18 @@ fn file_uris_round_trip_however_a_server_spells_them() {
 }
 
 #[test]
+fn a_server_starts_with_cmd_told_to_skip_the_project_folder() {
+    let ws = PathBuf::from("project");
+    let spawn = client::command(Path::new("server"), &["--stdio".into()], &ws);
+    let set = spawn
+        .as_std()
+        .get_envs()
+        .any(|(name, value)| name == "NoDefaultCurrentDirectoryInExePath" && value == Some(std::ffi::OsStr::new("1")));
+    assert!(set, "a repository's own node.cmd must never run in place of node");
+    assert_eq!(spawn.as_std().get_current_dir(), Some(ws.as_path()));
+}
+
+#[test]
 fn servers_root_at_the_nearest_project_not_the_workspace() {
     use table::{Root, root_for};
     let ws = workspace("roots");
@@ -335,8 +347,8 @@ fn servers_root_at_the_nearest_project_not_the_workspace() {
     std::fs::remove_dir_all(ws).ok();
 }
 
-#[test]
-fn a_project_installed_server_is_found_in_node_modules() {
+#[tokio::test]
+async fn a_project_installed_server_is_found_in_node_modules_but_never_started() {
     let ws = workspace("node-bin");
     let bin = ws.join("node_modules/.bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -351,19 +363,41 @@ fn a_project_installed_server_is_found_in_node_modules() {
         "",
     )
     .unwrap();
-    let found = table::installed(
-        &[
-            vec!["definitely-missing-ls".into()],
-            vec![name.clone(), "--stdio".into()],
-        ],
-        &ws.join("packages/web"),
-        &ws,
-    );
+    let commands = [
+        vec!["definitely-missing-ls".into()],
+        vec![name.clone(), "--stdio".into()],
+    ];
+    let found = table::installed_or_local(&commands, &ws.join("packages/web"), &ws);
     let (program, args) = found.expect("found below the workspace");
     assert!(program.starts_with(&bin) && args == ["--stdio"], "{program:?} {args:?}");
     assert!(
-        table::installed(&[vec![name]], ws.parent().unwrap(), &ws).is_none(),
+        table::installed_or_local(&[vec![name.clone()]], ws.parent().unwrap(), &ws).is_none(),
         "never above the workspace"
+    );
+    assert!(table::installed(&commands).is_none(), "a server starts only from PATH");
+
+    let config = BTreeMap::from([(
+        "local".to_string(),
+        LspConfig::Custom {
+            command: vec![name],
+            extensions: vec![".fake".into()],
+            language: None,
+        },
+    )]);
+    let servers = Servers::default();
+    let file = ws.join("a.fake");
+    std::fs::write(&file, "fine").unwrap();
+    servers.warm(&ws, &file, &config).await;
+    assert!(servers.running.lock().unwrap().is_empty(), "a read never starts it");
+    let local = servers.statuses(&config, &[], Some(&ws));
+    let local = local.iter().find(|status| status.name == "local").unwrap();
+    assert_eq!(local.state, LspState::Found, "Settings still shows it");
+    let checked = servers.check("local", &config, &[], Some(&ws)).await;
+    assert!(
+        checked
+            .as_ref()
+            .is_err_and(|why| why.contains("only inside this project")),
+        "{checked:?}"
     );
     std::fs::remove_dir_all(ws).ok();
 }
@@ -479,8 +513,8 @@ async fn a_server_that_failed_at_one_root_is_still_tried_at_another() {
         },
     )]);
     let spec = &resolve(&missing)[0];
-    assert!(servers.client(&dir, &scripts, spec).await.is_none());
-    assert!(servers.client(&dir, &web, spec).await.is_none());
+    assert!(servers.client(&scripts, spec).await.is_none());
+    assert!(servers.client(&web, spec).await.is_none());
     let failed = servers.failed.lock().unwrap();
     let slot = |root: &PathBuf| (root.clone(), "fake".to_string(), spec.commands.clone());
     assert!(

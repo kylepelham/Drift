@@ -81,7 +81,7 @@ test("base prompts and agents are one Server setting, with inherited values styl
     const navigation = await Bun.file("src/ui/settings-search.ts").text();
     const editor = await Bun.file("src/ui/settings-prompts.tsx").text();
     expect(navigation).toContainCode(
-        'items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
+        'items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Language Servers", "Prompts", "Permissions"]',
     );
     expect(source).toContainCode("<PromptsSection />");
     expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse();
@@ -564,6 +564,26 @@ test("web search lists providers in the order auto tries them, saved order first
     };
     expect(orderedProviders(state).map((p) => p.id)).toEqual(["tavily", "searxng", "firecrawl", "exa"]);
     expect(grantGroup({ grant: "pattern", kind: "websearch", pattern: "*", decision: "allow" })).toBe("web");
+});
+test("a credit check sums what a provider's keys have left, counts the ones that failed, and reads each key", async () => {
+    const { creditSummary, keyResult } = await import("../src/ui/settings-web-search");
+    const firecrawl = { id: "firecrawl", name: "Firecrawl", builtIn: true, keys: [], fromEnvironment: false };
+    const exa = { ...firecrawl, id: "exa", name: "Exa" };
+    const ok = (left: number, total?: number) => ({
+        provider: "firecrawl",
+        key: "...abcd",
+        state: "ok" as const,
+        balance: { left, total },
+    });
+    const refused = { provider: "firecrawl", key: "...dead", state: "refused" as const, error: "Invalid token" };
+
+    expect(creditSummary(firecrawl, [ok(1500, 2000), ok(500), refused])).toBe("2,000 credits left \u00b7 1 refused");
+    expect(creditSummary(exa, [{ provider: "exa", key: "...e", state: "ok" }])).toContain("Exa");
+    expect(keyResult(ok(0, 1000))).toBe("0 of 1,000 credits left");
+    expect(keyResult({ ...ok(5, 10), balance: { left: 5, total: 10, plan: "Hobby" } })).toBe(
+        "Hobby \u00b7 5 of 10 credits left",
+    );
+    expect(keyResult(refused)).toBe("Refused: Invalid token");
 });
 test("image generation says what the chosen provider still needs, and when the ChatGPT plan alone pays", async () => {
     const { imageProviderNote } = await import("../src/ui/settings-image-generation");

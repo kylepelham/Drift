@@ -326,14 +326,16 @@ export function TranscriptFindBar() {
     let input: HTMLInputElement | undefined;
 
     onMount(() => {
-        onKeybind("findInSession", () => {
-            if (!selectedSession()) return;
-            setOpen(true);
-            queueMicrotask(() => {
-                input?.focus();
-                input?.select();
-            });
-        });
+        onCleanup(
+            onKeybind("findInSession", () => {
+                if (!selectedSession()) return;
+                setOpen(true);
+                queueMicrotask(() => {
+                    input?.focus();
+                    input?.select();
+                });
+            }),
+        );
     });
 
     // Switching conversations discards the search: its matches belong to a transcript that is gone.

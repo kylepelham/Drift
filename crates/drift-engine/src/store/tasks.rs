@@ -8,7 +8,7 @@ use crate::id;
 use crate::session::tasks::{Mode, TaskRecord, TaskState};
 use crate::session::types::{PartRow, Session};
 
-const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error, edits";
+const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error, edits, tags";
 
 // Unary + removes TEXT affinity so SQLite can use both keys of the JSON-expression index.
 const REPAIR_INTERRUPTED_CALLS: &str =
@@ -31,6 +31,8 @@ pub struct NewTask<'a> {
     pub reason: &'a str,
     /// The owner's Stop count at launch; a Stop since then keeps the result from waking it.
     pub generation: i64,
+    /// What it uses that Settings may cap, such as `gpu`.
+    pub tags: &'a [String],
 }
 
 /// A launch as recorded: the worker, its transcript, and whether this call made them.
@@ -275,13 +277,14 @@ pub(super) fn acknowledge(conn: &Connection, task_id: &str, parent: &str) -> rus
 
 fn insert_task(conn: &Connection, new: &NewTask<'_>, session_id: &str) -> rusqlite::Result<TaskRecord> {
     let task_id = id::new("task");
-    let state = if new.mode == Mode::Background {
+    // A tagged worker in front still waits for its tags' slots.
+    let state = if new.mode == Mode::Background || !new.tags.is_empty() {
         TaskState::Queued
     } else {
         TaskState::Running
     };
     let sql = format!(
-        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL, NULL)"
+        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL, NULL, ?12)"
     );
     conn.prepare_cached(&sql)?.execute(params![
         task_id,
@@ -295,6 +298,7 @@ fn insert_task(conn: &Connection, new: &NewTask<'_>, session_id: &str) -> rusqli
         state.as_str(),
         id::now_ms(),
         new.generation,
+        (!new.tags.is_empty()).then(|| serde_json::to_string(new.tags).unwrap_or_default()),
     ])?;
 
     query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)
@@ -327,6 +331,10 @@ fn row(row: &Row) -> rusqlite::Result<TaskRecord> {
         edits: row
             .get::<_, Option<String>>(16)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        tags: row
+            .get::<_, Option<String>>(17)?
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -356,6 +364,7 @@ pub(crate) mod tests {
             mode,
             reason: "requested",
             generation: 0,
+            tags: &[],
         }
     }
 

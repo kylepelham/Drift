@@ -1,13 +1,12 @@
 //! Adds the Roc language: a grammar that highlights `.roc` files and `roc` code fences, and Roc's language
-//! server, so an edit to a `.roc` file comes back with the errors it left. The server is
-//! `roc_language_server` unless `config.server` names another command; an empty one turns it off.
+//! server, `roc_language_server`, so an edit to a `.roc` file comes back with the errors it left. Drift starts it
+//! only when it is on PATH; Settings > Language servers lists it with a link to Roc's install guide.
 
 wit_bindgen::generate!({ world: "languages", path: "../../crates/drift-engine/wit" });
 
-use drift::plugin::host::config;
-use drift::plugin::types::{SettingKind, TextSetting};
-
 const SERVER: &str = "roc_language_server";
+
+use drift::plugin::types::ServerSetup;
 
 struct Roc;
 
@@ -17,37 +16,18 @@ impl Guest for Roc {
     }
 
     fn settings() -> Vec<Setting> {
-        vec![Setting {
-            key: "server".into(),
-            label: "Language server".into(),
-            description: "The command that starts Roc's language server, with its arguments; empty turns it off."
-                .into(),
-            kind: SettingKind::Text(TextSetting {
-                default: SERVER.into(),
-                placeholder: SERVER.into(),
-                multiline: false,
-                secret: false,
-            }),
-        }]
+        Vec::new()
     }
 
     fn language_servers() -> Vec<LanguageServer> {
-        let config: serde_json::Value = serde_json::from_str(&config()).unwrap_or_default();
-        let command: Vec<String> = config["server"]
-            .as_str()
-            .unwrap_or(SERVER)
-            .split_whitespace()
-            .map(String::from)
-            .collect();
-        if command.is_empty() {
-            return Vec::new();
-        }
-
         vec![LanguageServer {
             id: "roc".into(),
-            command,
+            command: vec![SERVER.into()],
             extensions: vec![".roc".into()],
             language: Some("roc".into()),
+            label: "Roc".into(),
+            // roc_language_server ships in Roc's own release archives, which no package manager installs.
+            setup: ServerSetup::Guide("https://www.roc-lang.org/install".into()),
         }]
     }
 

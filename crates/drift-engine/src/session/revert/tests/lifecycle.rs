@@ -272,7 +272,7 @@ async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_commits_
     assert!(copied.iter().all(|message| message.info.status == MessageStatus::Done));
 
     h.provider.push(text("SUMMARY"));
-    assert_eq!(h.engine.start_compaction(&h.session.id), Ok(()));
+    assert_eq!(h.engine.start_compaction(&h.session.id, Default::default()), Ok(()));
     until_idle(&h).await;
     let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
     assert!(

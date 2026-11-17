@@ -37,7 +37,8 @@ fn the_model_is_told_git_bash_on_windows_is_unix_bash() {
         windows.contains("Unix bash")
             && windows.contains("/dev/null")
             && windows.contains("never `NUL`")
-            && windows.contains("never `cd /d`"),
+            && windows.contains("never `cd /d`")
+            && windows.contains("newline=''"),
         "{windows}"
     );
     assert_eq!(shell_note(&bash, false), "bash");

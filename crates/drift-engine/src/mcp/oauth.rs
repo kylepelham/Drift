@@ -179,6 +179,14 @@ impl crate::Engine {
             })?;
 
         let page = state.get_authorization_url().await?;
+        let csrf = reqwest::Url::parse(&page)
+            .ok()
+            .and_then(|url| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "state")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .ok_or(crate::llm::OAuthError::CallbackState)?;
         let engine = Arc::downgrade(self);
         let server = name.to_string();
         let started = identity(&row.config);
@@ -194,7 +202,7 @@ impl crate::Engine {
         }
 
         tokio::spawn(async move {
-            let waited = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state));
+            let waited = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state, &csrf));
             let finished = tokio::select! {
                 waited = waited => waited.unwrap_or_else(|_| {
                     Err(SignInError::BrowserTimeout {
@@ -273,10 +281,10 @@ fn request(redirect: String, app: Option<&OAuthClient>) -> AuthorizationRequest 
     }
 }
 
-/// Waits for the browser's return and trades its code for tokens, which the store keeps.
-async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> Result<(), SignInError> {
-    let (mut socket, params) = crate::llm::openai::oauth::next_callback(listener, "/callback").await?;
-    let (Some(code), Some(csrf)) = (params.get("code"), params.get("state")) else {
+/// Waits for the browser's return with the `csrf` state the sign-in began with, and trades its code for tokens.
+async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState, csrf: &str) -> Result<(), SignInError> {
+    let (mut socket, params) = crate::llm::openai::oauth::next_answer(listener, "/callback", csrf).await?;
+    let Some(code) = params.get("code") else {
         // The authorization server's own reason, when it gave one (`access_denied` and its description).
         let why = match (params.get("error"), params.get("error_description")) {
             (Some(error), Some(description)) => SignInError::Refused(format!("{error}: {description}")),

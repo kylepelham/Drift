@@ -96,6 +96,41 @@ async fn a_repository_is_captured_from_its_own_index_whatever_its_size_and_conve
 }
 
 #[tokio::test]
+async fn a_repository_file_changed_after_capture_reads_back_from_the_repository_store() {
+    let (base, workspace) = dirs();
+    let workspace = crate::tool::canonical(&workspace);
+    repo_git(&workspace, &["init", "-q"]);
+    repo_git(&workspace, &["config", "user.email", "dev@example.com"]);
+    repo_git(&workspace, &["config", "user.name", "Dev"]);
+    std::fs::write(workspace.join("a.txt"), "committed\n").unwrap();
+    repo_git(&workspace, &["add", "-A"]);
+    repo_git(&workspace, &["commit", "-qm", "start"]);
+    let snapshots = Snapshots::new(&base.join("data"));
+    let before = snapshots.take(&workspace).await.unwrap();
+
+    std::fs::write(workspace.join("a.txt"), "edited\n").unwrap();
+    let after = snapshots.take(&workspace).await.unwrap();
+    let changes = snapshots.changes_between(&workspace, &before, &after).await.unwrap();
+    let blob = changes.changes[0].before.clone().unwrap();
+    assert!(
+        !stored(&snapshots, &workspace, &blob),
+        "the committed blob lives only in the repository"
+    );
+
+    assert_eq!(snapshots.blob(&workspace, &blob).await.unwrap(), b"committed\n");
+    assert_eq!(
+        snapshots.blobs(&workspace, &[&blob]).await.unwrap()[&blob],
+        b"committed\n"
+    );
+    snapshots
+        .put(&crate::store::tests::store(), &workspace, "a.txt", Some(&blob))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(workspace.join("a.txt")).unwrap(), b"committed\n");
+    std::fs::remove_dir_all(base).ok();
+}
+
+#[tokio::test]
 async fn trees_hold_the_bytes_on_disk_whatever_the_attributes_say() {
     let (base, workspace) = dirs();
     let snapshots = Snapshots::new(&base.join("data"));

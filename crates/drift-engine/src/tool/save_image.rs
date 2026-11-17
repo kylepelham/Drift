@@ -53,7 +53,9 @@ impl Tool for SaveImage {
 
             let name = display(&path, ctx.workdir());
             super::fits_history(&name, bytes.len())?;
+            super::write::may_replace(ctx, &path, &name).await?;
             super::stage::replace(&ctx.engine.store, &path, &bytes).await?;
+            ctx.files.mark_read(&path);
 
             Ok(Output {
                 title: name.clone(),
@@ -116,6 +118,60 @@ fn pasted(ctx: &Context, number: u32) -> Result<(String, Vec<u8>), ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::types::{Role, Visibility};
+    use crate::tool::tests::Sandbox;
+
+    /// A sandbox whose session has `[Image 1]`, a PNG.
+    fn with_pasted_image(name: &str) -> Sandbox {
+        let mut sandbox = Sandbox::new(name);
+        let store = &sandbox.ctx.engine.store;
+        let session = store
+            .create_session(crate::store::NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let message = store.create_message(&session.id, Role::User, None).unwrap();
+        let image = Part::File {
+            mime: "image/png".into(),
+            name: "shot.png".into(),
+            url: "data:image/png;base64,cG5nIGJ5dGVz".into(),
+            path: None,
+            image: Some(1),
+        };
+        store.add_part(&message.id, &session.id, image).unwrap();
+        sandbox.ctx.session_id = session.id;
+
+        sandbox
+    }
+
+    #[tokio::test]
+    async fn an_existing_file_is_replaced_only_once_read_and_unchanged_since() {
+        let sandbox = with_pasted_image("save-image-guard");
+        let path = sandbox.file("shot.png", "theirs");
+        let save = || SaveImage.run(&sandbox.ctx, json!({ "image": 1, "path": "shot.png" }));
+
+        let unread = save().await.unwrap_err();
+        assert!(unread.0.contains("has not been read"), "{}", unread.0);
+        assert_eq!(std::fs::read(&path).unwrap(), b"theirs");
+        sandbox.ctx.files.mark_read(&path);
+        std::fs::write(&path, "changed by the user").unwrap();
+        let stale = save().await.unwrap_err();
+        assert!(stale.0.contains("changed on disk"), "{}", stale.0);
+
+        sandbox.ctx.files.mark_read(&path);
+        save().await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"png bytes");
+        save().await.expect("its own save counts as seen");
+        SaveImage
+            .run(&sandbox.ctx, json!({ "image": 1, "path": "new.png" }))
+            .await
+            .expect("a new file needs no read");
+    }
 
     #[test]
     fn a_path_must_end_in_an_extension_of_the_images_type() {

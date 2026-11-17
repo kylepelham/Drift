@@ -10,6 +10,7 @@ pub use events::Lease;
 mod health;
 mod images;
 mod local_servers;
+mod lsp;
 mod mcp;
 mod permissions;
 mod processes;
@@ -87,6 +88,7 @@ fn session_routes() -> OpenApiRouter<Arc<Engine>> {
 fn session_action_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
         .routes(routes!(sessions::spawn))
+        .routes(routes!(sessions::subagent))
         .routes(routes!(sessions::fork))
         .routes(routes!(sessions::move_session))
         .routes(routes!(sessions::compact))
@@ -108,6 +110,7 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::fetch_registry))
         .routes(routes!(websearch::get, websearch::put))
         .routes(routes!(websearch::add_key, websearch::remove_key))
+        .routes(routes!(websearch::check))
 }
 
 /// Image generation and voice: settings, keys, and the requests they make.
@@ -133,6 +136,10 @@ fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::install_plugin))
         .routes(routes!(settings::remove_plugin))
         .routes(routes!(settings::configure_plugin))
+        .routes(routes!(lsp::list))
+        .routes(routes!(lsp::check))
+        .routes(routes!(lsp::install))
+        .routes(routes!(lsp::set_enabled))
 }
 
 fn skill_routes() -> OpenApiRouter<Arc<Engine>> {

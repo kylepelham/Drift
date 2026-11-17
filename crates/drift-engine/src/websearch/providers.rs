@@ -99,8 +99,15 @@ impl Provider {
     }
 
     fn request(&self, endpoint: &str, key: &str, base: Option<&str>) -> reqwest::RequestBuilder {
-        let request = crate::llm::http::client().post(self.url(endpoint, base));
+        self.authed(crate::llm::http::client().post(self.url(endpoint, base)), key)
+    }
 
+    /// A read of the account behind `key`, which spends none of its credit.
+    pub(super) fn get(&self, endpoint: &str, key: &str, base: Option<&str>) -> reqwest::RequestBuilder {
+        self.authed(crate::llm::http::client().get(self.url(endpoint, base)), key)
+    }
+
+    fn authed(&self, request: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
         match self.id {
             "exa" => request.header("x-api-key", key),
             _ => request.bearer_auth(key),

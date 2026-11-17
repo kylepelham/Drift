@@ -14,7 +14,7 @@ async fn a_summary_that_cannot_be_stored_never_replaces_the_history() {
         }
         h.engine.store.lock().execute_batch(fault).unwrap();
         h.provider.push(text("SUMMARY"));
-        h.engine.start_compaction(&h.session.id).unwrap();
+        h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
         until_idle(&h).await;
 
         let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -59,7 +59,7 @@ async fn unsuccessful_summary_endings_keep_the_previous_valid_context() {
             turn(&h, ask).await;
         }
         h.provider.push(text("VALID SUMMARY"));
-        h.engine.start_compaction(&h.session.id).unwrap();
+        h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
         until_idle(&h).await;
         let start = h.engine.store.view_start(&h.session.id).unwrap();
         h.provider.push(vec![
@@ -68,7 +68,7 @@ async fn unsuccessful_summary_endings_keep_the_previous_valid_context() {
             Chunk::BlockStop,
             Chunk::Stop(reason),
         ]);
-        h.engine.start_compaction(&h.session.id).unwrap();
+        h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
         until_idle(&h).await;
 
         let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -120,10 +120,13 @@ async fn a_manual_compaction_summarises_older_turns_and_keeps_the_recent_ones() 
         .execute("UPDATE message SET finished_at = 1 WHERE role = 'assistant'", [])
         .unwrap();
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
 
     assert!(
-        matches!(h.engine.start_compaction(&h.session.id), Err(TurnError::Busy)),
+        matches!(
+            h.engine.start_compaction(&h.session.id, Default::default()),
+            Err(TurnError::Busy)
+        ),
         "one job at a time"
     );
     until_idle(&h).await;
@@ -262,6 +265,71 @@ async fn a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_onc
 }
 
 #[tokio::test]
+async fn a_summary_too_long_for_every_trim_fails_instead_of_summarising_nothing() {
+    for turns in [3, 4] {
+        let h = harness().await;
+        for ask in ["first", "second", "third", "fourth"].into_iter().take(turns) {
+            h.provider.push(text("reply"));
+            turn(&h, ask).await;
+        }
+        h.engine
+            .store
+            .lock()
+            .execute("UPDATE message SET finished_at = 1 WHERE role = 'assistant'", [])
+            .unwrap();
+        let sent = requests(&h).len();
+        for _ in 0..turns - 2 {
+            h.provider.push_error(crate::llm::Error::api(
+                400,
+                "invalid_request_error",
+                "prompt is too long: 210000 tokens > 200000 maximum",
+            ));
+        }
+        h.provider.push(text("SUMMARY OF NOTHING"));
+        h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
+        until_idle(&h).await;
+
+        let summaries = &requests(&h)[sent..];
+        assert_eq!(summaries.len(), turns - 2, "{turns}: one request per head turn left");
+        let newest_summarised = ["first", "second"][turns - 3];
+        assert!(mentions(summaries.last().unwrap(), newest_summarised), "{turns}");
+        assert_eq!(h.provider.responses_left(), 1, "{turns}: no request without any turn");
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Error, "{turns}");
+        assert_eq!(view(&transcript).summary, None, "{turns}");
+    }
+}
+
+#[tokio::test]
+async fn a_stopped_automatic_compaction_does_not_count_as_a_failure() {
+    let h = harness().await;
+    h.provider.push(reply_using(980_000, "long"));
+    turn(&h, "first").await;
+    h.provider.push_stall();
+    h.engine.submit(&h.session.id, prompt("second")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.info.summary && message.info.status == MessageStatus::Aborted)
+    );
+    assert!(
+        !h.engine
+            .turns
+            .compaction_failures
+            .lock()
+            .unwrap()
+            .contains_key(&h.session.id),
+        "a Stop is not a failure"
+    );
+}
+
+#[tokio::test]
 async fn after_three_failed_compactions_an_overflow_is_not_summarised_again() {
     let h = harness().await;
     h.provider.push(text("one"));
@@ -347,7 +415,7 @@ async fn the_compaction_model_pinned_in_settings_writes_the_summary() {
     h.engine
         .set_agent_overrides(HashMap::from([("compaction".to_string(), pin)]));
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let summary = requests(&h).last().unwrap().clone();
@@ -359,9 +427,42 @@ async fn the_compaction_model_pinned_in_settings_writes_the_summary() {
 }
 
 #[tokio::test]
+async fn a_compaction_the_user_asks_for_runs_on_the_model_the_composer_shows_and_keeps_the_conversations() {
+    let h = harness().await;
+    for (ask, reply) in [("first", "one"), ("second", "two"), ("third", "three")] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    let picked = h.engine.catalog.read().unwrap().providers["anthropic"]
+        .models
+        .keys()
+        .find(|id| id.as_str() != "claude-sonnet-4-5")
+        .unwrap()
+        .clone();
+    let choice = ModelChoice {
+        model: Some(ModelRef {
+            provider: "anthropic".into(),
+            model: picked.clone(),
+        }),
+        variant: None,
+    };
+    h.provider.push(text("SUMMARY"));
+    h.engine.start_compaction(&h.session.id, choice).unwrap();
+    until_idle(&h).await;
+
+    assert_eq!(requests(&h).last().unwrap().model, picked);
+    let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
+    assert_eq!(
+        session.model.unwrap().model,
+        "claude-sonnet-4-5",
+        "the next prompt sends its own choice"
+    );
+}
+
+#[tokio::test]
 async fn nothing_is_written_when_there_is_nothing_to_compact_and_stop_cancels_a_summary() {
     let h = harness().await;
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty());
@@ -371,7 +472,7 @@ async fn nothing_is_written_when_there_is_nothing_to_compact_and_stop_cancels_a_
         turn(&h, ask).await;
     }
     h.provider.push_stall();
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert!(h.engine.abort(&h.session.id));
@@ -391,7 +492,7 @@ async fn a_fork_of_a_compacted_conversation_sees_the_same_history() {
         turn(&h, ask).await;
     }
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let fork = h.engine.fork(&h.session.id, None).unwrap();
@@ -436,7 +537,7 @@ async fn undoing_a_compaction_brings_the_whole_history_back() {
         turn(&h, ask).await;
     }
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let boundary = boundary_id(&h.engine.store.transcript(&h.session.id).unwrap());
@@ -462,13 +563,13 @@ async fn a_refused_compaction_can_be_undone_and_run_again() {
         turn(&h, ask).await;
     }
     h.provider.push(vec![Chunk::Stop(StopReason::Refused)]);
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let boundary = boundary_id(&h.engine.store.transcript(&h.session.id).unwrap());
     h.engine.revert(&h.session.id, &boundary).await.unwrap();
     h.provider.push(text("SUMMARY"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();

@@ -29,6 +29,14 @@ async fn serve() -> String {
             "/doc",
             get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }),
         )
+        .route(
+            "/papers/big.pdf",
+            get(|| async {
+                let mut body = b"%PDF-1.7\n".to_vec();
+                body.resize(image::MAX_PDF_BYTES + 1024, b' ');
+                ([("content-type", "application/octet-stream")], body)
+            }),
+        )
         .route("/hop", get(|| async { axum::response::Redirect::temporary("/page") }))
         .route(
             "/challenged",
@@ -72,6 +80,40 @@ async fn an_image_or_pdf_comes_back_to_look_at_not_as_text() {
         assert_eq!(image::returned(&out.metadata)[0].mime, mime, "{path}");
         assert!(out.output.contains("it follows this result"));
     }
+}
+
+#[tokio::test]
+async fn a_pdf_too_large_to_attach_is_saved_for_read_to_page_through() {
+    let sandbox = Sandbox::new("webfetch-big-pdf");
+    let url = serve().await;
+    let out = WebFetch
+        .run(&sandbox.ctx, json!({ "url": format!("{url}/papers/big.pdf") }))
+        .await
+        .unwrap();
+
+    let folder = super::super::conversation_scratch(&sandbox.ctx.engine.store, &sandbox.ctx.session_id);
+    let saved = folder.join("big-l_test.pdf");
+    assert!(
+        out.output.contains(&saved.display().to_string()) && out.output.contains("`read` and `pages`"),
+        "{}",
+        out.output
+    );
+    assert!(out.metadata.images.is_none());
+    assert_eq!(
+        std::fs::metadata(&saved).unwrap().len() as usize,
+        image::MAX_PDF_BYTES + 1024
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    assert_eq!(super::pdf_name("https://x.dev/a%20b.pdf", "call:1"), "call1.pdf");
+    assert_eq!(
+        super::pdf_name("https://x.dev/paper.PDF", "toolu_01Ab9xQ"),
+        "paper-1Ab9xQ.pdf"
+    );
+    assert_ne!(
+        super::pdf_name("https://x.dev/paper.pdf", "call_one111"),
+        super::pdf_name("https://x.dev/paper.pdf", "call_two222"),
+        "parallel calls sharing a folder keep their own copy"
+    );
 }
 
 #[tokio::test]
@@ -235,7 +277,11 @@ async fn a_page_that_will_not_load_or_loads_empty_is_read_through_a_provider() {
     assert_eq!(asked.lock().unwrap().len(), 2);
 
     let missing = fetch("nowhere").await.unwrap_err();
-    assert!(missing.0.contains("404"), "{}", missing.0);
+    assert!(
+        missing.0.contains("404") && missing.0.contains("use `websearch`"),
+        "{}",
+        missing.0
+    );
     assert_eq!(
         asked.lock().unwrap().len(),
         2,

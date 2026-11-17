@@ -1,6 +1,11 @@
+mod requests;
 mod routes;
 
-pub(crate) use routes::{certificate, login, logout, me, options, pair};
+pub(crate) use requests::Prompt;
+pub(crate) use routes::{
+    certificate, login, logout, me, options, request_cancel, request_open, request_reveal, request_wait,
+    requests_changed,
+};
 
 use crate::remote::constant_time_eq;
 use crate::store::{RemoteDevice, Store};
@@ -9,27 +14,26 @@ use axum::response::{Html, IntoResponse, Response};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::time::{Duration, Instant};
 
 pub(crate) const COOKIE_NAME: &str = "drift_remote";
 pub(crate) const SIGN_IN_PAGE: &str = include_str!("remote_sign_in.html");
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
-/// How long a pairing code shown on the desktop works; it works once.
-pub(crate) const TICKET_TTL: Duration = Duration::from_secs(600);
 const PASSWORD_KEY: &str = "remote_password";
 const PASSWORD_ITERATIONS: u32 = 600_000;
 const FREE_FAILURES: u32 = 5;
 const MAX_LOCK: Duration = Duration::from_secs(900);
 const FORGET_FAILURES: Duration = Duration::from_secs(3600);
+const GLOBAL_FAILURES: usize = 30;
+const GLOBAL_WINDOW: Duration = Duration::from_secs(600);
+const GLOBAL_SPACING: Duration = Duration::from_secs(10);
 const TOUCH_INTERVAL_MS: i64 = 60_000;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AuthError {
-    #[error("That pairing code has expired or was already used. Show a new one on the PC.")]
-    UnknownTicket,
     #[error("Username must be 1 to 64 characters.")]
     InvalidUsername,
     #[error("Password must be 8 to 256 characters.")]
@@ -46,24 +50,20 @@ struct Password {
     hash: String,
 }
 
-/// The secret in the pairing code the desktop shows the Drift app.
-struct Ticket {
-    secret: String,
-    expires: Instant,
-}
-
 struct Failure {
     count: u32,
     locked_until: Option<Instant>,
     last: Instant,
 }
 
-/// Signed-in devices, the pairing ticket, the browser password, and sign-in throttling.
+/// Signed-in devices, devices asking to connect, the browser password, and sign-in throttling.
 pub(crate) struct Auth {
     devices: HashMap<String, RemoteDevice>,
     password: Option<Password>,
-    ticket: Option<Ticket>,
+    requests: requests::Requests,
     failures: HashMap<IpAddr, Failure>,
+    /// The latest failures from every address together, oldest first, at most `GLOBAL_FAILURES`.
+    recent_failures: VecDeque<Instant>,
 }
 
 impl Auth {
@@ -79,8 +79,9 @@ impl Auth {
                 .map(|device| (device.token_hash.clone(), device))
                 .collect(),
             password,
-            ticket: None,
+            requests: requests::Requests::default(),
             failures: HashMap::new(),
+            recent_failures: VecDeque::new(),
         })
     }
 
@@ -112,30 +113,21 @@ impl Auth {
         self.password.as_ref().map(|password| password.username.clone())
     }
 
-    /// A new pairing secret for the desktop to show; it replaces any earlier one.
-    pub(crate) fn new_ticket(&mut self) -> String {
-        let secret = random_hex(32);
-        self.ticket = Some(Ticket {
-            secret: secret.clone(),
-            expires: Instant::now() + TICKET_TTL,
-        });
-
-        secret
+    /// The devices asking to connect that this computer's user is asked about now.
+    pub(crate) fn prompts(&mut self) -> Vec<Prompt> {
+        self.requests.prompts(Instant::now())
     }
 
-    /// Signs in the app that scanned the current pairing code, once; returns its session token.
-    fn redeem(&mut self, supplied: &str, name: String, store: &Store) -> Result<String, AuthError> {
-        self.prune(Instant::now());
-        let matches = self
-            .ticket
-            .as_ref()
-            .is_some_and(|ticket| constant_time_eq(supplied.as_bytes(), ticket.secret.as_bytes()));
-        if !matches {
-            return Err(AuthError::UnknownTicket);
+    /// Accepts or declines a device asking to connect; a decline counts toward its address's lockout.
+    pub(crate) fn answer(&mut self, id: &str, accept: bool) -> bool {
+        let Some(address) = self.requests.answer(id, accept) else {
+            return false;
+        };
+        if !accept {
+            self.fail(address, Instant::now());
         }
 
-        self.ticket = None;
-        self.create_device(name, "app", store)
+        true
     }
 
     fn create_device(&mut self, name: String, method: &str, store: &Store) -> Result<String, AuthError> {
@@ -182,16 +174,47 @@ impl Auth {
         Ok(())
     }
 
+    /// How long `address` must wait: its own lock, or the global spacing once every address together failed too often.
     fn locked_for(&mut self, address: IpAddr, now: Instant) -> Option<Duration> {
-        let until = self.failures.get(&address)?.locked_until?;
+        let flooded = self.recent_failures.len() >= GLOBAL_FAILURES
+            && self
+                .recent_failures
+                .front()
+                .is_some_and(|first| now.duration_since(*first) < GLOBAL_WINDOW);
+        let global = self
+            .recent_failures
+            .back()
+            .filter(|_| flooded)
+            .map(|last| *last + GLOBAL_SPACING);
+        let until = self.own_lock(address).max(global)?;
         (until > now).then(|| until - now)
+    }
+
+    /// How long `address` must wait to ask to pair: only its own lock, as the user approves every request here.
+    fn pairing_locked_for(&self, address: IpAddr, now: Instant) -> Option<Duration> {
+        let until = self.own_lock(address)?;
+        (until > now).then(|| until - now)
+    }
+
+    fn own_lock(&self, address: IpAddr) -> Option<Instant> {
+        self.failures
+            .get(&throttle_key(address))
+            .and_then(|failure| failure.locked_until)
+    }
+
+    fn succeed(&mut self, address: IpAddr) {
+        self.failures.remove(&throttle_key(address));
     }
 
     fn fail(&mut self, address: IpAddr, now: Instant) {
         // An address quiet for an hour is past any lock, so it is forgotten and the map stays small.
         self.failures
             .retain(|_, failure| now.duration_since(failure.last) < FORGET_FAILURES);
-        let failure = self.failures.entry(address).or_insert(Failure {
+        if self.recent_failures.len() >= GLOBAL_FAILURES {
+            self.recent_failures.pop_front();
+        }
+        self.recent_failures.push_back(now);
+        let failure = self.failures.entry(throttle_key(address)).or_insert(Failure {
             count: 0,
             locked_until: None,
             last: now,
@@ -204,12 +227,19 @@ impl Auth {
             failure.locked_until = Some(now + delay);
         }
     }
+}
 
-    fn prune(&mut self, now: Instant) {
-        if self.ticket.as_ref().is_some_and(|ticket| ticket.expires <= now) {
-            self.ticket = None;
-        }
+/// The bucket an address is throttled in: an IPv6 visitor owns its whole /64, so rotating within it gains nothing.
+fn throttle_key(address: IpAddr) -> IpAddr {
+    match address.to_canonical() {
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(v6.to_bits() & !u128::from(u64::MAX))),
+        v4 => v4,
     }
+}
+
+/// A tunnel connection whose PROXY header named no visitor; it may not sign in, as it has no bucket of its own.
+fn anonymous(address: IpAddr) -> bool {
+    address.is_unspecified()
 }
 
 pub(crate) fn token_hash(token: &str) -> String {
@@ -337,7 +367,12 @@ pub(crate) fn public_path(path: &str) -> bool {
     path.starts_with("/auth/") && !matches!(path, "/auth/logout" | "/auth/me")
 }
 
-/// Routes only a browser uses: the UI itself and its sign-in. The app has its own UI and links by pairing code.
+/// Routes a device asks to connect by, which a first link may only use from this computer's networks.
+pub(crate) fn request_path(path: &str) -> bool {
+    path == "/auth/request" || path.starts_with("/auth/request/")
+}
+
+/// Routes only a browser uses: the UI itself and its sign-in. The app has its own UI and links by asking to connect.
 pub(crate) fn browser_path(path: &str) -> bool {
     let api = ["/auth/", "/engine", "/api/"]
         .iter()

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use similar::TextDiff;
 
 use super::ToolMetadata;
+use super::encoding::{Encoding, decode};
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 use crate::session::types::{MetadataFile, ToolFileChange};
@@ -60,10 +61,14 @@ impl Tool for Edit {
             let replace_all = input["replace_all"].as_bool().unwrap_or(false);
             let name = display(&path, ctx.workdir());
             if old == new {
-                return Err(ToolError("old_string and new_string are identical".into()));
+                return Err(ToolError(
+                    "old_string and new_string are identical, so nothing would change; to insert, new_string is the anchor \
+                     followed by the new text"
+                        .into(),
+                ));
             }
 
-            let raw = read_for_edit(&path, &name).await?;
+            let (raw, encoding) = read_for_edit(&path, &name).await?;
             let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
             let (updated, replacements) = matching::replace(body, old, new, replace_all)
                 .map_err(|refusal| refused(&refusal, body, old, &name))?;
@@ -74,10 +79,11 @@ impl Tool for Edit {
             } else {
                 updated
             };
+            let written = encoding.encode(&written);
             super::fits_history(&name, written.len())?;
             // The match proves the text it changed, not the rest: the file is not counted as read for a later overwrite.
             let seen = !ctx.files.changed_since_seen(&path);
-            super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            super::stage::replace(&ctx.engine.store, &path, &written).await?;
             if seen {
                 ctx.files.restamp(&path);
             }
@@ -99,9 +105,9 @@ impl Tool for Edit {
     }
 }
 
-/// The file's text, once it exists. It need not have been read: `old_string` must match it exactly and once,
-/// which proves the model knows the text it changes.
-async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, ToolError> {
+/// The file's text and encoding, once it exists. It need not have been read: `old_string` must match it exactly
+/// and once, which proves the model knows the text it changes.
+async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<(String, Encoding), ToolError> {
     // A missing file first: reading it would only fail too, and `write` is what creates one.
     if tokio::fs::metadata(path)
         .await
@@ -109,17 +115,21 @@ async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, Too
     {
         return Err(ToolError(format!("{name} does not exist; use write to create it")));
     }
-    tokio::fs::read_to_string(path)
-        .await
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
-            _ => ToolError(format!("{name} could not be read as text ({error})")),
-        })
+    let bytes = tokio::fs::read(path).await.map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
+        _ => ToolError(format!("{name} could not be read as text ({error})")),
+    })?;
+
+    decode(&bytes).ok_or_else(|| {
+        ToolError(format!(
+            "{name} is not UTF-8 or UTF-16 text (Windows-1252, for example), so editing it would corrupt it; it was not changed"
+        ))
+    })
 }
 
 /// The diff the edit would make now, or `None` when it would not apply.
 fn proposed(path: &std::path::Path, name: &str, input: &Value) -> Option<String> {
-    let raw = std::fs::read_to_string(path).ok()?;
+    let (raw, _) = decode(&std::fs::read(path).ok()?)?;
     let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
     let (old, new) = (input["old_string"].as_str()?, input["new_string"].as_str()?);
     let replace_all = input["replace_all"].as_bool().unwrap_or(false);
@@ -177,7 +187,7 @@ fn miss(content: &str, old: &str) -> String {
 }
 
 /// The window of the file whose lines best overlap `wanted`, numbered, so the model can copy it
-/// without another read; `None` when no line overlaps at all.
+/// without another read; `None` when no telling line (one with a letter or digit) overlaps at all.
 pub(super) fn closest_region(content: &str, wanted: &[&str]) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
     let wanted: Vec<&str> = wanted
@@ -185,21 +195,26 @@ pub(super) fn closest_region(content: &str, wanted: &[&str]) -> Option<String> {
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect();
-    if lines.is_empty() || wanted.is_empty() {
+    let telling: Vec<&str> = wanted
+        .iter()
+        .copied()
+        .filter(|line| line.chars().any(char::is_alphanumeric))
+        .collect();
+    if lines.is_empty() || telling.is_empty() {
         return None;
     }
 
     let window = wanted.len().min(lines.len());
-    let score = |start: usize| {
+    let hits = |start: usize, among: &[&str]| {
         lines[start..start + window]
             .iter()
-            .filter(|line| wanted.contains(&line.trim()))
+            .filter(|line| among.contains(&line.trim()))
             .count()
     };
-    let (best, hits) = (0..=lines.len() - window)
-        .map(|start| (start, score(start)))
-        .max_by_key(|(start, hits)| (*hits, usize::MAX - *start))?;
-    if hits == 0 {
+    let (best, telling_hits, _) = (0..=lines.len() - window)
+        .map(|start| (start, hits(start, &telling), hits(start, &wanted)))
+        .max_by_key(|(start, telling, all)| (*telling, *all, usize::MAX - *start))?;
+    if telling_hits == 0 {
         return None;
     }
 
@@ -501,5 +516,16 @@ mod tests {
     #[test]
     fn no_overlap_gives_a_plain_miss() {
         assert!(miss("a\nb\n", "zzz").contains("read the file again"));
+    }
+
+    #[test]
+    fn lines_of_only_braces_or_blanks_point_at_no_region() {
+        let file = "fn a() {\n    one();\n}\n\nfn b() {\n    two();\n}\n";
+        assert_eq!(closest_region(file, &["fn c() {", "    three();", "}", ""]), None);
+        assert_eq!(closest_region(file, &["});", ""]), None);
+        assert!(
+            closest_region(file, &["fn b() {", "    three();", "}"])
+                .is_some_and(|region| region.contains("5: fn b() {"))
+        );
     }
 }

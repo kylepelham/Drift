@@ -161,30 +161,35 @@ impl Engine {
         }
     }
 
-    /// Closes the calls a reply cut off at its output limit, each with the start of the input it was writing,
-    /// so the model can send it again in smaller pieces.
-    pub(super) fn settle_cut_off(&self, message: &Message) {
-        let Ok(Some(found)) = self.store.with_parts(&message.id) else {
-            return;
-        };
+    /// Closes the call a reply cut off at its output limit was writing, with the start of its input, so the model
+    /// can send it again in smaller pieces. Returns the calls it finished writing, to run as usual.
+    pub(super) fn settle_cut_off(&self, message: &Message, calls: Vec<PartRow>) -> Vec<PartRow> {
+        let parts = self.store.with_parts(&message.id).ok().flatten();
+        let last = parts
+            .as_ref()
+            .and_then(|found| found.parts.last())
+            .map(|row| row.id.as_str());
+        let (cut, finished): (Vec<_>, Vec<_>) = calls.into_iter().partition(|row| cut_off(row, last));
 
-        for mut row in found.parts {
-            let Part::ToolCall {
-                status: ToolStatus::Pending,
-                input,
-                ..
-            } = &row.part
-            else {
+        for mut row in cut {
+            let Part::ToolCall { name, input, .. } = &row.part else {
                 continue;
+            };
+            let advice = if name == "task" {
+                "Start fewer subagents per reply, each with a shorter prompt."
+            } else {
+                "Split the payload into smaller pieces: several smaller writes or edits."
             };
             let input = input.as_str().map_or_else(|| input.to_string(), str::to_string);
             let excerpt: String = input.chars().take(CUT_OFF_EXCERPT).collect();
             let reason = format!(
                 "Not run: the reply hit its output limit while writing this call, so its input is cut short. \
-                 It began:\n{excerpt}\nSplit the payload into smaller pieces: several smaller writes or edits."
+                 It began:\n{excerpt}\n{advice}"
             );
             self.settle(&mut row, Settlement::error(reason));
         }
+
+        finished
     }
 
     /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
@@ -249,5 +254,17 @@ impl Engine {
         if let (Some(task), Ok(())) = (delivers, saved) {
             self.publish_task(task);
         }
+    }
+}
+
+/// Whether the reply was still writing this call at its output limit: its input never parsed, or it is the reply's
+/// last part and has no input yet.
+fn cut_off(row: &PartRow, last: Option<&str>) -> bool {
+    match &row.part {
+        Part::ToolCall {
+            input: serde_json::Value::Object(fields),
+            ..
+        } => fields.is_empty() && last == Some(row.id.as_str()),
+        _ => true,
     }
 }

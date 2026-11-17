@@ -1,7 +1,6 @@
 import { shellEvents, shellInvoke } from "../shell";
 import { signInPath } from "../runtime";
 import { createSignal } from "solid-js";
-import { t } from "./i18n";
 
 export type RemoteDevice = {
     id: string;
@@ -22,13 +21,15 @@ export type RemoteAccessStatus = {
     tunnelEnabled: boolean;
     tunnel: { phase: TunnelPhase; url?: string; error?: string };
     devices: RemoteDevice[];
+    /** Where a device on this network connects when it does not find this computer nearby. */
+    addresses: string[];
     passwordUsername?: string;
     certificateFingerprint: string;
     error?: string;
 };
 
-/** A one-time code the Drift app scans to link this PC. */
-export type RemotePairing = { uri: string; qr: string; expiresAt: number };
+/** A device asking to connect, shown with the code its own screen shows. */
+export type ConnectRequest = { id: string; name: string; code: string; address: string; expiresAt: number };
 
 export function remoteStatusTone(status: RemoteAccessStatus | null) {
     if (!status) return "idle";
@@ -44,11 +45,6 @@ export function nextRemoteAccessEnabled(status: RemoteAccessStatus | null) {
 export function tunnelUrl(status: RemoteAccessStatus | null) {
     const tunnel = status?.tunnel;
     return tunnel?.phase === "online" || tunnel?.phase === "reconnecting" ? tunnel.url : undefined;
-}
-
-/** Whether a pairing code also reaches the PC through the tunnel, away from its network. */
-export function pairingReachesAnywhere(pairing: RemotePairing) {
-    return new URL(pairing.uri).searchParams.has("h");
 }
 
 const relativeUnits = [
@@ -105,16 +101,18 @@ export function setRemoteTunnel(enabled: boolean) {
     return call("remote_access_set_tunnel", { enabled });
 }
 
-/** A fresh pairing code for the Drift app; it replaces any shown before. */
-export async function showRemotePairing() {
-    const invoke = shellInvoke();
-    if (!invoke) throw new Error(t("drift.remote.pairRequiresDesktop"));
-    return invoke<RemotePairing>("remote_access_pairing");
+/** The devices asking to connect now, oldest first; none outside this PC's own window. */
+export async function connectRequests() {
+    return (await shellInvoke()?.<ConnectRequest[]>("remote_access_requests")) ?? [];
 }
 
-/** The app device that signed in with the code shown at `since`, once it has. */
-export function pairedDevice(status: RemoteAccessStatus | null, since: number) {
-    return status?.devices.find((device) => device.method === "app" && device.createdAt >= since);
+export async function answerConnectRequest(id: string, accept: boolean) {
+    await shellInvoke()?.("remote_access_answer", { id, accept });
+}
+
+/** Calls `changed` whenever a device starts or stops asking to connect. */
+export function listenConnectRequests(changed: () => void) {
+    return shellEvents()?.listen("remote-access-requests", changed);
 }
 
 export function revokeRemoteDevice(id?: string) {

@@ -50,9 +50,13 @@ function shellStore(invoke: Invoke): DriftStore {
     };
 }
 
-function read<T>(key: string, initial: T): T {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : initial;
+function read<T extends object>(key: string): T[] {
+    try {
+        const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+        return Array.isArray(parsed) ? parsed.filter((item): item is T => !!item && typeof item === "object") : [];
+    } catch {
+        return [];
+    }
 }
 
 function write(key: string, value: unknown) {
@@ -66,7 +70,7 @@ function browserStore(): DriftStore {
     const arKey = "drift.store.archived";
     if (typeof localStorage !== "undefined" && typeof localStorage.removeItem === "function")
         localStorage.removeItem("drift.store.interruptions");
-    const all = () => read<StoredWorkspace[]>(wsKey, []);
+    const all = () => read<StoredWorkspace>(wsKey);
     return {
         workspaces: async () =>
             all()
@@ -121,7 +125,7 @@ function browserStore(): DriftStore {
                 );
                 write(
                     arKey,
-                    read<ArchivedSession[]>(arKey, []).filter((a) => !duplicates.some((d) => d.id === a.workspaceId)),
+                    read<ArchivedSession>(arKey).filter((a) => !duplicates.some((d) => d.id === a.workspaceId)),
                 );
             }
             return all().filter((w) => w.removedAt && w.removedAt < before && !activePaths.has(canonical(w.path)));
@@ -133,22 +137,22 @@ function browserStore(): DriftStore {
             );
             write(
                 arKey,
-                read<ArchivedSession[]>(arKey, []).filter((a) => a.workspaceId !== id),
+                read<ArchivedSession>(arKey).filter((a) => a.workspaceId !== id),
             );
         },
-        archived: async () => read<ArchivedSession[]>(arKey, []),
+        archived: async () => read<ArchivedSession>(arKey),
         archiveSession: async (sessionId, workspaceId) => {
-            const list = read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId);
+            const list = read<ArchivedSession>(arKey).filter((a) => a.sessionId !== sessionId);
             write(arKey, [...list, { sessionId, workspaceId, archivedAt: Date.now() }]);
         },
         unarchiveSession: async (sessionId) => {
             write(
                 arKey,
-                read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId),
+                read<ArchivedSession>(arKey).filter((a) => a.sessionId !== sessionId),
             );
         },
         expiredArchived: async (before) =>
-            read<ArchivedSession[]>(arKey, [])
+            read<ArchivedSession>(arKey)
                 .filter((a) => a.archivedAt < before)
                 .map((a) => a.sessionId),
         // Content search reads the engine database directly, which only the desktop backend can do.

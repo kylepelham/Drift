@@ -68,7 +68,7 @@ impl Search<'_> {
         SearcherBuilder::new()
             .line_number(true)
             .binary_detection(BinaryDetection::quit(0))
-            .multi_line(self.options.multiline)
+            .multi_line(self.options.spans_lines)
             .before_context(if content { self.options.before } else { 0 })
             .after_context(if content { self.options.after } else { 0 })
             .build()
@@ -152,8 +152,9 @@ struct Collect<'a> {
 }
 
 impl Collect<'_> {
-    fn push(&mut self, number: u64, matched: bool, bytes: &[u8]) -> Result<(), std::io::Error> {
-        let text = std::str::from_utf8(bytes).map_err(std::io::Error::other)?;
+    /// A line that is not UTF-8 is shown lossily, as ripgrep prints it, so the rest of the file is still searched.
+    fn push(&mut self, number: u64, matched: bool, bytes: &[u8]) {
+        let text = String::from_utf8_lossy(bytes);
         for (index, line) in text.lines().enumerate() {
             self.hits.lines.push(Line {
                 number: number + index as u64,
@@ -163,8 +164,6 @@ impl Collect<'_> {
             });
             self.counted(1);
         }
-
-        Ok(())
     }
 
     /// Counts collected entries; once the search has enough, every file's search ends.
@@ -188,7 +187,7 @@ impl Sink for Collect<'_> {
     fn matched(&mut self, _: &Searcher, found: &SinkMatch<'_>) -> Result<bool, Self::Error> {
         self.hits.count += 1;
         match self.search.options.mode {
-            Mode::Content => self.push(found.line_number().unwrap_or(0), true, found.bytes())?,
+            Mode::Content => self.push(found.line_number().unwrap_or(0), true, found.bytes()),
             Mode::Files => {
                 self.counted(1);
                 return Ok(false);
@@ -200,7 +199,7 @@ impl Sink for Collect<'_> {
     }
 
     fn context(&mut self, _: &Searcher, context: &SinkContext<'_>) -> Result<bool, Self::Error> {
-        self.push(context.line_number().unwrap_or(0), false, context.bytes())?;
+        self.push(context.line_number().unwrap_or(0), false, context.bytes());
 
         Ok(self.keeps_going())
     }

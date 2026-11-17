@@ -189,6 +189,65 @@ fn the_scratch_directory_is_free_to_read_and_write_and_the_rest_of_temp_is_not()
 }
 
 #[test]
+fn each_conversation_has_its_own_scratch_folder_and_the_sessions_sharing_its_cache_share_it() {
+    use crate::session::types::Visibility::{Hidden, Sibling};
+    let sandbox = Sandbox::new("scratch-own");
+    let store = &sandbox.ctx.engine.store;
+    let workspace = store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "ws", "")
+        .unwrap();
+    let session = |parent_id: Option<&str>, visibility| {
+        store
+            .create_session(crate::store::NewSession {
+                workspace_id: &workspace.id,
+                parent_id,
+                visibility,
+                title: "t",
+                agent: "build",
+                model: None,
+            })
+            .unwrap()
+            .id
+    };
+    let (one, two) = (session(None, Sibling), session(None, Sibling));
+    let worker = session(Some(&one), Hidden);
+    let nested = session(Some(&worker), Hidden);
+    let spawned = session(Some(&one), Sibling);
+
+    let mine = conversation_scratch(store, &one);
+    assert_eq!(mine, scratch_dir().join(&one));
+    assert!(mine.is_dir());
+    assert_ne!(conversation_scratch(store, &two), mine);
+    assert_eq!(conversation_scratch(store, &worker), mine);
+    assert_eq!(conversation_scratch(store, &nested), mine);
+    assert_eq!(
+        conversation_scratch(store, &spawned),
+        mine,
+        "a spawned thread shares its source's prompt cache"
+    );
+    assert!(
+        sandbox
+            .ctx
+            .ask_to_write(&mine.join("notes.txt"), "Write")
+            .unwrap()
+            .default_allow,
+        "still inside the scratch directory"
+    );
+    for id in [&one, &two, &spawned] {
+        let _ = std::fs::remove_dir_all(scratch_dir().join(id));
+    }
+}
+
+#[test]
+fn a_session_id_not_shaped_like_one_never_names_a_scratch_folder() {
+    let sandbox = Sandbox::new("scratch-odd");
+    let store = &sandbox.ctx.engine.store;
+    for odd in ["../../x", "C:\\x", "/x", "ses_a/../../b", ""] {
+        assert_eq!(conversation_scratch(store, odd), scratch_dir(), "{odd}");
+    }
+}
+
+#[test]
 fn workspace_edits_run_by_default_except_drifts_own_config_vcs_internals_and_secrets() {
     let sandbox = Sandbox::new("edit-defaults");
     let workspace = &sandbox.ctx.workspace;

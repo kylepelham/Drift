@@ -1,13 +1,13 @@
+import { appApi, appConnector, openDrift, type Computer } from "./api";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { appApi, openDrift, type Computer } from "./api";
+import { ConnectComputer } from "../ui/connect-computer";
 import { t } from "../state/i18n";
 
-const primary =
-    "h-11 w-full rounded-lg bg-accent px-4 text-sm font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40";
 const secondary =
     "h-9 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40";
 
-/** The app's home when no PC is open: the linked PCs, and scanning a pairing code to link another. */
+/** The app's home when no PC is open: the linked PCs, and the computers nearby to connect to another. A desktop
+ * lists its own Drift first. */
 export function Computers() {
     const [computers, { refetch }] = createResource(appApi.computers);
     const [busy, setBusy] = createSignal("");
@@ -37,10 +37,7 @@ export function Computers() {
             await appApi.forget(computer.id);
             await refetch();
         });
-    const scan = () =>
-        act("scan", async () => {
-            if (await appApi.scan()) openDrift();
-        });
+    const home = () => act("local", appApi.local);
 
     return (
         <main class="app-computers mx-auto flex min-h-full max-w-lg flex-col gap-5 bg-bg px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] text-ink">
@@ -65,9 +62,24 @@ export function Computers() {
                 </p>
             </Show>
 
+            <Show when={computers()?.local}>
+                {(name) => (
+                    <button
+                        class="flex items-center gap-3 rounded-lg border border-edge bg-surface px-3 py-2.5 text-left disabled:opacity-60"
+                        disabled={!!busy()}
+                        onClick={() => void home()}
+                    >
+                        <div class="min-w-0 flex-1">
+                            <div class="truncate text-sm font-medium">{t("drift.computers.thisPc")}</div>
+                            <div class="truncate text-xs text-ink-faint">{name()}</div>
+                        </div>
+                    </button>
+                )}
+            </Show>
+
             <Show when={computers() && !computers.error}>
                 <Linked
-                    computers={computers() ?? []}
+                    computers={computers()?.computers ?? []}
                     busy={busy()}
                     onOpen={(computer) => void open(computer)}
                     onForget={(computer) => void forget(computer)}
@@ -75,10 +87,8 @@ export function Computers() {
             </Show>
 
             <section class="space-y-3">
-                <button class={primary} disabled={!!busy()} onClick={() => void scan()}>
-                    {busy() === "scan" ? t("drift.app.scanning") : t("drift.app.scan")}
-                </button>
-                <p class="text-xs leading-relaxed text-ink-faint">{t("drift.app.scanHint")}</p>
+                <ConnectComputer connector={appConnector} onLinked={openDrift} />
+                <p class="text-xs leading-relaxed text-ink-faint">{t("drift.computers.connectHint")}</p>
             </section>
         </main>
     );

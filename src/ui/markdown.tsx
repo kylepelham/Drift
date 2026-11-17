@@ -16,7 +16,7 @@ import { syntaxTheme } from "../state/code";
 import { backendInvoke } from "../backend";
 import { openFile } from "../tool-actions";
 import { openLightbox } from "./lightbox";
-import { shellInvoke } from "../shell";
+import { desktopOpener } from "../shell";
 import { t } from "../state/i18n";
 import { marked } from "marked";
 import {
@@ -81,12 +81,12 @@ export async function openMarkdownLink(
 }
 
 async function openExternalMarkdownLink(event: MouseEvent, url: string) {
-    const invoke = shellInvoke();
-    if (!invoke) return;
+    const open = desktopOpener();
+    if (!open) return;
 
     event.preventDefault();
     event.stopPropagation();
-    await invoke("plugin:opener|open_url", { url });
+    await open(url);
 }
 
 function markdownNavigationClick(event: MouseEvent) {

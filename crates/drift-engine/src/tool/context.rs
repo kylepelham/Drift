@@ -344,7 +344,7 @@ impl Context {
     fn owns_output(&self, path: &Path) -> bool {
         let owned = canonical(&self.engine.data_dir.join("tool-output").join(&self.session_id));
 
-        path.starts_with(&owned) && path != owned
+        crate::id::well_formed(&self.session_id) && path.starts_with(&owned) && path != owned
     }
 }
 

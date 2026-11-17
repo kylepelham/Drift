@@ -101,16 +101,25 @@ fn owned(context: &Context, id: &str) -> Result<Arc<Handle>, ToolError> {
         .get(id)
         .filter(|handle| handle.session_id == context.session_id)
         .ok_or_else(|| {
-            ToolError(format!(
-                "no background process `{id}` in this conversation; `list` shows them"
-            ))
+            // Models mistype long ids, so the error names the right ones and the next call needs no `list` first.
+            let known = listing(context).map_or_else(
+                || "it has none".to_string(),
+                |lines| format!("these are its processes:\n{lines}"),
+            );
+            ToolError(format!("no background process `{id}` in this conversation; {known}"))
         })
 }
 
 fn list(context: &Context) -> Output {
+    let text = listing(context).unwrap_or_else(|| "This conversation has no background processes.".into());
+    Output::new("Background processes", text)
+}
+
+/// Each of the conversation's processes on a line with its state and command, or nothing when it has none.
+fn listing(context: &Context) -> Option<String> {
     let handles = context.engine.processes.of(&context.session_id);
     if handles.is_empty() {
-        return Output::new("Background processes", "This conversation has no background processes.");
+        return None;
     }
 
     let lines: Vec<String> = handles
@@ -125,7 +134,7 @@ fn list(context: &Context) -> Output {
         })
         .collect();
 
-    Output::new("Background processes", lines.join("\n"))
+    Some(lines.join("\n"))
 }
 
 /// New output, or the lines matching `search`, under a line saying how the process is.

@@ -47,6 +47,36 @@ async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
 }
 
 #[tokio::test]
+async fn tag_limits_are_kept_lowercased_and_a_bad_one_changes_nothing() {
+    let harness = harness().await;
+    assert_eq!(
+        json_response(harness.get("/settings")).await["taskTagLimits"],
+        json!({})
+    );
+
+    let set = harness
+        .put("/settings")
+        .json(&json!({ "taskTagLimits": { " GPU ": 3, "merge": 1 } }));
+    assert_eq!(
+        json_response(set).await["taskTagLimits"],
+        json!({ "gpu": 3, "merge": 1 })
+    );
+    let refused = harness
+        .put("/settings")
+        .json(&json!({ "autoCompact": false, "taskTagLimits": { "gpu": 0 } }));
+    assert_eq!(response_status(refused).await, 400);
+    let settings = json_response(harness.get("/settings")).await;
+    assert_eq!(
+        (
+            settings["taskTagLimits"]["gpu"].as_u64(),
+            settings["autoCompact"].as_bool()
+        ),
+        (Some(3), Some(true)),
+        "a refused request saves none of it"
+    );
+}
+
+#[tokio::test]
 async fn an_ended_worker_is_listed_with_the_files_it_changed_and_without_its_result() {
     use crate::session::types::{Part, Role, ToolStatus};
     let harness = harness().await;
@@ -193,4 +223,26 @@ async fn local_ollama_is_listed_before_it_answers_and_its_address_must_be_a_web_
             .json(&json!({ "address": typed }));
         assert_eq!(response_status(put).await, 400, "{typed}");
     }
+}
+
+#[tokio::test]
+async fn language_servers_are_listed_with_how_each_stands_and_an_unknown_one_is_not_installed() {
+    let harness = harness().await;
+    let servers = json_response(harness.get("/lsp")).await;
+    let slang = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|server| server["name"] == "slang")
+        .unwrap();
+    assert_eq!(
+        (slang["source"].as_str(), slang["command"].as_str()),
+        (Some("builtin"), Some("slangd"))
+    );
+    assert!(slang["guide"].as_str().unwrap().starts_with("https://"));
+
+    let refused = harness
+        .post("/lsp/install")
+        .json(&json!({ "name": "nothing-like-this" }));
+    assert_eq!(response_status(refused).await, 422);
 }

@@ -27,6 +27,14 @@ pub const SETTINGS_KEY: &str = "imageGeneration";
 /// The most reference images one call takes: xAI's and Codex's limit, the smallest of the cloud providers'.
 pub const MAX_REFERENCES: usize = 5;
 
+/// The environment variables image providers' own keys are read from.
+pub fn key_variables() -> impl Iterator<Item = &'static str> {
+    PROVIDERS.iter().filter_map(|provider| match provider.access {
+        Access::Key { env } => Some(env),
+        _ => None,
+    })
+}
+
 /// Which pays first for OpenAI images when both can.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

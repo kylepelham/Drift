@@ -39,6 +39,8 @@ pub struct Credentials {
     backend: Backend,
     /// Every mutation holds this, so a compare-and-set cannot interleave with a login or logout.
     write_lock: Mutex<()>,
+    /// Held over each keychain read and write, so a reader never mixes two versions of a split secret.
+    entry_lock: Mutex<()>,
     /// Providers with a stored credential; keychains cannot enumerate, so we keep our own list.
     index: Mutex<BTreeSet<String>>,
     /// Each provider's accounts in the order they are used, for providers signed in more than the old single way.
@@ -48,7 +50,7 @@ pub struct Credentials {
 }
 
 enum Backend {
-    Keyring,
+    Keyring(Box<dyn Entries>),
     Protected(super::credential_file::ProtectedFile),
     Unavailable(Arc<FileError>),
     #[cfg(test)]
@@ -63,7 +65,7 @@ impl Credentials {
         }
 
         let backend = match keyring::Entry::store_status() {
-            Ok(()) if !prefer_file => Backend::Keyring,
+            Ok(()) if !prefer_file => Backend::Keyring(Box::new(Keychain)),
             _ => match super::credential_file::ProtectedFile::open(data_dir) {
                 Ok(file) => Backend::Protected(file),
                 Err(error) => Backend::Unavailable(Arc::new(error)),
@@ -88,6 +90,7 @@ impl Credentials {
         let this = Self {
             backend,
             write_lock: Mutex::default(),
+            entry_lock: Mutex::default(),
             index: Mutex::default(),
             accounts: Mutex::default(),
             keyless: Mutex::default(),
@@ -252,20 +255,9 @@ impl Credentials {
 
     fn read(&self, key: &str) -> Option<String> {
         match &self.backend {
-            Backend::Keyring => {
-                let head = keyring::Entry::new(SERVICE, key).ok()?.get_password().ok()?;
-                let Some(count) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else {
-                    return Some(head);
-                };
-
-                (0..count)
-                    .map(|i| {
-                        keyring::Entry::new(SERVICE, &format!("{key}#{i}"))
-                            .ok()?
-                            .get_password()
-                            .ok()
-                    })
-                    .collect()
+            Backend::Keyring(entries) => {
+                let _held = self.entry_lock.lock().unwrap();
+                read_split(entries.as_ref(), key)
             }
             Backend::Protected(file) => file.read().ok()?.get(key).and_then(Value::as_str).map(str::to_string),
             Backend::Unavailable(_) => None,
@@ -276,32 +268,9 @@ impl Credentials {
 
     fn write(&self, key: &str, value: &str) -> Result<(), CredentialError> {
         match &self.backend {
-            Backend::Keyring => {
-                let characters: Vec<char> = value.chars().collect();
-                let chunks: Vec<String> = characters
-                    .chunks(CHUNK_CHARS)
-                    .map(|chunk| chunk.iter().collect())
-                    .collect();
-                let put = |name: String, text: &str| {
-                    keyring::Entry::new(SERVICE, &name)
-                        .and_then(|e| e.set_password(text))
-                        .map_err(CredentialError::Keyring)
-                };
-
-                let stale = chunk_count(key);
-                let written = if chunks.len() <= 1 {
-                    put(key.into(), value)?;
-                    0
-                } else {
-                    for (i, chunk) in chunks.iter().enumerate() {
-                        put(format!("{key}#{i}"), chunk)?;
-                    }
-                    put(key.into(), &format!("{CHUNKED}{}", chunks.len()))?;
-                    chunks.len()
-                };
-                remove_chunks(key, written..stale);
-
-                Ok(())
+            Backend::Keyring(entries) => {
+                let _held = self.entry_lock.lock().unwrap();
+                Ok(write_split(entries.as_ref(), key, value)?)
             }
             Backend::Protected(file) => {
                 let mut map = file.read()?;
@@ -320,13 +289,9 @@ impl Credentials {
 
     fn delete(&self, key: &str) -> Result<(), CredentialError> {
         match &self.backend {
-            Backend::Keyring => {
-                remove_chunks(key, 0..chunk_count(key));
-
-                match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
-                    Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                    Err(error) => Err(CredentialError::Keyring(error)),
-                }
+            Backend::Keyring(entries) => {
+                let _held = self.entry_lock.lock().unwrap();
+                Ok(delete_split(entries.as_ref(), key)?)
             }
             Backend::Protected(file) => {
                 let mut map = file.read()?;
@@ -344,19 +309,122 @@ impl Credentials {
     }
 }
 
-/// How many `key#N` chunks the keychain holds for `key`, from its head entry.
-fn chunk_count(key: &str) -> usize {
-    keyring::Entry::new(SERVICE, key)
-        .and_then(|entry| entry.get_password())
-        .ok()
-        .and_then(|head| head.strip_prefix(CHUNKED)?.parse().ok())
-        .unwrap_or(0)
+/// One secret per name, as the OS keychain holds them.
+trait Entries: Send + Sync {
+    fn get(&self, name: &str) -> Option<String>;
+    fn put(&self, name: &str, value: &str) -> Result<(), keyring::Error>;
+    /// Succeeds when there is no such entry.
+    fn remove(&self, name: &str) -> Result<(), keyring::Error>;
 }
 
-fn remove_chunks(key: &str, chunks: std::ops::Range<usize>) {
-    for i in chunks {
-        let _ = keyring::Entry::new(SERVICE, &format!("{key}#{i}")).and_then(|entry| entry.delete_credential());
+struct Keychain;
+
+impl Entries for Keychain {
+    fn get(&self, name: &str) -> Option<String> {
+        keyring::Entry::new(SERVICE, name).ok()?.get_password().ok()
     }
+
+    fn put(&self, name: &str, value: &str) -> Result<(), keyring::Error> {
+        keyring::Entry::new(SERVICE, name)?.set_password(value)
+    }
+
+    fn remove(&self, name: &str) -> Result<(), keyring::Error> {
+        match keyring::Entry::new(SERVICE, name).and_then(|entry| entry.delete_credential()) {
+            Err(keyring::Error::NoEntry) => Ok(()),
+            done => done,
+        }
+    }
+}
+
+/// Where a split secret's pieces are, as its head entry says: `key#N`, or `key#GEN#N` since generations.
+struct Pieces {
+    count: usize,
+    generation: Option<String>,
+}
+
+impl Pieces {
+    fn of(head: &str) -> Option<Self> {
+        let rest = head.strip_prefix(CHUNKED)?;
+        let (count, generation) = match rest.split_once('@') {
+            Some((count, generation)) => (count, Some(generation.to_string())),
+            None => (rest, None),
+        };
+
+        Some(Self {
+            count: count.parse().ok()?,
+            generation,
+        })
+    }
+
+    fn name(&self, key: &str, i: usize) -> String {
+        match &self.generation {
+            Some(generation) => format!("{key}#{generation}#{i}"),
+            None => format!("{key}#{i}"),
+        }
+    }
+
+    fn remove(&self, entries: &dyn Entries, key: &str) {
+        for i in 0..self.count {
+            let _ = entries.remove(&self.name(key, i));
+        }
+    }
+}
+
+fn read_split(entries: &dyn Entries, key: &str) -> Option<String> {
+    let head = entries.get(key)?;
+    let Some(pieces) = Pieces::of(&head) else {
+        return Some(head);
+    };
+
+    (0..pieces.count).map(|i| entries.get(&pieces.name(key, i))).collect()
+}
+
+/// Writes new pieces under a fresh generation and the head naming them last, so a failure leaves the old ones whole.
+fn write_split(entries: &dyn Entries, key: &str, value: &str) -> Result<(), keyring::Error> {
+    let stale = entries.get(key).as_deref().and_then(Pieces::of);
+    let characters: Vec<char> = value.chars().collect();
+    let chunks: Vec<String> = characters
+        .chunks(CHUNK_CHARS)
+        .map(|chunk| chunk.iter().collect())
+        .collect();
+
+    if chunks.len() <= 1 {
+        entries.put(key, value)?;
+    } else {
+        let taken = stale.as_ref().and_then(|stale| stale.generation.clone());
+        let generation = std::iter::repeat_with(|| crate::random_hex(4))
+            .find(|generation| taken.as_ref() != Some(generation))
+            .unwrap();
+        let pieces = Pieces {
+            count: chunks.len(),
+            generation: Some(generation.clone()),
+        };
+        let written = chunks
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, chunk)| entries.put(&pieces.name(key, i), chunk))
+            .and_then(|()| entries.put(key, &format!("{CHUNKED}{}@{generation}", chunks.len())));
+        if let Err(error) = written {
+            pieces.remove(entries, key);
+            return Err(error);
+        }
+    }
+    if let Some(stale) = stale {
+        stale.remove(entries, key);
+    }
+
+    Ok(())
+}
+
+/// The head goes first, so a removal stopped partway leaves no head naming missing pieces.
+fn delete_split(entries: &dyn Entries, key: &str) -> Result<(), keyring::Error> {
+    let stale = entries.get(key).as_deref().and_then(Pieces::of);
+    entries.remove(key)?;
+    if let Some(stale) = stale {
+        stale.remove(entries, key);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -527,20 +595,129 @@ mod tests {
 mod keyring_tests {
     use super::*;
 
+    /// Without `loaded`, so the real keychain's own index and accounts are never read or touched.
+    fn keychain(entries: Box<dyn Entries>) -> Credentials {
+        Credentials {
+            backend: Backend::Keyring(entries),
+            write_lock: Mutex::default(),
+            entry_lock: Mutex::default(),
+            index: Mutex::default(),
+            accounts: Mutex::default(),
+            keyless: Mutex::default(),
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct Memory {
+        entries: Arc<Mutex<BTreeMap<String, String>>>,
+        /// Puts that succeed before the rest fail; `None` never fails.
+        puts_left: Arc<Mutex<Option<usize>>>,
+    }
+
+    impl Memory {
+        fn names(&self) -> Vec<String> {
+            self.entries.lock().unwrap().keys().cloned().collect()
+        }
+    }
+
+    impl Entries for Memory {
+        fn get(&self, name: &str) -> Option<String> {
+            self.entries.lock().unwrap().get(name).cloned()
+        }
+
+        fn put(&self, name: &str, value: &str) -> Result<(), keyring::Error> {
+            if let Some(left) = self.puts_left.lock().unwrap().as_mut() {
+                if *left == 0 {
+                    return Err(keyring::Error::NotSupportedByStore("full".into()));
+                }
+                *left -= 1;
+            }
+            self.entries.lock().unwrap().insert(name.into(), value.into());
+
+            Ok(())
+        }
+
+        fn remove(&self, name: &str) -> Result<(), keyring::Error> {
+            self.entries.lock().unwrap().remove(name);
+
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_secret_split_the_old_way_still_reads_and_its_pieces_go_when_rewritten() {
+        let memory = Memory::default();
+        for (name, value) in [("k", "\u{1}chunked:2"), ("k#0", "ab"), ("k#1", "cd")] {
+            memory.put(name, value).unwrap();
+        }
+        let store = keychain(Box::new(memory.clone()));
+        assert_eq!(store.read("k").as_deref(), Some("abcd"));
+
+        let long = "x".repeat(CHUNK_CHARS * 2 + 1);
+        store.write("k", &long).unwrap();
+        assert_eq!(store.read("k"), Some(long));
+        assert_eq!(
+            memory.names().len(),
+            4,
+            "the head and three new pieces: {:?}",
+            memory.names()
+        );
+        assert!(!memory.names().contains(&"k#0".to_string()));
+
+        store.write("k", "short").unwrap();
+        assert_eq!(memory.names(), ["k"]);
+        store.write("k", &"y".repeat(CHUNK_CHARS + 1)).unwrap();
+        store.delete("k").unwrap();
+        assert!(memory.names().is_empty());
+    }
+
+    #[test]
+    fn a_split_write_that_fails_partway_leaves_the_old_secret_whole() {
+        let memory = Memory::default();
+        let store = keychain(Box::new(memory.clone()));
+        let old = "o".repeat(CHUNK_CHARS * 2 + 1);
+        store.write("k", &old).unwrap();
+        let before = memory.names();
+
+        // Failing at the second piece, then at the head once all three pieces are in.
+        for puts in [1, 3] {
+            *memory.puts_left.lock().unwrap() = Some(puts);
+            assert!(store.write("k", &"n".repeat(CHUNK_CHARS * 2 + 1)).is_err());
+            *memory.puts_left.lock().unwrap() = None;
+
+            assert_eq!(store.read("k"), Some(old.clone()));
+            assert_eq!(memory.names(), before, "the new pieces are cleared away");
+        }
+    }
+
+    #[test]
+    fn a_read_during_a_split_write_sees_one_whole_version() {
+        let store = Arc::new(keychain(Box::new(Memory::default())));
+        let versions = ["a".repeat(CHUNK_CHARS * 3), "b".repeat(CHUNK_CHARS * 2 + 7)];
+        store.write("k", &versions[0]).unwrap();
+
+        let writer = {
+            let (store, versions) = (store.clone(), versions.clone());
+            std::thread::spawn(move || {
+                for i in 0..200 {
+                    store.write("k", &versions[i % 2]).unwrap();
+                }
+            })
+        };
+        for _ in 0..200 {
+            let read = store.read("k").expect("a split secret is never missing mid-write");
+            assert!(versions.contains(&read), "a read mixed two versions");
+        }
+        writer.join().unwrap();
+    }
+
     #[test]
     fn long_secrets_round_trip_through_the_real_keychain() {
         if keyring::Entry::store_status().is_err() {
             return;
         }
 
-        // The real keychain holds the user's own index and accounts, so only the probe's key is touched.
-        let store = Credentials {
-            backend: Backend::Keyring,
-            write_lock: Mutex::default(),
-            index: Mutex::default(),
-            accounts: Mutex::default(),
-            keyless: Mutex::default(),
-        };
+        let store = keychain(Box::new(Keychain));
         let key = format!("probe-{}", crate::random_hex(3));
         let long = Credential::OAuth {
             access: "a".repeat(2500),
@@ -551,14 +728,9 @@ mod keyring_tests {
 
         store.write(&key, &serde_json::to_string(&long).unwrap()).unwrap();
         assert_eq!(store.account(&key), Some(long));
+        let pieces = Keychain.get(&key).as_deref().and_then(Pieces::of).unwrap();
         store.delete(&key).unwrap();
         assert!(store.account(&key).is_none());
-        assert!(
-            keyring::Entry::new(SERVICE, &format!("{key}#0"))
-                .unwrap()
-                .get_password()
-                .is_err(),
-            "chunks are removed too"
-        );
+        assert!(Keychain.get(&pieces.name(&key, 0)).is_none(), "chunks are removed too");
     }
 }

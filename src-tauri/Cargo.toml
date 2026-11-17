@@ -29,8 +29,6 @@ getrandom = { workspace = true }
 sha2 = "0.10"
 # Remote Access password sign-in; PBKDF2 is the vetted, dependency-light choice alongside sha2.
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
-# Renders the non-secret Remote Access address as a scannable SVG for phones.
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Remote Access HTTPS: a per-install CA and per-address leaf certificates, served with rustls.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 time = { version = "0.3", features = ["parsing"] }
@@ -50,6 +48,8 @@ mime_guess = "2"
 rust-embed = "8"
 # The pairing code the Drift app scans; shared with it, no engine inside.
 drift-pairing = { path = "../crates/drift-pairing" }
+# Driving another computer's Drift in the main window, as the Android app does.
+drift-remote-client = { path = "../crates/drift-remote-client" }
 # Remote Access from anywhere: OpenTunnel relays TLS it cannot read to this process. Its other dependencies are already
 # in the tree, so it costs one small crate, against reimplementing its bridge protocol and certificate renewal.
 opentunnel = "0.5"

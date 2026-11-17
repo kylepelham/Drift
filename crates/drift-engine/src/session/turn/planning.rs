@@ -398,6 +398,7 @@ impl Engine {
             .into_iter()
             .map(|tool| (tool.spec_for(self), tool))
             .filter(|(spec, _)| self.built_in_available(&spec.name, repository))
+            .chain(self.plugin_tools().into_iter().map(|tool| (tool.spec(), tool)))
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !withheld(&spec.name))
@@ -427,6 +428,7 @@ impl Engine {
         };
         let references = self.references_for_turn(&plan.config.references);
         let plans = self.plans_dir(&plan.session.workspace_id);
+        let scratch = crate::tool::conversation_scratch(&self.store, &plan.session.id);
         let setting = prompt::Setting {
             base: &base,
             family: plan.model.prompt,
@@ -442,6 +444,7 @@ impl Engine {
             servers: &servers,
             references: &references,
             plans: Some(&plans),
+            scratch: &scratch,
             deferred: &listed,
         };
         let sources = prompt::sources(&setting);

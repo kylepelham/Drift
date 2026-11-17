@@ -3,6 +3,7 @@ import { afterOverlayBack, bindOverlayBack, overlayBackPending, popOverlayBack }
 import { sectionLabels, sectionGroups, settingsSearchResults } from "./settings-search";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
 import { AboutSection, preloadUpdateSupport } from "./settings-about";
+import { LanguageServersSection } from "./settings-language-servers";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { NotificationsSection } from "./settings-notifications";
 import { RemoteAccessSection } from "./settings-remote-access";
@@ -268,6 +269,9 @@ function SettingsModal(props: { onClose: () => void }) {
                                     </Match>
                                     <Match when={section() === "Plugins"}>
                                         <PluginsSection />
+                                    </Match>
+                                    <Match when={section() === "Language Servers"}>
+                                        <LanguageServersSection />
                                     </Match>
                                     <Match when={section() === "Shortcuts"}>
                                         <KeybindsSection />

@@ -73,7 +73,7 @@ fn write_layered_home(home: &Path) {
     write(
         home,
         ".config/drift/drift.json",
-        r#"{ "model": { "provider": "anthropic", "model": "haiku" }, "permissions": [{ "kind": "bash", "pattern": "git *", "decision": "allow" }] }"#,
+        r#"{ "model": { "provider": "anthropic", "model": "haiku" }, "permissions": [{ "kind": "bash", "pattern": "git *", "decision": "allow" }], "skillPaths": ["~/shared/skills"] }"#,
     );
     write(
         home,
@@ -101,7 +101,7 @@ fn write_layered_workspace(workspace: &Path) {
     write(
         workspace,
         "drift.json",
-        r#"{ "permissions": [{ "kind": "bash", "pattern": "git push*", "decision": "deny" }], "instructions": ["docs/rules.md"], "skillPaths": ["~/shared/skills"] }"#,
+        r#"{ "permissions": [{ "kind": "bash", "pattern": "git push*", "decision": "deny" }], "instructions": ["docs/rules.md"] }"#,
     );
     write(workspace, "docs/rules.md", "Be careful.");
     write(workspace, "AGENTS.md", "Repo rules.");

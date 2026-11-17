@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::Engine;
-use crate::websearch::{SETTINGS_KEY, SearchProvider, WebSearch};
+use crate::websearch::{KeyCheck, SETTINGS_KEY, SearchProvider, WebSearch};
 
 /// Settings > Web search: the choice, and every provider with its keys shown by their last characters.
 #[derive(Serialize, ToSchema)]
@@ -92,4 +92,11 @@ pub(super) async fn remove_key(
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "key", error))?;
 
     Ok(state(&engine))
+}
+
+/// Asks each built-in key's provider what it has left, at no cost; a refused or spent key is set aside, and one with
+/// credit is tried again.
+#[utoipa::path(post, path = "/websearch/check", operation_id = "checkWebSearchKeys", responses((status = 200, body = Vec<KeyCheck>)))]
+pub(super) async fn check(State(engine): State<Arc<Engine>>) -> Json<Vec<KeyCheck>> {
+    Json(engine.check_search_keys().await)
 }

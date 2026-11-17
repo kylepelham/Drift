@@ -1,7 +1,7 @@
+import { commandRows, toolErrorsExpanded, toolGroupsJustChanged, type CommandRows } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { backgroundRun, delegatedChildId, delegatedTaskStatus, delegates } from "./tool-delegation";
 import { generatedImage, returnedImages, ToolImage, ToolThumbnails } from "./tool-image";
-import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
 import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
@@ -74,6 +74,27 @@ export function rememberToolOpen(partId: string, open: boolean) {
     explicitToolOpen.delete(partId);
     explicitToolOpen.set(partId, open);
     if (explicitToolOpen.size > maxExplicitToolOpen) explicitToolOpen.delete(explicitToolOpen.keys().next().value!);
+}
+
+const explicitGroupOpen = new Map<string, boolean>();
+
+/** Remembers a group's toggle on each call in it, so the group it grows or regroups into keeps it. */
+export function rememberGroupOpen(parts: { id: string }[], open: boolean) {
+    for (const part of parts) {
+        explicitGroupOpen.delete(part.id);
+        explicitGroupOpen.set(part.id, open);
+    }
+    while (explicitGroupOpen.size > maxExplicitToolOpen)
+        explicitGroupOpen.delete(explicitGroupOpen.keys().next().value!);
+}
+
+/** A group starts as the user left it; one formed around a call they opened starts open, unless the setting just regrouped it. */
+export function groupStartsOpen(parts: { id: string }[], now = Date.now()) {
+    if (toolGroupsJustChanged(now)) return false;
+    const toggled = parts.flatMap((part) => explicitGroupOpen.get(part.id) ?? []);
+    if (toggled.length) return toggled.includes(true);
+
+    return parts.some((part) => explicitToolOpen.get(part.id) === true);
 }
 
 export function activateToolHeader(toggle: () => void) {
@@ -394,7 +415,11 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
 
 function ExploredCalls(props: { parts: ToolPart[] }) {
     const engine = useEngine();
-    const [open, setOpen] = createSignal(false);
+    const [open, setOpen] = createSignal(untrack(() => groupStartsOpen(props.parts)));
+    const toggle = () => {
+        rememberGroupOpen(props.parts, !open());
+        setOpen(!open());
+    };
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
     const summary = createMemo(() => exploredSummary(props.parts, running()));
@@ -409,7 +434,7 @@ function ExploredCalls(props: { parts: ToolPart[] }) {
             <button
                 class="tool-row-header flex min-h-7 min-w-0 items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
                 aria-expanded={expanded()}
-                onClick={() => setOpen(!open())}
+                onClick={toggle}
             >
                 <Show when={waiting()}>
                     <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("notification.permission.title")} />

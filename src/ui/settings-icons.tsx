@@ -31,6 +31,7 @@ const icons = {
     MCP: IconShieldCheck,
     Skills: IconSparkles,
     Plugins: IconPlug,
+    "Language Servers": IconCode,
     Prompts: IconCode,
     Permissions: IconShieldCheck,
     Storage: IconArchive,
