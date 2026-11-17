@@ -7,6 +7,7 @@ pub mod browser;
 pub mod command;
 mod context;
 pub mod edit;
+pub(crate) mod encoding;
 pub mod findings;
 pub mod generate_image;
 pub mod glob;

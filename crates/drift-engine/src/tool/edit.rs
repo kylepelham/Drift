@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use similar::TextDiff;
 
 use super::ToolMetadata;
+use super::encoding::{Encoding, decode};
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 use crate::session::types::{MetadataFile, ToolFileChange};
@@ -67,7 +68,7 @@ impl Tool for Edit {
                 ));
             }
 
-            let raw = read_for_edit(&path, &name).await?;
+            let (raw, encoding) = read_for_edit(&path, &name).await?;
             let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
             let (updated, replacements) = matching::replace(body, old, new, replace_all)
                 .map_err(|refusal| refused(&refusal, body, old, &name))?;
@@ -78,10 +79,11 @@ impl Tool for Edit {
             } else {
                 updated
             };
+            let written = encoding.encode(&written);
             super::fits_history(&name, written.len())?;
             // The match proves the text it changed, not the rest: the file is not counted as read for a later overwrite.
             let seen = !ctx.files.changed_since_seen(&path);
-            super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            super::stage::replace(&ctx.engine.store, &path, &written).await?;
             if seen {
                 ctx.files.restamp(&path);
             }
@@ -103,9 +105,9 @@ impl Tool for Edit {
     }
 }
 
-/// The file's text, once it exists. It need not have been read: `old_string` must match it exactly and once,
-/// which proves the model knows the text it changes.
-async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, ToolError> {
+/// The file's text and encoding, once it exists. It need not have been read: `old_string` must match it exactly
+/// and once, which proves the model knows the text it changes.
+async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<(String, Encoding), ToolError> {
     // A missing file first: reading it would only fail too, and `write` is what creates one.
     if tokio::fs::metadata(path)
         .await
@@ -113,17 +115,21 @@ async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, Too
     {
         return Err(ToolError(format!("{name} does not exist; use write to create it")));
     }
-    tokio::fs::read_to_string(path)
-        .await
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
-            _ => ToolError(format!("{name} could not be read as text ({error})")),
-        })
+    let bytes = tokio::fs::read(path).await.map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
+        _ => ToolError(format!("{name} could not be read as text ({error})")),
+    })?;
+
+    decode(&bytes).ok_or_else(|| {
+        ToolError(format!(
+            "{name} is not UTF-8 or UTF-16 text (Windows-1252, for example), so editing it would corrupt it; it was not changed"
+        ))
+    })
 }
 
 /// The diff the edit would make now, or `None` when it would not apply.
 fn proposed(path: &std::path::Path, name: &str, input: &Value) -> Option<String> {
-    let raw = std::fs::read_to_string(path).ok()?;
+    let (raw, _) = decode(&std::fs::read(path).ok()?)?;
     let body = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
     let (old, new) = (input["old_string"].as_str()?, input["new_string"].as_str()?);
     let replace_all = input["replace_all"].as_bool().unwrap_or(false);

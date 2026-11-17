@@ -531,6 +531,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] A provider's 403 that is not about the key (Firecrawl's "we do not support this site") no longer sets every key aside, and a refused key is tried again after an hour
 - [x] Firefox and Camoufox pane: a new tab takes a blank one kept ready (Camoufox needs 2 s to make one); address bar, back, forward and reload never hold input up; pictures are taken apart from events; clicks wait at most 150 ms on the clipboard; one copy tells the pane once; keys carry their modifiers, so Ctrl+A and Ctrl+C work however Control went down
 - [x] `/compact` and retrying a failed compaction run on the model and level the composer shows, not the one the conversation last ran on
+- [x] UTF-16 text files (a PowerShell 5 `>` writes them) are read, edited, written and patched as UTF-16, with their byte order and mark; @-mentions and instruction files decode them; binary is still refused
 
 ## Readability and tooling pass
 

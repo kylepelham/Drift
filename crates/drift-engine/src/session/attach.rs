@@ -10,6 +10,7 @@ use super::turn::TurnError;
 use super::types::Part;
 use crate::llm::catalog::Model;
 use crate::permission::{Decision, Policy};
+use crate::tool::encoding::{Encoding, decode};
 
 /// A mentioned file's text is cut here, with a note on where to read on.
 const MAX_MENTION_BYTES: usize = crate::tool::spool::MAX_RESULT_BYTES;
@@ -230,14 +231,21 @@ fn read(path: &Path) -> Result<Read, MentionError> {
     file.take(MAX_MENTION_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(MentionError::Read)?;
-    if bytes.iter().take(8000).any(|byte| *byte == 0) {
-        return Err(MentionError::Binary);
-    }
-    if bytes.len() <= MAX_MENTION_BYTES {
-        return Ok(Read::Whole(String::from_utf8_lossy(&bytes).into_owned()));
+    let whole = bytes.len() <= MAX_MENTION_BYTES;
+    let kept = if whole {
+        &bytes[..]
+    } else {
+        &bytes[..MAX_MENTION_BYTES & !1]
+    };
+    let text = match decode(kept) {
+        Some((text, Encoding::Utf16Le | Encoding::Utf16Be)) => text,
+        _ if bytes.iter().take(8000).any(|byte| *byte == 0) => return Err(MentionError::Binary),
+        _ => String::from_utf8_lossy(kept).into_owned(),
+    };
+    if whole {
+        return Ok(Read::Whole(text));
     }
 
-    let text = String::from_utf8_lossy(&bytes[..MAX_MENTION_BYTES]);
     let cut = text.rfind('\n').unwrap_or(0);
     let shown_lines = text[..cut].lines().count();
 

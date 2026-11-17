@@ -400,7 +400,7 @@ impl Config {
             if !allowed(&path) {
                 continue;
             }
-            if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(text) = crate::tool::encoding::read_to_string(&path) {
                 self.instructions.push(Instruction {
                     name,
                     text: clip(&text),
@@ -585,7 +585,7 @@ impl Config {
             if off.contains(&crate::tool::canonical(folder)) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else {
+            let Ok(text) = crate::tool::encoding::read_to_string(&path) else {
                 continue;
             };
             let document = frontmatter::parse(&text);
@@ -619,10 +619,11 @@ impl Config {
                 (home.join(".config/drift/AGENTS.md"), "~/.config/drift/AGENTS.md"),
                 (home.join(".claude/CLAUDE.md"), "~/.claude/CLAUDE.md"),
             ];
-            if let Some((text, name)) = global
-                .iter()
-                .find_map(|(path, name)| std::fs::read_to_string(path).ok().map(|text| (text, *name)))
-            {
+            if let Some((text, name)) = global.iter().find_map(|(path, name)| {
+                crate::tool::encoding::read_to_string(path)
+                    .ok()
+                    .map(|text| (text, *name))
+            }) {
                 found.push(Instruction {
                     name: name.into(),
                     text: clip(&text),

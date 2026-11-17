@@ -124,7 +124,11 @@ pub(super) fn instruction_file(dir: &Path, within: &Path) -> Option<(&'static st
         .iter()
         .map(|name| (*name, dir.join(name)))
         .filter(|(_, path)| confined(within, path))
-        .find_map(|(name, path)| std::fs::read_to_string(path).ok().map(|text| (name, text)))
+        .find_map(|(name, path)| {
+            crate::tool::encoding::read_to_string(&path)
+                .ok()
+                .map(|text| (name, text))
+        })
 }
 
 /// Whether `path` is named as an instruction file is.
@@ -250,7 +254,7 @@ pub(super) fn markdown_files(dir: &Path, within: Option<&Path>) -> Vec<(String, 
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "md") && kept(path))
         .filter_map(|path| {
-            let text = std::fs::read_to_string(&path).ok()?;
+            let text = crate::tool::encoding::read_to_string(&path).ok()?;
             let name = path.file_stem()?.to_string_lossy().into_owned();
             Some((name, frontmatter::parse(&text)))
         })

@@ -2862,6 +2862,13 @@ Settled after the first external review of M1; each has a regression test.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches. A line that is not UTF-8 is shown
   lossily, as ripgrep prints it, so the rest of a Windows-1252 file is still searched.
+- Text files are UTF-8 or UTF-16 (`tool::encoding`). UTF-16 is told by its byte order mark, or
+  without one when at least half of its first 8000 bytes' units are ASCII (one byte zero) and none
+  is a zero unit, which binary data almost always has. `read`, `edit`, `write`, `apply_patch`,
+  @-mentions and instruction, agent and skill files decode it; the three writing tools write it back
+  as UTF-16 in the same byte order, with its mark and line endings, and `read` tells the model so,
+  since a shell rewrite would turn it into UTF-8 or garbage. `grep` reads UTF-16 with a mark (the
+  searcher sniffs it) and skips it without one. `read` pages a file over 10 MB as UTF-8 only.
 - `glob`'s pattern and `grep`'s `include` are one matcher (`tool::FileGlob`, the `ignore` crate's
   overrides, which is ripgrep's `--glob`, as opencode runs both): `*.ts` matches at any depth,
   `src/*.ts` only directly in `src`, `**` crosses folders. A Stop ends either walk.
