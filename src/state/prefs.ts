@@ -153,8 +153,14 @@ const [storedToolGroups, setStoredToolGroups] = persisted<Record<ToolGroupKind, 
 export function toolGroups(): Record<ToolGroupKind, boolean> {
     return { ...toolGroupDefaults, ...storedToolGroups() };
 }
+let toolGroupsChangedAt = 0;
 export function setToolGroup(kind: ToolGroupKind, on: boolean) {
+    toolGroupsChangedAt = Date.now();
     setStoredToolGroups({ ...toolGroups(), [kind]: on });
+}
+/** Whether the grouping setting changed a moment ago, so rows regrouping now are not regrouping for a new call. */
+export function toolGroupsJustChanged(now = Date.now()) {
+    return now - toolGroupsChangedAt < 1000;
 }
 /** The card at the end of a turn listing the files it changed. */
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);

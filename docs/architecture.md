@@ -460,7 +460,9 @@ on by default), labelled None, All or the kinds chosen: two or more consecutive 
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
 progress while one runs. Its time is the wall time at least one of its calls ran, ticking
 while any still runs: calls side by side count once, calls one after another add up, and the
-gaps between them do not count. Any
+gaps between them do not count. A row starts as the user left it: a call they opened that a new
+call folds into a group opens the group, and a group keeps their toggle as it grows, regroups or
+scrolls back into view; changing the setting regroups everything closed. Any
 tool row leaves out a duration under a second. A
 disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
 2 patterns · <latest target>`, and a lone read, search or listing is its own row, since a group

@@ -1,11 +1,11 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { groupStartsOpen, rememberGroupOpen, ToolView } from "./tool-view";
+import { createMemo, createSignal, For, Show, untrack } from "solid-js";
 import { returnedImages, ToolThumbnails } from "./tool-image";
 import { toolDisplay } from "./tool-presentation";
 import { CoveredDuration } from "./tool-duration";
 import { findOpens } from "./transcript-find";
 import { TextShimmer } from "./text-shimmer";
 import { toolInput } from "../engine/parts";
-import { ToolView } from "./tool-view";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
@@ -160,7 +160,11 @@ function stillRunning(state: EngineState, parts: ToolPart[]) {
 
 export function ToolRun(props: { parts: ToolPart[] }) {
     const engine = useEngine();
-    const [open, setOpen] = createSignal(false);
+    const [open, setOpen] = createSignal(untrack(() => groupStartsOpen(props.parts)));
+    const toggle = () => {
+        rememberGroupOpen(props.parts, !open());
+        setOpen(!open());
+    };
     const current = () => [...props.parts].reverse().find(active);
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
     const failed = () => props.parts.some((part) => part.status === "error" || part.status === "denied");
@@ -175,7 +179,7 @@ export function ToolRun(props: { parts: ToolPart[] }) {
             <button
                 class="tool-row-header flex min-h-7 min-w-0 items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
                 aria-expanded={expanded()}
-                onClick={() => setOpen(!open())}
+                onClick={toggle}
             >
                 <Show when={waiting()}>
                     <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("notification.permission.title")} />
