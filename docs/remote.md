@@ -72,9 +72,12 @@ kept in `computers.json` in the app data folder. Opening a computer that cannot 
 was and says why. One that stops answering while it is open shows the connection error with **Retry** and **Switch
 computer**, which opens the computers page: **This PC**, the linked computers, and the computers nearby.
 
-A page from the proxy runs as a remote one (`/app`), so `src/shell.ts` hands it the window controls and zoom only,
-never this PC's commands, engine or events. The `remote-computer` capability grants `http://127.0.0.1:*` exactly
-those: minimize, maximize, close, drag, zoom, and the event listening the window's resize state needs.
+A page from the proxy runs as a remote one (`/app`), so `src/shell.ts` hands it the window controls, zoom and the
+link opener only, never this PC's commands, engine or events. The `remote-computer` capability grants
+`http://127.0.0.1:*` exactly those: minimize, maximize, close, drag, zoom, the event listening the window's resize
+state needs, and opening `http` and `https` links in this PC's browser. A link that would still take the window to a
+web page (any `http` or `https` host but this PC's own) opens in the browser instead; the shell's navigation guard
+(`computers::navigation_guard`) refuses the navigation.
 
 ## Reach from anywhere
 

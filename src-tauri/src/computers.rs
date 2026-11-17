@@ -12,6 +12,7 @@ use drift_remote_client::computers::Computers;
 use drift_remote_client::{Host, pc, proxy};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Url};
+use tauri_plugin_opener::OpenerExt;
 
 /// The main window's way to other computers: the proxy once started, and the page to come back to.
 pub(crate) struct Linked {
@@ -243,4 +244,47 @@ pub(crate) async fn computers_forget(
     linked.proxy(&app).await?.forget(&id);
 
     Ok(())
+}
+
+/// Keeps the main window on Drift: a link that would take it to a web page, which another computer's UI can follow
+/// because it has no opener of its own, opens in this PC's browser instead.
+pub(crate) fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            if stays_in_window(url) {
+                return true;
+            }
+            let _ = webview.app_handle().opener().open_url(url.as_str(), None::<&str>);
+            false
+        })
+        .build()
+}
+
+/// Drift's own pages: the bundled UI, the dev server and the proxy to another computer all live on this PC.
+fn stays_in_window(url: &Url) -> bool {
+    if !matches!(url.scheme(), "http" | "https") {
+        return true;
+    }
+    matches!(url.host_str(), Some("tauri.localhost" | "localhost" | "127.0.0.1"))
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn only_web_pages_off_this_pc_leave_the_window() {
+        for kept in [
+            "http://tauri.localhost/index.html",
+            "tauri://localhost/",
+            "http://127.0.0.1:51234/#/s/abc",
+            "http://localhost:5180/",
+            "about:blank",
+        ] {
+            assert!(stays_in_window(&Url::parse(kept).unwrap()), "{kept}");
+        }
+        for left in ["https://github.com/kylepelham/anvil", "http://example.com/"] {
+            assert!(!stays_in_window(&Url::parse(left).unwrap()), "{left}");
+        }
+    }
 }

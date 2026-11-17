@@ -106,6 +106,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(computers::navigation_guard())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(VoiceDownload::default())
         .manage(permissions::DictationConsent::default())

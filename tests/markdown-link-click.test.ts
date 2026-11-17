@@ -179,6 +179,18 @@ test("native HTTPS links use only the external URL opener", async () => {
     expectStopped(link);
 });
 
+test("another computer shown in the desktop window opens web links in this PC's browser, never in the window", async () => {
+    runtime("http://127.0.0.1:51234/app/");
+    setGlobal("__TAURI__", { core: { invoke } });
+    const url = "https://github.com/kylepelham/anvil";
+    const link = click(url);
+
+    await openMarkdownLink(link.event, directory);
+
+    expect(invoke.mock.calls).toEqual([["plugin:opener|open_url", { url }]]);
+    expectStopped(link);
+});
+
 test("browser HTTPS links retain default navigation", async () => {
     const link = click("https://example.com/docs");
 

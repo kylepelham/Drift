@@ -46,11 +46,17 @@ export function shellInvoke(): ShellInvoke | undefined {
     return tauri()?.core?.invoke;
 }
 
+/** The desktop's link opener; another computer's UI in this window has it too, since its links open on this PC. */
+export function desktopOpener() {
+    const invoke = (globalThis as { __TAURI__?: TauriGlobal }).__TAURI__?.core?.invoke;
+    return invoke && ((url: string) => invoke<void>("plugin:opener|open_url", { url }));
+}
+
 /** Opens a page in the user's browser: the desktop opener, else a new tab. */
 export function openExternal(url: string) {
-    const invoke = shellInvoke();
-    if (invoke) {
-        void invoke("plugin:opener|open_url", { url }).catch(() => {});
+    const open = desktopOpener();
+    if (open) {
+        void open(url).catch(() => {});
         return;
     }
 
