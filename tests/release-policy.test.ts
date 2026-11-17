@@ -298,7 +298,11 @@ test("release stamping updates every package version and is idempotent", () => {
             path.join(temporary, "Cargo.toml"),
             '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\n',
         );
-        const crates = ["drift", "drift-android", "drift-engine", "drift-engined", "drift-migrate", "drift-pairing"];
+        // Every crate of this workspace, read from the real lock file, so a new crate cannot be left on the old version.
+        const crates = [
+            ...readFileSync(path.join(root, "Cargo.lock"), "utf8").matchAll(/^name = "(drift[\w-]*)"$/gm),
+        ].map((match) => match[1]);
+        expect(crates).toContain("drift-remote-client");
         writeFileSync(
             path.join(temporary, "Cargo.lock"),
             crates.map((name) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n`).join("\n"),
