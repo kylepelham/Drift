@@ -1,3 +1,6 @@
+import { createSignal, Show } from "solid-js";
+import { Chevron } from "./controls";
+
 import type { JSX } from "solid-js";
 
 /**
@@ -52,3 +55,59 @@ export function SettingsRow(props: {
 
 /** The one width every dropdown in Settings takes, so a column of them lines up. */
 export const pickerWidth = "13rem";
+
+export const settingsIconButton =
+    "flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink";
+/** One entry in a disclosure's panel: what it is on the left, its value and a remove button on the right. */
+export const panelLine = "group flex items-center gap-3 border-b border-edge/60 px-3 py-1.5";
+/** A remove button that shows while its entry is hovered or focused. */
+export const panelRemove = `${settingsIconButton} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`;
+/** The form that adds an entry, last in a disclosure's panel. */
+export const panelForm = "flex flex-wrap items-center gap-2 p-2";
+
+/**
+ * A row that opens a panel of entries under it, as Web search lists a provider's keys: the row or its chevron
+ * opens it. `fixed` is a row with nothing to open; `actions` sit before the chevron.
+ */
+export function SettingsDisclosure(props: {
+    title: string;
+    description: string;
+    label: string;
+    actions?: JSX.Element;
+    fixed?: boolean;
+    children: JSX.Element;
+}) {
+    const [open, setOpen] = createSignal(false);
+
+    return (
+        <div class="border-b border-edge/70 last:border-b-0 [&>.settings-row]:border-b-0">
+            <SettingsRow
+                title={props.title}
+                description={props.description}
+                onClick={props.fixed ? undefined : () => setOpen(!open())}
+            >
+                <div class="flex items-center gap-1">
+                    {props.actions}
+                    <Show when={!props.fixed}>
+                        <button
+                            class={settingsIconButton}
+                            aria-expanded={open()}
+                            aria-label={props.label}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                setOpen(!open());
+                            }}
+                        >
+                            <Chevron open={open()} />
+                        </button>
+                    </Show>
+                </div>
+            </SettingsRow>
+            <Show when={open() && !props.fixed}>
+                <div class="mx-1 mb-3 overflow-hidden rounded-lg border border-edge bg-surface/55">
+                    {props.children}
+                </div>
+            </Show>
+        </div>
+    );
+}

@@ -533,6 +533,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] `/compact` and retrying a failed compaction run on the model and level the composer shows, not the one the conversation last ran on
 - [x] UTF-16 text files (a PowerShell 5 `>` writes them) are read, edited, written and patched as UTF-16, with their byte order and mark; @-mentions and instruction files decode them; binary is still refused
 - [x] `/account` works in a new chat before its first message: the pick is set on the chat just before its first prompt, on that provider
+- [x] Subagents per tag and a workspace's stored browser sign-ins open as a panel under one row, as Web search lists a provider's keys (`SettingsDisclosure`)
 
 ## Readability and tooling pass
 
