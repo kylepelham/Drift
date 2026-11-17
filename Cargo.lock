@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "drift"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "drift-android"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "drift-remote-client",
  "getrandom 0.3.4",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engine"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "aho-corasick",
  "argon2",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engined"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "drift-engine",
  "rustls",
@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "drift-migrate"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "drift-engine",
  "rusqlite",
@@ -1566,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "drift-pairing"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "drift-remote-client"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "axum",
  "drift-pairing",
