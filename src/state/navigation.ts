@@ -1,6 +1,8 @@
 import { afterOverlayBack, overlayBackPending, popOverlayBack } from "./overlay-back";
 import { isRemoteRuntime } from "../runtime";
+import { smallScreenQuery } from "./screen";
 import { createSignal } from "solid-js";
+import { persisted } from "./persist";
 
 const mobileBreakpoint = 720;
 export function isNarrowWidth(width: number) {
@@ -91,4 +93,21 @@ if (typeof window !== "undefined") {
     window.addEventListener("popstate", () => {
         if (!overlayBackPending()) setMobileDrawerOpen(currentRoute().overlay === "drawer");
     });
+}
+
+const [sidebarHidden, setSidebarHidden] = persisted("drift.sidebar.hidden", false);
+export { sidebarHidden };
+
+const narrowScreen = () => window.matchMedia(smallScreenQuery).matches;
+
+/** Hides or shows the sidebar; on a phone, where it is a drawer, opens or closes the drawer. */
+export function toggleSidebar() {
+    if (!narrowScreen()) setSidebarHidden(!sidebarHidden());
+    else if (mobileDrawerOpen()) closeMobileDrawer();
+    else openMobileDrawer();
+}
+
+export function showSidebar() {
+    if (narrowScreen()) openMobileDrawer();
+    else setSidebarHidden(false);
 }

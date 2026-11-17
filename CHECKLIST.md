@@ -534,6 +534,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] UTF-16 text files (a PowerShell 5 `>` writes them) are read, edited, written and patched as UTF-16, with their byte order and mark; @-mentions and instruction files decode them; binary is still refused
 - [x] `/account` works in a new chat before its first message: the pick is set on the chat just before its first prompt, on that provider
 - [x] Subagents per tag and a workspace's stored browser sign-ins open as a panel under one row, as Web search lists a provider's keys (`SettingsDisclosure`)
+- [x] Keyboard for everything (`docs/shortcuts.md`): sessions (Ctrl+Tab, Ctrl+1..9, Alt+Left/Right), workspaces (Ctrl+Alt+Up/Down), messages (Alt+Up/Down, with Shift by prompt, Ctrl+C copies), Ctrl+Shift+F session search with names or content always shown and arrow keys through results, a keyboard sidebar and menus, picker, panel, rename and sidebar shortcuts, Escape stops a turn, and /mcp opens on its server list again
 
 ## Readability and tooling pass
 

@@ -1,6 +1,6 @@
 import { createResource, createSignal, For, onCleanup, onMount, Show, type Accessor } from "solid-js";
 import { computerSwitcher, type ComputerSwitcher, type LinkedComputer } from "../state/computers";
-import { computerDigit, formatCombo, onKeybind } from "../state/keybinds";
+import { appKeyFree, computerDigit, formatCombo, onKeybind } from "../state/keybinds";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { ConnectComputer } from "./connect-computer";
 import { fixedMenuPosition } from "../state/zoom";
@@ -80,19 +80,19 @@ export function createSwitching(): Accessor<Switching | undefined> {
         const at = ids.indexOf(switching.switcher.current);
         void switching.show(ids[(at + by + ids.length) % ids.length]);
     };
-    onKeybind("nextComputer", () => step(1));
-    onKeybind("previousComputer", () => step(-1));
+    onCleanup(onKeybind("nextComputer", () => step(1)));
+    onCleanup(onKeybind("previousComputer", () => step(-1)));
     const byDigit = (event: KeyboardEvent) => {
         const digit = computerDigit(event);
         const switching = current();
-        if (!digit || !switching) return;
+        if (!digit || !switching || !appKeyFree(event)) return;
         const ids = order(switching);
         if (digit > ids.length) return;
         event.preventDefault();
         void switching.show(ids[digit - 1]);
     };
-    document.addEventListener("keydown", byDigit);
-    onCleanup(() => document.removeEventListener("keydown", byDigit));
+    window.addEventListener("keydown", byDigit);
+    onCleanup(() => window.removeEventListener("keydown", byDigit));
 
     return current;
 }

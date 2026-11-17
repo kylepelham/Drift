@@ -44,7 +44,9 @@ export function createDismissOnOutside(options: DismissOptions) {
             if (!insideAny) dismiss();
         };
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape") dismiss();
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            dismiss();
         };
 
         document.addEventListener("mousedown", onPointerDown);

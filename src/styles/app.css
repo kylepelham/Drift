@@ -1889,3 +1889,14 @@ html[dir="rtl"] .context-meter-popover {
         animation: none;
     }
 }
+
+.mobile-menu-button.sidebar-hidden-button {
+    display: flex;
+}
+
+@media (min-width: 720px) {
+    .mobile-menu-button.sidebar-hidden-button {
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+}

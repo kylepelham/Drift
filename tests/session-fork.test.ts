@@ -45,6 +45,8 @@ function setup(current = "workspace") {
         IconBranch: "branch",
         IconArchive: "archive",
         IconDots: "dots",
+        threadRowProps: () => ({}),
+        archiveThread: () => undefined,
         jsx: (type: string, props: Node["props"], ...children: Node[]): Node => ({ type, props, children }),
     };
     const render = new Function(

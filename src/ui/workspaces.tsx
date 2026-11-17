@@ -10,6 +10,7 @@ import { WaitingMark } from "./waiting-indicator";
 import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
+import { requestRename } from "./header";
 import { t } from "../state/i18n";
 import {
     activeWorkspaceId,
@@ -127,10 +128,12 @@ export function WorkspaceGroup(props: {
                 }}
                 onContextMenu={(event) => {
                     event.preventDefault();
-                    openMenu(event.clientX, event.clientY);
+                    const point = menuPoint(event);
+                    openMenu(point.x, point.y);
                 }}
             >
                 <button
+                    data-sidebar-row="workspace"
                     title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
                     aria-expanded={!collapsed()}
                     class="flex shrink-0 rounded-[5px]"
@@ -285,21 +288,9 @@ function ThreadItem(props: {
     return (
         <div
             data-sidebar-navigation
-            class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
+            {...threadRowProps(props, active, () => archiveThread(engine, props.sessionId, props.workspace.id))}
+            class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
             classList={{ "bg-raised/80": active(), "hover:bg-raised/45": !active() }}
-            onClick={() => {
-                selectWorkspace(props.workspace.id);
-                selectSession(props.sessionId);
-            }}
-            onContextMenu={(event) => {
-                event.preventDefault();
-                props.onMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    sessionId: props.sessionId,
-                    workspaceId: props.workspace.id,
-                });
-            }}
         >
             <StatusDot sessionId={props.sessionId} />
             <span
@@ -326,12 +317,7 @@ function ThreadItem(props: {
                 </RowButton>
                 <RowButton
                     title={t("command.session.archive")}
-                    onClick={() => {
-                        if (selectedSession() === props.sessionId) selectSession(null);
-                        void archiveSession(props.sessionId, props.workspace.id, engine.actions.setArchived)
-                            .then(() => emitThreadArchived(props.sessionId))
-                            .catch((cause: unknown) => archiveFailed(engine, cause));
-                    }}
+                    onClick={() => archiveThread(engine, props.sessionId, props.workspace.id)}
                 >
                     <IconArchive />
                 </RowButton>
@@ -354,6 +340,75 @@ function ThreadItem(props: {
             </span>
         </div>
     );
+}
+
+type ThreadRow = {
+    sessionId: string;
+    workspace: Workspace;
+    onMenu: (state: SessionMenuState) => void;
+};
+
+/** A chat row's selection, keys and menu: Enter opens it, F2 renames, Delete archives, the menu key opens its menu. */
+function threadRowProps(props: ThreadRow, active: () => boolean, archive?: () => void) {
+    const open = () => {
+        selectWorkspace(props.workspace.id);
+        selectSession(props.sessionId);
+    };
+    const keys: Record<string, (row: HTMLElement) => void> = {
+        Enter: open,
+        " ": open,
+        F2: () => {
+            open();
+            requestRename(props.sessionId);
+        },
+        Delete: (row) => {
+            if (!archive) return;
+            const rows = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")];
+            const index = rows.indexOf(row);
+            (rows[index + 1] ?? rows[index - 1])?.focus();
+            archive();
+        },
+    };
+
+    return {
+        "data-sidebar-row": "thread",
+        "data-thread-row": props.sessionId,
+        "data-workspace-id": props.workspace.id,
+        get tabIndex() {
+            return active() ? 0 : -1;
+        },
+        get "aria-current"() {
+            return active() ? ("page" as const) : undefined;
+        },
+        onClick: open,
+        onKeyDown: (event: KeyboardEvent & { currentTarget: HTMLElement }) => {
+            const act = event.target === event.currentTarget && !event.ctrlKey && !event.altKey && keys[event.key];
+            if (!act) return;
+            event.preventDefault();
+            act(event.currentTarget);
+        },
+        onContextMenu: (event: MouseEvent) => {
+            event.preventDefault();
+            const point = menuPoint(event);
+            props.onMenu({ ...point, sessionId: props.sessionId, workspaceId: props.workspace.id });
+        },
+    };
+}
+
+/** Where a context menu opens: at the pointer, or under the row when the keyboard asked for it. */
+function menuPoint(event: MouseEvent) {
+    if (event.button === 2 || !(event.currentTarget instanceof HTMLElement))
+        return { x: event.clientX, y: event.clientY };
+    const rect = (event.target instanceof HTMLElement ? event.target : event.currentTarget).getBoundingClientRect();
+    return { x: rect.left + 12, y: rect.bottom };
+}
+
+/** Archives a chat, leaving it first when it is open. */
+export function archiveThread(engine: Engine, sessionId: string, workspaceId: string) {
+    if (selectedSession() === sessionId) selectSession(null);
+    void archiveSession(sessionId, workspaceId, engine.actions.setArchived)
+        .then(() => emitThreadArchived(sessionId))
+        .catch((cause: unknown) => archiveFailed(engine, cause));
 }
 
 /** The engine refused to archive or restore; the thread stays where it was. */
@@ -410,21 +465,10 @@ function ChildThreadItem(props: {
     return (
         <div
             data-sidebar-navigation
-            class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
+            data-child-row
+            {...threadRowProps(props, active)}
+            class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
             classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-            onClick={() => {
-                selectWorkspace(props.workspace.id);
-                selectSession(props.sessionId);
-            }}
-            onContextMenu={(event) => {
-                event.preventDefault();
-                props.onMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    sessionId: props.sessionId,
-                    workspaceId: props.workspace.id,
-                });
-            }}
         >
             <Show
                 when={background()}

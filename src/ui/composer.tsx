@@ -7,7 +7,9 @@ import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attach
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
 import { dictationEnabled, dictationModel, dictationProvider } from "../state/voice";
 import { removeReviewComment, reviewCommentsFile } from "../state/review-comments";
+import { appKeyFree, onKeybind, takesKeys, withShortcut } from "../state/keybinds";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
+import { clearMessageCursor, messageCursor } from "../state/message-cursor";
 import { compactModelName, connectedModelItems } from "./composer-models";
 import { AttachmentChip, CommentChip } from "./composer-attachment-chip";
 import { emitThreadCreated, transformComposerSubmit } from "../plugins";
@@ -32,7 +34,6 @@ import { openSettings } from "../state/settings";
 import { ComposerSend } from "./composer-send";
 import { ComposerStop } from "./composer-stop";
 import { ProviderIcon } from "./provider-icon";
-import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
 import { actionFailed } from "./workspaces";
 import { shellInvoke } from "../shell";
@@ -373,6 +374,10 @@ export function Composer() {
 
         if (mention.open() && mention.handleKey(event)) return;
         if (slash.active() && slash.handleKey(event)) return;
+        if (event.key === "Escape" && escapeTurn()) {
+            event.preventDefault();
+            return;
+        }
         if (["ArrowUp", "ArrowDown"].includes(event.key) && browseHistory(event)) return;
 
         if (event.key === "Tab") {
@@ -385,6 +390,17 @@ export function Composer() {
 
         event.preventDefault();
         void submitAs(event.altKey);
+    }
+
+    /** Escape first lets go of a highlighted message, then stops the running turn. */
+    function escapeTurn() {
+        if (messageCursor()) {
+            clearMessageCursor();
+            return true;
+        }
+        if (!busy()) return false;
+        stop("turn");
+        return true;
     }
 
     function browseHistory(event: KeyboardEvent) {
@@ -427,6 +443,21 @@ export function Composer() {
         });
 
         return true;
+    }
+
+    function focusArea() {
+        if (area.disabled) return;
+        area.focus();
+        area.setSelectionRange(area.value.length, area.value.length);
+    }
+
+    /** A character typed while nothing editable has focus starts a message instead of going nowhere. */
+    function typeIntoComposer(event: KeyboardEvent) {
+        if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+        if (!appKeyFree(event) || area.disabled || touchInput()) return;
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (target && target !== document.body && (event.key === " " || takesKeys(target))) return;
+        area.focus();
     }
 
     function cycleAgent(step: number) {
@@ -477,7 +508,13 @@ export function Composer() {
         if (dictationEnabled() && dictationProvider() === "local") void refreshVoiceModels();
         window.addEventListener("resize", resize);
         onCleanup(() => window.removeEventListener("resize", resize));
-        return onKeybind("autoAccept", toggleAutoAccept);
+        onCleanup(onKeybind("autoAccept", toggleAutoAccept));
+        onCleanup(onKeybind("focusComposer", focusArea));
+        onCleanup(onKeybind("attachFiles", () => ready() && filePicker.click()));
+        onCleanup(onKeybind("stopTurn", () => busy() && stop("turn")));
+        onCleanup(onKeybind("toggleUltra", () => ready() && toggleUltra()));
+        window.addEventListener("keydown", typeIntoComposer);
+        onCleanup(() => window.removeEventListener("keydown", typeIntoComposer));
     });
 
     const sendDisabled = () =>
@@ -571,6 +608,7 @@ export function Composer() {
                             items={agentItems()}
                             selected={prefs().agent}
                             fallbackLabel={agentLabel(prefs().agent)}
+                            keybind="agentPicker"
                             onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
                         />
                         <Show
@@ -594,6 +632,7 @@ export function Composer() {
                                 fallbackLabel={modelName()}
                                 compactLabel={compactModelName(modelName())}
                                 onManage={() => setManageModels(true)}
+                                keybind="modelPicker"
                                 onPick={(id) => {
                                     const [providerID, ...rest] = id.split("/");
                                     updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } });
@@ -604,6 +643,7 @@ export function Composer() {
                             label={t("drift.composer.thinkingLevel")}
                             items={variantItems()}
                             selected={variant() ?? "default"}
+                            keybind="thinkingPicker"
                             icon={
                                 <Show when={ultraOn()}>
                                     <IconLayers class="size-3.5 shrink-0 text-accent" />
@@ -680,7 +720,7 @@ export function Composer() {
                             </button>
                         </Show>
                         <button
-                            title={t("prompt.action.attachFile")}
+                            title={withShortcut(t("prompt.action.attachFile"), "attachFiles")}
                             aria-label={t("prompt.action.attachFile")}
                             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                             disabled={!ready()}

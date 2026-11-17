@@ -1,14 +1,15 @@
-import { closeMobileDrawer, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
-import { actionFailed, archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
-import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js";
+import { pickWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces";
+import { createEffect, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { actionFailed, archiveThread, forkThread, WorkspaceGroup } from "./workspaces";
 import { ComputerBrand, ComputerTabs, createSwitching } from "./computer-switcher";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
+import { bindSessionKeys, moveInSidebar } from "./session-keys";
+import { onKeybind, withShortcut } from "../state/keybinds";
 import { pickBackup, saveBackup } from "./session-backup";
 import { openSettings } from "../state/settings";
-import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
 import { drawerSwipe } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
@@ -18,18 +19,11 @@ import { nativeFrame } from "./titlebar";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import {
-    archiveSession,
-    pickWorkspace,
-    removedWorkspaces,
-    selectWorkspace,
-    updateWorkspace,
-    workspaces,
-} from "../state/workspaces";
-import {
     SessionSearchBar,
     SessionSearchResults,
     sessionSearchActive,
     sessionSearchOpen,
+    sessionSearchShortcut,
     toggleSessionSearch,
 } from "./session-search";
 import {
@@ -39,6 +33,13 @@ import {
     type SessionMenuState,
     type WorkspaceMenuState,
 } from "./workspace-dialogs";
+import {
+    closeMobileDrawer,
+    mobileDrawerOpen,
+    openMobileDrawer,
+    sidebarHidden,
+    toggleSidebar,
+} from "../state/navigation";
 
 import type { Workspace } from "../state/store";
 
@@ -64,6 +65,11 @@ export function Sidebar() {
     const [archive, setArchive] = createSignal(false);
     const [moveStatus, setMoveStatus] = createSignal<{ error: boolean; text: string } | null>(null);
     const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()));
+    bindSessionKeys(engine, { openArchive: () => setArchive(true) });
+    onMount(() => {
+        onCleanup(onKeybind("toggleSidebar", toggleSidebar));
+        onCleanup(onKeybind("searchSessions", sessionSearchShortcut));
+    });
     let resizeStartX = 0;
     let resizeStartWidth = untrack(width);
     let resizeScale = 1;
@@ -192,7 +198,7 @@ export function Sidebar() {
                 )
             }
             class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-sidebar"
-            classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
+            classList={{ "mobile-sidebar-open": mobileDrawerOpen(), hidden: sidebarHidden() && !narrow() }}
             style={{ width: `${width()}px` }}
             onClick={(event) => {
                 if (narrow() && event.target instanceof Element && event.target.closest("[data-sidebar-navigation]"))
@@ -218,21 +224,21 @@ export function Sidebar() {
                     <button
                         class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
                         classList={{ "text-ink": sessionSearchOpen(), "text-ink-faint": !sessionSearchOpen() }}
-                        title={t("drift.search.sessions.placeholder")}
+                        title={withShortcut(t("drift.search.sessions.placeholder"), "searchSessions")}
                         onClick={toggleSessionSearch}
                     >
                         <IconSearch class="size-3.5" />
                     </button>
                     <button
                         class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                        title={t("drift.sidebar.archived")}
+                        title={withShortcut(t("drift.sidebar.archived"), "archivedSessions")}
                         onClick={() => setArchive(true)}
                     >
                         <IconArchive />
                     </button>
                     <button
                         class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                        title={t("drift.sidebar.addWorkspace")}
+                        title={withShortcut(t("drift.sidebar.addWorkspace"), "addWorkspace")}
                         onClick={() =>
                             void pickWorkspace().catch((cause: unknown) =>
                                 actionFailed(engine, t("drift.sidebar.addWorkspace"), cause),
@@ -249,7 +255,10 @@ export function Sidebar() {
             <Show when={sessionSearchOpen()}>
                 <SessionSearchBar />
             </Show>
-            <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2 pb-2">
+            <nav
+                class="app-sidebar-scroll min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2 pb-2"
+                onKeyDown={moveInSidebar}
+            >
                 <Show when={!sessionSearchActive()} fallback={<SessionSearchResults />}>
                     <For each={workspaces()}>
                         {(workspace) => (
@@ -283,13 +292,7 @@ export function Sidebar() {
                         onMove={(workspace) => void moveSessionTo(state(), workspace)}
                         onBackup={() => void backupThread(state().sessionId)}
                         onFork={() => void forkThread(engine, state().sessionId, state().workspaceId)}
-                        onArchive={() => {
-                            const id = state().sessionId;
-                            if (selectedSession() === id) selectSession(null);
-                            void archiveSession(id, state().workspaceId, engine.actions.setArchived)
-                                .then(() => emitThreadArchived(id))
-                                .catch((cause: unknown) => archiveFailed(engine, cause));
-                        }}
+                        onArchive={() => archiveThread(engine, state().sessionId, state().workspaceId)}
                         onClose={() => setSessionMenu(null)}
                     />
                 )}
@@ -384,6 +387,7 @@ function SidebarFooter(props: { onSettings: () => void }) {
             <button
                 data-sidebar-navigation
                 class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+                title={withShortcut(t("sidebar.settings"), "settings")}
                 onClick={() => props.onSettings()}
             >
                 <IconGear />

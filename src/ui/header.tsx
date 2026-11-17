@@ -2,10 +2,11 @@ import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./tra
 import { IconArrowUp, IconBranch, IconDiff, IconGlobe, IconMenu, IconSearch } from "./icons";
 import { closeReview, openReview, reviewPanel, rightPanelOpen } from "../state/panels";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { selectedSession, selectSession } from "../state/selection";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { showSidebar, sidebarHidden } from "../state/navigation";
+import { onKeybind, withShortcut } from "../state/keybinds";
 import { nativeFrame, WindowControls } from "./titlebar";
-import { openMobileDrawer } from "../state/navigation";
 import { hiddenParent } from "../engine/sessions";
 import { ContextMeter } from "./context-meter";
 import { useEngine } from "../engine";
@@ -22,6 +23,13 @@ const chatColumnWidth = 768;
 function toggleReview() {
     if (reviewPanel()) closeReview();
     else openReview({ source: { kind: "uncommitted" } });
+}
+
+const [renaming, setRenaming] = createSignal<string | null>(null);
+
+/** Opens the header's title for editing, as a double-click does. */
+export function requestRename(id: string) {
+    setRenaming(id);
 }
 
 export function ChatHeader() {
@@ -47,6 +55,8 @@ export function ChatHeader() {
         onCleanup(() => observer.disconnect());
     }
 
+    onMount(() => onCleanup(onKeybind("toggleReview", () => selectedSession() && toggleReview())));
+
     const backTarget = () => {
         const current = session();
         if (!current) return undefined;
@@ -58,8 +68,9 @@ export function ChatHeader() {
             fallback={
                 <button
                     class="mobile-menu-button absolute top-0 left-2 z-10 hidden size-11 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
-                    title={t("drift.mobile.openNavigation")}
-                    onClick={openMobileDrawer}
+                    classList={{ "sidebar-hidden-button": sidebarHidden() }}
+                    title={withShortcut(t("drift.mobile.openNavigation"), "toggleSidebar")}
+                    onClick={showSidebar}
                 >
                     <IconMenu />
                 </button>
@@ -82,8 +93,9 @@ export function ChatHeader() {
                 >
                     <button
                         class="mobile-menu-button hidden size-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
-                        title={t("drift.mobile.openNavigation")}
-                        onClick={openMobileDrawer}
+                        classList={{ "sidebar-hidden-button": sidebarHidden() }}
+                        title={withShortcut(t("drift.mobile.openNavigation"), "toggleSidebar")}
+                        onClick={showSidebar}
                     >
                         <IconMenu />
                     </button>
@@ -133,7 +145,7 @@ export function ChatHeader() {
                                 <Show when={!transcriptFindOpen()}>
                                     <button
                                         class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                                        title={t("drift.search.transcript")}
+                                        title={withShortcut(t("drift.search.transcript"), "findInSession")}
                                         onClick={openTranscriptFind}
                                     >
                                         <IconSearch class="size-3.5" />
@@ -141,7 +153,7 @@ export function ChatHeader() {
                                     <button
                                         class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
                                         classList={{ "text-accent": !!reviewPanel(), "text-ink-faint": !reviewPanel() }}
-                                        title={t("drift.review.open")}
+                                        title={withShortcut(t("drift.review.open"), "toggleReview")}
                                         aria-pressed={!!reviewPanel()}
                                         onClick={toggleReview}
                                     >
@@ -170,10 +182,12 @@ function BrowserToggle(props: { sessionId: string }) {
     const open = () => running() && !browserPaneCollapsed(props.sessionId);
 
     function title() {
-        if (!running()) return t("drift.browser.open");
+        if (!running()) return withShortcut(t("drift.browser.open"), "toggleBrowser");
 
-        return t(open() ? "drift.browser.hide" : "drift.browser.show");
+        return withShortcut(t(open() ? "drift.browser.hide" : "drift.browser.show"), "toggleBrowser");
     }
+
+    onMount(() => onCleanup(onKeybind("toggleBrowser", () => void toggle())));
 
     // A new browser opens its pane when the engine reports it.
     async function toggle() {
@@ -205,11 +219,24 @@ function BrowserToggle(props: { sessionId: string }) {
 function Title(props: { id: string; title: string }) {
     const engine = useEngine();
     const [editing, setEditing] = createSignal(false);
+    let returnFocus: HTMLElement | undefined;
 
+    createEffect(() => {
+        if (renaming() !== props.id) return;
+        returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+        setRenaming(null);
+        setEditing(true);
+    });
+
+    const finish = () => {
+        setEditing(false);
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        returnFocus = undefined;
+    };
     const commit = (value: string) => {
         const next = value.trim();
         if (next && next !== props.title) void engine.actions.rename(props.id, next);
-        setEditing(false);
+        finish();
     };
 
     return (
@@ -240,7 +267,9 @@ function Title(props: { id: string; title: string }) {
                 ref={(el) => queueMicrotask(() => el.select())}
                 onKeyDown={(event) => {
                     if (event.key === "Enter") commit(event.currentTarget.value);
-                    if (event.key === "Escape") setEditing(false);
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    finish();
                 }}
                 onBlur={(event) => commit(event.currentTarget.value)}
             />
