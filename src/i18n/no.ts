@@ -490,6 +490,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Gjenoppta avbrutte turer når Drift starter på nytt",
     "drift.settings.resumeTurns.description":
         "Turer som avbrytes av en omstart, gjenopptas igjen, maksimalt to ganger.",
+    "drift.settings.retryRefusals.title": "Prøv cybersikkerhetsavvisning igjen én gang",
+    "drift.settings.retryRefusals.description":
+        "Sender «.» for å prøve igjen. Hvis det avvises igjen, fjernes «.» og samtalen avsluttes der.",
     "drift.turn.resumed": "Gjenopptatt etter at Drift startet på nytt",
     "drift.settings.webSearch": "Nettsøk",
     "drift.settings.webSearch.provider.title": "Leverandør",

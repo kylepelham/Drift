@@ -502,6 +502,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Reprendre les tours interrompus au redémarrage de Drift",
     "drift.settings.resumeTurns.description":
         "Les tours interrompus par un redémarrage reprennent, au maximum deux fois.",
+    "drift.settings.retryRefusals.title": "Réessayer une fois un refus cyber",
+    "drift.settings.retryRefusals.description":
+        "Envoie « . » pour réessayer. S'il est refusé à nouveau, le « . » est supprimé et la conversation s'arrête là.",
     "drift.turn.resumed": "Repris après le redémarrage de Drift",
     "drift.settings.webSearch": "Recherche web",
     "drift.settings.webSearch.provider.title": "Fournisseur",

@@ -116,6 +116,7 @@ impl Engine {
             retry_switch: None,
             requested: false,
             cache_stretched: false,
+            refusal_retry: None,
         };
         self.stay_where_warm(&mut plan).await;
         self.load_plan_tools(&mut plan).await;

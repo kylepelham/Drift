@@ -161,7 +161,7 @@ impl Engine {
                     self.adopt(plan, *switch);
                     attempts = 0;
                 }
-                // The next pass sends the same request again from the next account, at once.
+                // The next pass sends the request again at once: from the next account, or after a refusal's `.`.
                 Step::Switch => self.discard_refused_reply(&plan.session.id, reply),
                 refused @ (Step::Overflow | Step::UnreadableImage) => {
                     let first = recovered.first(&refused);
@@ -290,6 +290,12 @@ impl Engine {
             self.discard_reply(&plan.session.id, message.id);
             return Step::Switch;
         }
+        let refused = streamed.stop == StopReason::Refused;
+        if refused && !abort.is_cancelled() && self.retry_refusal(plan, streamed.refusal.as_ref(), abort) {
+            self.discard_reply(&plan.session.id, message.id);
+            return Step::Switch;
+        }
+        self.settle_refusal_retry(plan, refused);
 
         record_usage(plan, &mut message, &mut streamed);
 

@@ -1003,3 +1003,81 @@ async fn compaction_on_a_fast_model_no_account_serves_runs_at_normal_speed_as_th
     let plan = action.own.as_ref().expect("asked as the conversation's next step");
     assert!(!runs_fast(&plan.model), "its instructions name the model the turn used");
 }
+
+fn retry_refusals(h: &Harness) {
+    let key = crate::session::turn::refusal_retry::RETRY_REFUSALS_KEY;
+    h.engine.store.set_setting(key, &true).unwrap();
+}
+
+/// Each message's text, a nudge's included.
+fn shown_texts(h: &Harness) -> Vec<String> {
+    transcript(h)
+        .iter()
+        .map(|message| {
+            message
+                .parts
+                .iter()
+                .filter_map(|part| match &part.part {
+                    Part::Text { text } | Part::Nudge { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_cyber_refusal_is_retried_once_with_a_dot_and_the_answer_keeps_it() {
+    let h = harness().await;
+    retry_refusals(&h);
+    h.provider.push(refused(Some("cyber"))).push(text("answered"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(shown_texts(&h), ["one", ".", "answered"], "the refused reply went");
+    let retried = h.provider.requests.lock().unwrap().last().unwrap().clone();
+    assert_eq!(
+        texts_sent(&retried),
+        ["one", "."],
+        "the retry sends the prompt and the dot, not the refused reply's text"
+    );
+    assert!(transcript(&h).iter().all(|message| message.info.ending.is_none()));
+}
+
+#[tokio::test]
+async fn refused_again_the_dot_goes_and_the_second_refusal_ends_the_conversation() {
+    let h = harness().await;
+    retry_refusals(&h);
+    h.provider
+        .push(refused(Some("cyber")))
+        .push(refused(Some("cyber")))
+        .push(text("never sent"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 2, "retried once only");
+    let messages = transcript(&h);
+    assert_eq!(messages.len(), 2, "the prompt and the refusal; the dot went");
+    assert_eq!(messages[1].info.ending, Some(crate::session::types::Ending::Refused));
+}
+
+#[tokio::test]
+async fn a_refusal_in_another_area_or_with_the_setting_off_is_not_retried() {
+    let h = harness().await;
+    h.provider.push(refused(Some("cyber")));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "off by default");
+
+    retry_refusals(&h);
+    h.provider.push(refused(Some("bio")));
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(
+        h.provider.requests.lock().unwrap().len(),
+        2,
+        "only a cyber refusal is retried"
+    );
+}

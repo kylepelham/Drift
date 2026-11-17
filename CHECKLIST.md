@@ -544,6 +544,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 
 - [x] OpenRouter's one-hour cache option applies to Claude only: Qwen is never sent an hour's breakpoint, and GPT, Qwen and DeepSeek there (and Gemini on Vertex) are no longer counted warm for an hour; GPT 5.6 and later there is counted warm for 30 minutes as on OpenAI
 - [x] `bash` `detach: true` starts something meant to stay up (Docker Desktop, a browser, a service) outside the command's job, so the shell ending, Stop and Drift closing leave it running; the prompt points models there instead of WMI or scheduled-task workarounds
+- [x] Settings > Execution > Turns: retry a cyber refusal once with `.`; refused again, the `.` is removed and the refusal ends the conversation
 
 ## Readability and tooling pass
 

@@ -485,6 +485,9 @@ export const drift = {
     "drift.settings.execution.turns": "턴",
     "drift.settings.resumeTurns.title": "Drift 재시작 후 중단된 턴 재개",
     "drift.settings.resumeTurns.description": "재시작으로 중단된 턴을 최대 두 번까지 다시 이어갑니다.",
+    "drift.settings.retryRefusals.title": "사이버 거부를 한 번만 다시 시도",
+    "drift.settings.retryRefusals.description":
+        '다시 시도하기 위해 "."를 전송합니다. 다시 거부되면 "."가 제거되고 대화가 종료됩니다.',
     "drift.turn.resumed": "Drift 재시작 후 재개됨",
     "drift.settings.webSearch": "웹 검색",
     "drift.settings.webSearch.provider.title": "제공자",

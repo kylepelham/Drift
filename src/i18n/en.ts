@@ -495,6 +495,9 @@ export const drift = {
     "drift.settings.execution.turns": "Turns",
     "drift.settings.resumeTurns.title": "Resume interrupted turns after Drift restarts",
     "drift.settings.resumeTurns.description": "Turns cut off by a restart pick up again, at most twice.",
+    "drift.settings.retryRefusals.title": "Retry a cyber refusal once",
+    "drift.settings.retryRefusals.description":
+        'Sends "." to try again. If it is refused again, the "." is removed and the conversation ends there.',
     "drift.turn.resumed": "Resumed after Drift restarted",
     "drift.settings.webSearch": "Web search",
     "drift.settings.webSearch.provider.title": "Provider",

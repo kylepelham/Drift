@@ -160,6 +160,7 @@ const settingsSearchDefinitions = {
         },
         { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
         { title: "drift.settings.resumeTurns.title", description: "drift.settings.resumeTurns.description" },
+        { title: "drift.settings.retryRefusals.title", description: "drift.settings.retryRefusals.description" },
         {
             title: "drift.settings.promptCache.warming.title",
             description: "drift.settings.promptCache.warming.description",

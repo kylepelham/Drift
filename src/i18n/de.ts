@@ -499,6 +499,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Unterbrochene Durchgänge nach einem Neustart von Drift fortsetzen",
     "drift.settings.resumeTurns.description":
         "Durch einen Neustart unterbrochene Durchgänge werden fortgesetzt, höchstens zweimal.",
+    "drift.settings.retryRefusals.title": "Cyber-Ablehnung einmal erneut versuchen",
+    "drift.settings.retryRefusals.description":
+        "Sendet einen Punkt zum erneuten Versuch. Falls dieser erneut abgelehnt wird, wird der Punkt entfernt und die Unterhaltung endet dort.",
     "drift.turn.resumed": "Nach dem Neustart von Drift fortgesetzt",
     "drift.settings.webSearch": "Websuche",
     "drift.settings.webSearch.provider.title": "Anbieter",

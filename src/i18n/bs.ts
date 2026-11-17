@@ -488,6 +488,9 @@ export const drift = {
     "drift.settings.execution.turns": "Potezi",
     "drift.settings.resumeTurns.title": "Nastavi prekinute poteze nakon ponovnog pokretanja Drifta",
     "drift.settings.resumeTurns.description": "Potezi prekinuti ponovnim pokretanjem nastavljaju se, najviše dva puta.",
+    "drift.settings.retryRefusals.title": "Pokušaj ponovo nakon odbijanja",
+    "drift.settings.retryRefusals.description":
+        'Šalje "." da pokušaš ponovo. Ako se ponovo odbije, "." se uklanja i razgovor se završava.',
     "drift.turn.resumed": "Nastavljeno nakon ponovnog pokretanja Drifta",
     "drift.settings.webSearch": "Pretraga weba",
     "drift.settings.webSearch.provider.title": "Pružatelj",

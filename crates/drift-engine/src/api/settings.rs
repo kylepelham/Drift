@@ -14,6 +14,7 @@ use crate::browser::BrowserSettings;
 use crate::session::compaction::{AUTO_COMPACT_KEY, COMPACT_AT_KEY, CompactAt, MODEL_COMPACT_KEY};
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, DELEGATION_DEPTH_KEY, LimitError, MAX_DELEGATION_DEPTH};
 use crate::session::turn::provider_options::ProviderOptions;
+use crate::session::turn::refusal_retry::RETRY_REFUSALS_KEY;
 use crate::session::turn::resume::RESUME_KEY;
 use crate::session::turn::warming::PromptCache;
 
@@ -66,6 +67,10 @@ pub(super) struct EngineSettings {
     /// Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_turns: Option<bool>,
+    /// A cyber refusal is retried once by sending `.`; refused again, the `.` goes and the refusal stands. Off by
+    /// default. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_refusals: Option<bool>,
     /// Prompt cache warming, off by default. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<PromptCache>,
@@ -114,6 +119,8 @@ pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub resume_turns: Option<bool>,
     #[serde(default)]
+    pub retry_refusals: Option<bool>,
+    #[serde(default)]
     pub browser: Option<BrowserSettings>,
 }
 
@@ -135,6 +142,7 @@ fn current(engine: &Engine) -> EngineSettings {
         prompt_cache: Some(engine.prompt_cache()),
         provider_options: Some(engine.provider_options()),
         resume_turns: Some(engine.resumes_turns()),
+        retry_refusals: Some(engine.retries_refusals()),
         browser: Some(engine.browser_settings()),
     }
 }
@@ -175,6 +183,9 @@ pub(super) async fn put(
     }
     if let Some(on) = body.resume_turns {
         engine.store.set_setting(RESUME_KEY, &on)?;
+    }
+    if let Some(on) = body.retry_refusals {
+        engine.store.set_setting(RETRY_REFUSALS_KEY, &on)?;
     }
     if let Some(cache) = body.prompt_cache {
         engine.set_prompt_cache(&cache)?;

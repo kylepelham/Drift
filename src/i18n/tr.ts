@@ -491,6 +491,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Drift yeniden başladığında yarıda kalan turları sürdür",
     "drift.settings.resumeTurns.description":
         "Yeniden başlatma nedeniyle kesilen turlar en fazla iki kez olmak üzere kaldığı yerden devam eder.",
+    "drift.settings.retryRefusals.title": "Siber güvenlik reddisini bir kez yeniden dene",
+    "drift.settings.retryRefusals.description":
+        'Yeniden denemek için "." gönderir. Tekrar reddedilirse, "." kaldırılır ve konuşma orada biter.',
     "drift.turn.resumed": "Drift yeniden başladıktan sonra sürdürüldü",
     "drift.settings.webSearch": "Web araması",
     "drift.settings.webSearch.provider.title": "Sağlayıcı",

@@ -2289,6 +2289,12 @@ code until he picks.
     earlier accounts run out. Subagents and spawned threads start with their parent's account
     (`insert_session`). It lasts until the user picks Auto. Made for keeping one security chat on a
     Cyber Verified account while the rest use up another account's window.
+  - Retry a cyber refusal once (Settings > Execution > Turns, `retryRefusals`, off by default;
+    `session::turn::refusal_retry`). When no verified account takes a refused conversation, a cyber
+    refusal or one naming no policy area loses its reply and the turn sends `.` as a nudge, the
+    same request again in all but that. Answered, the `.` stays in the history; refused again, it is
+    deleted (`Store::discard_prompt`) and the second refusal ends the conversation as the first
+    would have. One retry per refusal: an answered step lets a later refusal be retried again.
   - Accounts on different plans see different models. A refusal saying the plan lacks the model
     (Anthropic's 429 "Usage credits are required for this model", Codex's "not supported when using
     Codex with a ChatGPT account"; `Error::plan_lacks_model`) is never retried with backoff: the

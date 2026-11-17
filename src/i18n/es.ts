@@ -495,6 +495,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Reanudar turnos interrumpidos al reiniciar Drift",
     "drift.settings.resumeTurns.description":
         "Los turnos interrumpidos por un reinicio se reanudan, como máximo dos veces.",
+    "drift.settings.retryRefusals.title": "Reintentar un rechazo de ciberseguridad una vez",
+    "drift.settings.retryRefusals.description":
+        "Envía '.' para reintentar. Si se rechaza de nuevo, se elimina el '.' y la conversación termina ahí.",
     "drift.turn.resumed": "Reanudado tras reiniciar Drift",
     "drift.settings.webSearch": "Búsqueda web",
     "drift.settings.webSearch.provider.title": "Proveedor",

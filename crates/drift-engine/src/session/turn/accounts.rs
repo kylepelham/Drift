@@ -532,7 +532,7 @@ struct Switch<'a> {
 /// Anthropic's Cyber Verification lets an account through what others refuse on cybersecurity, so a cyber refusal, or
 /// one naming no policy area, may not be made by a verified account; a refusal in any other area stands. OpenAI's
 /// Daybreak is a model, not an account, so its accounts are never marked and its refusals stand.
-fn accounts_differ(refusal: Option<&Refusal>) -> bool {
+pub(super) fn accounts_differ(refusal: Option<&Refusal>) -> bool {
     let category = refusal.and_then(|refusal| refusal.category.as_deref());
 
     category.is_none_or(|category| category.to_ascii_lowercase().contains("cyber"))

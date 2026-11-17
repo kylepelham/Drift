@@ -493,6 +493,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Wznawiaj przerwane tury po ponownym uruchomieniu Drift",
     "drift.settings.resumeTurns.description":
         "Tury przerwane przez ponowne uruchomienie są wznawiane, maksymalnie dwa razy.",
+    "drift.settings.retryRefusals.title": "Ponów odmowę cyberbezpieczeństwa raz",
+    "drift.settings.retryRefusals.description":
+        'Wysyła "." aby spróbować ponownie. Jeśli zostanie ponownie odrzucone, "." zostaje usunięty i rozmowa się tam kończy.',
     "drift.turn.resumed": "Wznowiono po ponownym uruchomieniu Drift",
     "drift.settings.webSearch": "Wyszukiwanie w sieci",
     "drift.settings.webSearch.provider.title": "Dostawca",

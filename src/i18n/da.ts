@@ -490,6 +490,9 @@ export const drift = {
     "drift.settings.execution.turns": "Ture",
     "drift.settings.resumeTurns.title": "Genoptag afbrudte ture, når Drift genstarter",
     "drift.settings.resumeTurns.description": "Ture, der afbrydes af en genstart, genoptages højst to gange.",
+    "drift.settings.retryRefusals.title": "Prøv igen efter cyberafvisning",
+    "drift.settings.retryRefusals.description":
+        "Sender '.' for at prøve igen. Hvis det afvises igen, fjernes '.' og samtalen slutter der.",
     "drift.turn.resumed": "Genoptaget efter Drift genstartede",
     "drift.settings.webSearch": "Websøgning",
     "drift.settings.webSearch.provider.title": "Udbyder",

@@ -483,6 +483,9 @@ export const drift = {
     "drift.settings.execution.turns": "รอบ",
     "drift.settings.resumeTurns.title": "ทำรอบที่ถูกขัดจังหวะต่อหลัง Drift เริ่มใหม่",
     "drift.settings.resumeTurns.description": "รอบที่ถูกตัดเพราะการเริ่มใหม่จะทำงานต่อ สูงสุดสองครั้ง",
+    "drift.settings.retryRefusals.title": "ลองอีกครั้งเมื่อถูกปฏิเสธไซเบอร์",
+    "drift.settings.retryRefusals.description":
+        'ส่ง "." เพื่อลองอีกครั้ง หากถูกปฏิเสธอีกครั้ง "." จะถูกลบออกและบทสนทนาจะสิ้นสุด',
     "drift.turn.resumed": "ทำต่อหลัง Drift เริ่มใหม่",
     "drift.settings.webSearch": "ค้นหาเว็บ",
     "drift.settings.webSearch.provider.title": "ผู้ให้บริการ",

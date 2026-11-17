@@ -473,6 +473,8 @@ export const drift = {
     "drift.settings.execution.turns": "回合",
     "drift.settings.resumeTurns.title": "Drift 重启后恢复被中断的回合",
     "drift.settings.resumeTurns.description": "因重启而被中断的回合会继续执行，最多重试两次。",
+    "drift.settings.retryRefusals.title": "重试网络安全拒绝一次",
+    "drift.settings.retryRefusals.description": '发送 "." 重试。如果再次被拒绝，"." 将被移除，对话在此结束。',
     "drift.turn.resumed": "Drift 重启后已恢复",
     "drift.settings.webSearch": "网页搜索",
     "drift.settings.webSearch.provider.title": "提供方",

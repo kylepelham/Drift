@@ -90,6 +90,16 @@ impl Store {
         Ok(deleted > 0)
     }
 
+    /// Deletes a prompt the engine sent, such as a refusal's retry, with its parts; true when it went.
+    pub fn discard_prompt(&self, id: &str) -> rusqlite::Result<bool> {
+        let deleted = self
+            .lock()
+            .prepare_cached("DELETE FROM message WHERE id = ?1 AND role = 'user'")?
+            .execute([id])?;
+
+        Ok(deleted > 0)
+    }
+
     /// Stores a summary's text and its finished state as one write: a summary is never done without its text.
     pub fn complete_summary(&self, message: &Message, text: &str) -> rusqlite::Result<PartRow> {
         transaction(&self.lock(), |connection| {

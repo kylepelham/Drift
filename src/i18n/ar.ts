@@ -482,6 +482,9 @@ export const drift = {
     "drift.settings.execution.turns": "الأدوار",
     "drift.settings.resumeTurns.title": "استئناف الأدوار المقطوعة بعد إعادة تشغيل Drift",
     "drift.settings.resumeTurns.description": "تُستأنف الأدوار المقطوعة بسبب إعادة التشغيل، مرتين كحد أقصى.",
+    "drift.settings.retryRefusals.title": "إعادة محاولة الرفض السيبراني مرة واحدة",
+    "drift.settings.retryRefusals.description":
+        'ترسل "." لإعادة المحاولة. إذا تم رفضها مرة أخرى، يتم حذف "." وتنتهي المحادثة.',
     "drift.turn.resumed": "استؤنف بعد إعادة تشغيل Drift",
     "drift.settings.webSearch": "البحث على الويب",
     "drift.settings.webSearch.provider.title": "المزوّد",

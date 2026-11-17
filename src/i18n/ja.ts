@@ -489,6 +489,9 @@ export const drift = {
     "drift.settings.execution.turns": "ターン",
     "drift.settings.resumeTurns.title": "Drift 再起動後に中断されたターンを再開",
     "drift.settings.resumeTurns.description": "再起動によって中断されたターンを再開します (最大 2 回)。",
+    "drift.settings.retryRefusals.title": "サイバー拒否を 1 度再試行する",
+    "drift.settings.retryRefusals.description":
+        "再度試すために「.」を送信します。再度拒否された場合は、「.」が削除されて会話が終了します。",
     "drift.turn.resumed": "Drift の再起動後に再開",
     "drift.settings.webSearch": "ウェブ検索",
     "drift.settings.webSearch.provider.title": "プロバイダー",

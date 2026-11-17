@@ -475,6 +475,8 @@ export const drift = {
     "drift.settings.execution.turns": "回合",
     "drift.settings.resumeTurns.title": "Drift 重新啟動後恢復被中斷的回合",
     "drift.settings.resumeTurns.description": "因重新啟動而中斷的回合會再次繼續，最多兩次。",
+    "drift.settings.retryRefusals.title": "網路安全拒絕時重試一次",
+    "drift.settings.retryRefusals.description": "傳送「.」以重試。如果再次遭拒，「.」會被移除，對話就在此結束。",
     "drift.turn.resumed": "Drift 重新啟動後已恢復",
     "drift.settings.webSearch": "網頁搜尋",
     "drift.settings.webSearch.provider.title": "提供者",

@@ -490,6 +490,9 @@ export const drift = {
     "drift.settings.execution.turns": "Ходи",
     "drift.settings.resumeTurns.title": "Відновлювати перервані ходи після перезапуску Drift",
     "drift.settings.resumeTurns.description": "Ходи, перервані перезапуском, відновлюються знову, щонайбільше двічі.",
+    "drift.settings.retryRefusals.title": "Спробувати знову один раз при кіберзахисному відхиленні",
+    "drift.settings.retryRefusals.description":
+        "Надсилає крапку для повторної спроби. Якщо буде повторно відхилено, крапка видаляється й розмова завершується.",
     "drift.turn.resumed": "Відновлено після перезапуску Drift",
     "drift.settings.webSearch": "Вебпошук",
     "drift.settings.webSearch.provider.title": "Провайдер",

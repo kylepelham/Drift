@@ -49,6 +49,7 @@ mod limits;
 mod planning;
 pub mod provider_options;
 mod receipts;
+pub mod refusal_retry;
 mod request;
 pub mod resume;
 mod retry;
@@ -249,6 +250,8 @@ pub(crate) struct Plan {
     requested: bool,
     /// Its cache expired between two of its own requests: a worker keeps the rest of the run for an hour.
     cache_stretched: bool,
+    /// The `.` sent to retry a refusal, until the reply to it comes back.
+    refusal_retry: Option<String>,
 }
 
 /// How a prompt is admitted beyond the session itself.

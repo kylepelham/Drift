@@ -2144,6 +2144,11 @@ export interface components {
             /** @description Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is. */
             resumeTurns?: boolean | null;
             /**
+             * @description A cyber refusal is retried once by sending `.`; refused again, the `.` goes and the refusal stands. Off by
+             *     default. Left out of a PUT, it stays as it is.
+             */
+            retryRefusals?: boolean | null;
+            /**
              * @description A shell command still running at its time limit moves to the background instead of being stopped; only while
              *     background processes are on. Left out of a PUT, it stays as it is.
              */
@@ -2181,6 +2186,7 @@ export interface components {
             } | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
+            retryRefusals?: boolean | null;
             shellHandoff?: boolean | null;
             taskTagLimits?: {
                 [key: string]: number;

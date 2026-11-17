@@ -494,6 +494,9 @@ export const drift = {
     "drift.settings.resumeTurns.title": "Возобновлять прерванные ходы после перезапуска Drift",
     "drift.settings.resumeTurns.description":
         "Ходы, прерванные перезапуском, продолжаются снова, но не более двух раз.",
+    "drift.settings.retryRefusals.title": "Повторить при отказе по кибербезопасности один раз",
+    "drift.settings.retryRefusals.description":
+        'Отправляет "." для повторной попытки. Если это снова будет отклонено, "." удаляется и разговор завершается.',
     "drift.turn.resumed": "Возобновлено после перезапуска Drift",
     "drift.settings.webSearch": "Веб-поиск",
     "drift.settings.webSearch.provider.title": "Провайдер",
