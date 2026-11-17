@@ -475,7 +475,7 @@ async fn a_result_arriving_during_a_compaction_the_user_asked_for_wakes_the_conv
         h.provider
             .push_slow(summarising, text("SUMMARY"))
             .push(text("read the answer"));
-        h.engine.start_compaction(&h.session.id).unwrap();
+        h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
         finish_later(&h, &task, Duration::from_millis(200)).await.unwrap();
         until("the woken turn ends", || {
             h.provider.requests.lock().unwrap().len() == 5 && !h.engine.turns.is_running(&h.session.id)

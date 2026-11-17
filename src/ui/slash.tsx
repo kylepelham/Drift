@@ -3,11 +3,11 @@ import { accountPresets, choosesAccount, setSessionAccount } from "./slash-accou
 import { previousUserMessage, resolveModel, savedChoice } from "../engine/store";
 import { activeWorkspace, archiveSession } from "../state/workspaces";
 import { selectedSession, selectSession } from "../state/selection";
+import { composerChoice, restoreReverted } from "./revert";
 import { setTheme, theme, themes } from "../state/theme";
 import { prefsFor, seedPrefs } from "../state/prefs";
 import { emitThreadArchived } from "../plugins";
 import { archiveFailed } from "./workspaces";
-import { restoreReverted } from "./revert";
 import { openMcpServers } from "./mcp";
 import { t } from "../state/i18n";
 
@@ -169,10 +169,7 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
         case "account":
             return setSessionAccount(engine, current, args);
         case "compact":
-            return engine.actions.summarize(
-                current,
-                resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
-            );
+            return engine.actions.summarize(current, composerChoice(engine.state, current));
         case "undo":
             return undoCurrentSession(engine, current);
         case "redo": {

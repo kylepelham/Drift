@@ -975,7 +975,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it. */
+        /**
+         * Summarises the older history now, on the model and level given, else the conversation's. Runs as the session's
+         *     job: 409 while a turn runs, Stop cancels it.
+         */
         post: operations["compactSession"];
         delete?: never;
         options?: never;
@@ -2791,6 +2794,15 @@ export interface components {
             tool_search?: boolean;
             /** @description The reasoning levels the model offers, weakest first; empty when it has none to choose. */
             variants?: components["schemas"]["Variant"][];
+        };
+        /**
+         * @description The model and reasoning level the composer shows for a compaction the user asks for, which may differ from the
+         *     conversation's own until the next prompt is sent; absent fields keep the conversation's.
+         */
+        ModelChoice: {
+            model?: components["schemas"]["ModelRef"] | null;
+            /** @description The reasoning level by variant name: absent keeps the conversation's, null asks for the model's default. */
+            variant?: string | null;
         };
         /**
          * @description A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -5993,7 +6005,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ModelChoice"] | null;
+            };
+        };
         responses: {
             202: {
                 headers: {

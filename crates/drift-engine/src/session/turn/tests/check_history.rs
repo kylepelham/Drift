@@ -286,6 +286,7 @@ async fn compaction_forgets_what_checks_said() {
             &h.session.id,
             crate::session::compaction::Trigger::Manual,
             &Default::default(),
+            &Default::default(),
         )
         .await
         .unwrap();

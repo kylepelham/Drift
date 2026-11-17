@@ -46,6 +46,8 @@ export type VoiceTranscription = components["schemas"]["Transcription"];
 export type VoiceSpeech = components["schemas"]["Speech"];
 export type BrowserSettings = components["schemas"]["BrowserSettings"];
 export type CompactAt = components["schemas"]["CompactAt"];
+/** The model and level the composer shows, for a compaction the user asks for. */
+export type ModelChoice = components["schemas"]["ModelChoice"];
 export type ViewInput = components["schemas"]["ViewInput"];
 export type BrowserKind = components["schemas"]["BrowserKind"];
 export type EngineStatus = components["schemas"]["EngineStatus"];
@@ -121,7 +123,7 @@ export function createClient(target: Target) {
             request<Json<"importSessions", 200>>("POST", "/sessions/import", { workspaceId, backup }),
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
-        compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+        compactSession: (id: string, choice?: ModelChoice) => request<void>("POST", `/sessions/${id}/compact`, choice),
         queue: (id: string) => request<Json<"listQueue", 200>>("GET", `/sessions/${id}/queue`),
         queuePrompt: (id: string, prompt: components["schemas"]["Prompt"]) =>
             request<Json<"queuePrompt", 201>>("POST", `/sessions/${id}/queue`, prompt),

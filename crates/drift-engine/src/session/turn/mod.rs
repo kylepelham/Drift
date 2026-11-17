@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 
 use super::assemble::Assembler;
 use super::attach::Attach;
-use super::compaction::Trigger;
+use super::compaction::{ModelChoice, Trigger};
 use super::oneshot::Resolved;
 use super::tasks::Claimant;
 use super::types::{CheckStatus, ToolCheck, ToolMetadata};

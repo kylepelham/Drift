@@ -11,6 +11,7 @@ use crate::Engine;
 use crate::event::Event;
 use crate::session::backup::{Backup, Restored};
 use crate::session::command::subagent::SubagentStart;
+use crate::session::compaction::ModelChoice;
 use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
@@ -329,10 +330,15 @@ pub(super) async fn unrevert(
     Ok(Json(engine.unrevert(&id).await?))
 }
 
-/// Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it.
-#[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", responses((status = 202), (status = 404), (status = 409)))]
-pub(super) async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
-    engine.start_compaction(&id)?;
+/// Summarises the older history now, on the model and level given, else the conversation's. Runs as the session's
+/// job: 409 while a turn runs, Stop cancels it.
+#[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", request_body(content = Option<ModelChoice>), responses((status = 202), (status = 404), (status = 409)))]
+pub(super) async fn compact(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    choice: Option<Json<ModelChoice>>,
+) -> Result<StatusCode, ApiError> {
+    engine.start_compaction(&id, choice.map(|Json(choice)| choice).unwrap_or_default())?;
     Ok(StatusCode::ACCEPTED)
 }
 

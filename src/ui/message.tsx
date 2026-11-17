@@ -10,6 +10,7 @@ import { selectedSession, selectSession } from "../state/selection";
 import { messageModel, messageProblem } from "../engine/messages";
 import { createAutoRead, ReadAloudButton } from "./reply-voice";
 import { PartView, partVisible, PluginRow } from "./parts";
+import { composerChoice, retryCompaction } from "./revert";
 import { citationFileGroups } from "./citation-files";
 import { EditedFilesCard } from "./edited-files-card";
 import { emitMessageRendered } from "../plugins";
@@ -18,7 +19,6 @@ import { agentLabel, t } from "../state/i18n";
 import { findOpens } from "./transcript-find";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
-import { retryCompaction } from "./revert";
 import { FilePartView } from "./file-part";
 import { RefusalNotice } from "./refusal";
 import { useEngine } from "../engine";
@@ -145,7 +145,7 @@ function CompactionRetry(props: { entry: MessageEntry }) {
     const retry = async () => {
         setSending(true);
         try {
-            await retryCompaction(engine, session(), props.entry.info.id);
+            await retryCompaction(engine, session(), props.entry.info.id, composerChoice(engine.state, session()));
         } finally {
             setSending(false);
         }

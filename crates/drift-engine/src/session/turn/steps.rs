@@ -211,7 +211,11 @@ impl Engine {
         if self.compaction_keeps_failing(session_id) {
             return false;
         }
-        if self.compact(session_id, Trigger::Overflow, abort).await.is_err() {
+        if self
+            .compact(session_id, Trigger::Overflow, &ModelChoice::default(), abort)
+            .await
+            .is_err()
+        {
             return false;
         }
 
@@ -251,7 +255,9 @@ impl Engine {
             return Some(transcript);
         }
 
-        let _ = self.compact(&plan.session.id, Trigger::Auto, abort).await;
+        let _ = self
+            .compact(&plan.session.id, Trigger::Auto, &ModelChoice::default(), abort)
+            .await;
         if abort.is_cancelled() {
             return None;
         }

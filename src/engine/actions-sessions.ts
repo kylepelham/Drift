@@ -8,6 +8,7 @@ import { t } from "../state/i18n";
 import type { ArchivePurge, PromptSendResult, SessionMoveResult } from "./actions";
 import type { ActionContext } from "./actions-context";
 import type { EngineState, ModelRef } from "./store";
+import type { ModelChoice } from "./native/client";
 import type { components } from "./native/types";
 import type { Session } from "./sessions";
 
@@ -99,11 +100,12 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
     }
 
     /**
-     * `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply.
+     * `/compact`: the engine summarises now on the model and level the composer shows, unless Settings pins a
+     * compaction model; without a choice, on the conversation's own.
      */
-    async function summarize(id: string, _model?: unknown) {
+    async function summarize(id: string, choice?: ModelChoice) {
         try {
-            await requireClient().compactSession(id);
+            await requireClient().compactSession(id, choice);
         } catch (cause) {
             notice({
                 id: `compact-${id}`,

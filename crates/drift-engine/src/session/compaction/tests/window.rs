@@ -153,7 +153,7 @@ async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_wou
         turn(&h, ask).await;
     }
     h.provider.push(text("SUMMARY of the start"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
     h.provider.push(text("five"));
     turn(&h, "fifth").await;
@@ -196,7 +196,7 @@ async fn a_single_long_turn_keeps_its_newest_steps_and_its_prompt_verbatim() {
     h.provider.push(text("all read"));
     turn(&h, "PLEASE AUDIT EVERY FILE").await;
     h.provider.push(text("SUMMARY of the audit"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
 
     let full = h.engine.store.transcript(&h.session.id).unwrap();

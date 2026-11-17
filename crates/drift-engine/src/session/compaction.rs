@@ -45,6 +45,19 @@ const AUTO_COMPACT_TOKENS: u64 = 400_000;
 /// The earliest point the user may set; below it, compaction comes too often to pay for itself.
 pub const MIN_COMPACT_TOKENS: u64 = 100_000;
 
+/// The model and reasoning level the composer shows for a compaction the user asks for, which may differ from the
+/// conversation's own until the next prompt is sent; absent fields keep the conversation's.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelChoice {
+    #[serde(default)]
+    pub model: Option<ModelRef>,
+    /// The reasoning level by variant name: absent keeps the conversation's, null asks for the model's default.
+    #[serde(default, deserialize_with = "super::turn::present")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub variant: Option<Option<String>>,
+}
+
 /// Where conversations compact, as the user chose it in Settings; each model's point follows from its window and
 /// prices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -247,10 +260,10 @@ impl Engine {
         self.store.setting(MODEL_COMPACT_KEY).ok().flatten().unwrap_or_default()
     }
 
-    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.
-    /// An undo still pending is committed first, as sending a prompt would: the rolled-back messages go
-    /// and the summary covers what is visible.
-    pub fn start_compaction(self: &Arc<Self>, session_id: &str) -> Result<(), TurnError> {
+    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it, on the model the user
+    /// picked for it. An undo still pending is committed first, as sending a prompt would: the rolled-back
+    /// messages go and the summary covers what is visible.
+    pub fn start_compaction(self: &Arc<Self>, session_id: &str, choice: ModelChoice) -> Result<(), TurnError> {
         let abort = CancellationToken::new();
         if !self.turns.claim(session_id, &abort) {
             return Err(TurnError::Busy);
@@ -270,7 +283,7 @@ impl Engine {
         let engine = self.clone();
         let id = session_id.to_string();
         self.spawn_job(session_id, async move {
-            let _ = engine.compact(&id, Trigger::Manual, &abort).await;
+            let _ = engine.compact(&id, Trigger::Manual, &choice, &abort).await;
         });
 
         Ok(())
@@ -322,9 +335,10 @@ impl Engine {
         self: &Arc<Self>,
         session_id: &str,
         trigger: Trigger,
+        choice: &ModelChoice,
         abort: &CancellationToken,
     ) -> Result<(), CompactionError> {
-        let result = self.compact_once(session_id, trigger, abort).await;
+        let result = self.compact_once(session_id, trigger, choice, abort).await;
         if result.is_ok() {
             self.turns.files_for(&self.store, session_id).forget_shown();
             self.turns.forget_checked(session_id);
@@ -349,10 +363,11 @@ impl Engine {
         &self,
         session_id: &str,
         trigger: Trigger,
+        choice: &ModelChoice,
         abort: &CancellationToken,
     ) -> Result<(), CompactionError> {
         let action = self
-            .action_model(session_id, "compaction", Fallback::Conversation)
+            .action_model(session_id, "compaction", Fallback::Conversation, choice)
             .await?;
         let session = self.store.session(session_id).ok().flatten();
         let instructions = self.compaction_instructions(&action, session.as_ref()).await;

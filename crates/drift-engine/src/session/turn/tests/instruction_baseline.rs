@@ -111,7 +111,7 @@ async fn a_fork_keeps_its_sources_prefix_and_compaction_and_undo_start_a_new_bas
     assert_eq!(updates(&sent(&h, 2)), 1, "and the source's update, not a second one");
 
     h.provider.push(text("SUMMARY")).push(text("three"));
-    h.engine.start_compaction(&h.session.id).unwrap();
+    h.engine.start_compaction(&h.session.id, Default::default()).unwrap();
     until_idle(&h).await;
     ask(&h, "third").await;
     let last = h.provider.requests.lock().unwrap().len() - 1;

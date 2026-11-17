@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 
+use super::compaction::ModelChoice;
 use super::turn::{Plan, Prompt, TurnError};
 use super::types::{ModelRef, Refusal, Usage};
 use crate::Engine;
@@ -113,20 +114,22 @@ pub(crate) enum Fallback {
 }
 
 impl Engine {
-    /// The model an action runs on: the user's pin for that action in Settings, else its fallback.
+    /// The model an action runs on: the user's pin for that action in Settings, else its fallback, which starts from
+    /// the conversation as `choice` would run it.
     pub(crate) async fn action_model(
         &self,
         session_id: &str,
         action: &str,
         fallback: Fallback,
+        choice: &ModelChoice,
     ) -> Result<Action, TurnError> {
         let mut plan = self
             .plan(
                 session_id,
                 &Prompt {
                     parts: Vec::new(),
-                    model: None,
-                    variant: None,
+                    model: choice.model.clone(),
+                    variant: choice.variant.clone(),
                     agent: None,
                     submission_id: None,
                     worktree: false,

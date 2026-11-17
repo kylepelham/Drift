@@ -85,7 +85,7 @@ POST   /sessions/{id}/subagent              {arguments} the user's /subagent -> 
 GET    /sessions/{id}/tasks                 workers the session launched, finished ones included, without results
 GET    /tasks/{id}                          one worker's state and result
 POST   /tasks/{id}/abort                    stop one worker and nothing else
-POST   /sessions/{id}/compact
+POST   /sessions/{id}/compact               {model?, variant?}
 POST   /sessions/{id}/fork                  {atMessage?}
 POST   /sessions/{id}/move                  {workspaceId}
 POST   /sessions/export                     {ids}
@@ -497,7 +497,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     sends the whole conversation (five refused summaries once wrote 915k tokens each), so the
     refusal stands until a compaction succeeds. A compaction the user stopped is not counted.
   - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
-    runs, cancelled by Stop.
+    runs, cancelled by Stop. It runs on the model and level the composer shows (`{model, variant}`),
+    which may not be the conversation's until the next prompt is sent, unless Settings pins a
+    compaction model; the conversation's own choice is left as it was.
 - **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,
   default on, shown in Settings > General. Three automatic failures in a row also stop it for that
   session until one succeeds, a manual one included; manual compaction always runs.
