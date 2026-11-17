@@ -76,7 +76,6 @@ export function WorkspaceGroup(props: {
         if (current.length || authoritative()) return current;
         return cachedSessions(props.workspace.path);
     });
-    const children = (parentId: string) => sidebarWorkers(engine.state, parentId, selectedSession());
     const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)));
     const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()));
     // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
@@ -176,35 +175,41 @@ export function WorkspaceGroup(props: {
             <Show when={!collapsed()}>
                 <div class="mt-0.5 space-y-0.5">
                     <For each={visibleIds()}>
-                        {(id) => (
-                            <>
-                                <Show when={dividers().get(id)}>
-                                    {(label) => (
-                                        <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[length:calc(0.65rem*var(--sidebar-scale,1))] font-medium text-ink-faint select-none first:pt-0.5">
-                                            <span class="shrink-0">{label()}</span>
-                                            <span class="h-px flex-1 bg-edge" />
-                                        </div>
-                                    )}
-                                </Show>
-                                <ThreadItem
-                                    sessionId={id}
-                                    title={rowFor(id)?.title ?? ""}
-                                    updated={rowFor(id)?.updated ?? 0}
-                                    workspace={props.workspace}
-                                    onMenu={props.onSessionMenu}
-                                />
-                                <For each={children(id)}>
-                                    {(child) => (
-                                        <ChildThreadItem
-                                            sessionId={child.id}
-                                            title={child.title}
-                                            workspace={props.workspace}
-                                            onMenu={props.onSessionMenu}
-                                        />
-                                    )}
-                                </For>
-                            </>
-                        )}
+                        {(id) => {
+                            const workers = createMemo(() => sidebarWorkers(engine.state, id, selectedSession()));
+                            const depth = (child: string) =>
+                                workers().find((worker) => worker.session.id === child)?.depth ?? 0;
+                            return (
+                                <>
+                                    <Show when={dividers().get(id)}>
+                                        {(label) => (
+                                            <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[length:calc(0.65rem*var(--sidebar-scale,1))] font-medium text-ink-faint select-none first:pt-0.5">
+                                                <span class="shrink-0">{label()}</span>
+                                                <span class="h-px flex-1 bg-edge" />
+                                            </div>
+                                        )}
+                                    </Show>
+                                    <ThreadItem
+                                        sessionId={id}
+                                        title={rowFor(id)?.title ?? ""}
+                                        updated={rowFor(id)?.updated ?? 0}
+                                        workspace={props.workspace}
+                                        onMenu={props.onSessionMenu}
+                                    />
+                                    <For each={workers().map((worker) => worker.session)}>
+                                        {(child) => (
+                                            <ChildThreadItem
+                                                sessionId={child.id}
+                                                title={child.title}
+                                                depth={depth(child.id)}
+                                                workspace={props.workspace}
+                                                onMenu={props.onSessionMenu}
+                                            />
+                                        )}
+                                    </For>
+                                </>
+                            );
+                        }}
                     </For>
                     <Show when={remaining() > 0 || visibleCount() > sessionPageSize}>
                         <div class="flex items-center">
@@ -455,6 +460,7 @@ function StatusDot(props: { sessionId: string }) {
 function ChildThreadItem(props: {
     sessionId: string;
     title: string;
+    depth: number;
     workspace: Workspace;
     onMenu: (state: SessionMenuState) => void;
 }) {
@@ -467,8 +473,9 @@ function ChildThreadItem(props: {
             data-sidebar-navigation
             data-child-row
             {...threadRowProps(props, active)}
-            class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+            class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
             classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+            style={{ "padding-inline-start": `${1.25 + props.depth * 0.875}rem` }}
         >
             <Show
                 when={background()}

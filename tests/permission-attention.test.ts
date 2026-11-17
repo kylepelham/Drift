@@ -43,13 +43,13 @@ test("the sidebar shows a subagent while it runs, waits on the user, or is open"
     set("questions", "asking", [{ id: "q1", sessionId: "asking", questions: [] }] as never);
     expect(
         sidebarWorkers(state, "parent")
-            .map((s) => s.id)
+            .map((s) => s.session.id)
             .sort(),
     ).toEqual(["asking", "running"]);
     set("status", "running", { type: "idle" });
     set("questions", "asking", []);
     expect(sidebarWorkers(state, "parent")).toEqual([]);
-    expect(sidebarWorkers(state, "parent", "done").map((s) => s.id)).toEqual(["done"]);
+    expect(sidebarWorkers(state, "parent", "done").map((s) => s.session.id)).toEqual(["done"]);
 });
 
 test("the sidebar shows a subagent resumed in the background while it waits for a slot", () => {
@@ -63,10 +63,34 @@ test("the sidebar shows a subagent resumed in the background while it waits for 
     } as never);
     set("status", "worker", { type: "idle" });
     set("tasks", "parent", [{ id: "t1", sessionId: "worker", state: "queued", mode: "background" }] as never);
-    expect(sidebarWorkers(state, "parent").map((s) => s.id)).toEqual(["worker"]);
+    expect(sidebarWorkers(state, "parent").map((s) => s.session.id)).toEqual(["worker"]);
 
     set("tasks", "parent", [{ id: "t1", sessionId: "worker", state: "replied", mode: "background" }] as never);
     expect(sidebarWorkers(state, "parent")).toEqual([]);
+});
+
+test("a subagent's own subagents show under it while they run or are open, with the chain above them", () => {
+    const [state, set] = createEngineState();
+    const worker = (id: string, parentId: string, createdAt: number) =>
+        ({ id, parentId, visibility: "hidden", createdAt, updatedAt: createdAt }) as never;
+    putSession(set, worker("child", "parent", 1));
+    putSession(set, worker("grandchild", "child", 2));
+    putSession(set, worker("other", "parent", 3));
+    set("status", "child", { type: "idle" });
+    set("status", "grandchild", { type: "busy" });
+
+    const rows = () => sidebarWorkers(state, "parent").map((row) => [row.session.id, row.depth]);
+    expect(rows(), "an idle subagent shows while one under it works").toEqual([
+        ["child", 0],
+        ["grandchild", 1],
+    ]);
+
+    set("status", "grandchild", { type: "idle" });
+    expect(rows()).toEqual([]);
+    expect(sidebarWorkers(state, "parent", "grandchild").map((row) => [row.session.id, row.depth])).toEqual([
+        ["child", 0],
+        ["grandchild", 1],
+    ]);
 });
 
 test("a thread's workers come from an index that follows each worker's parent", () => {

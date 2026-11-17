@@ -525,7 +525,9 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 
 - Subagents come from the `task` tool. Their result returns to the parent's task card, which
   opens the stored transcript. They show under the parent in the sidebar while running, waiting on
-  the user, or open, stop when the parent stops, and cannot delegate further.
+  the user, or open, stop when the parent stops, and delegate further only as deep as Settings >
+  Execution allows. Their own subagents show indented under them on the same terms, with every
+  subagent above one that shows.
 - The user can start one too: `/subagent [seq|async] [model] <prompt>` gives the job to the
   `general` subagent exactly as `task` would, so its context stays out of the conversation.
   `async` (the default) starts it at once, even mid-turn, shows it in the task dock as started by

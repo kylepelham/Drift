@@ -536,6 +536,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] Subagents per tag and a workspace's stored browser sign-ins open as a panel under one row, as Web search lists a provider's keys (`SettingsDisclosure`)
 - [x] Keyboard for everything (`docs/shortcuts.md`): sessions (Ctrl+Tab, Ctrl+1..9, Alt+Left/Right), workspaces (Ctrl+Alt+Up/Down), messages (Alt+Up/Down, with Shift by prompt, Ctrl+C copies), Ctrl+Shift+F session search with names or content always shown and arrow keys through results, a keyboard sidebar and menus, picker, panel, rename and sidebar shortcuts, Escape stops a turn, and /mcp opens on its server list again
 - [x] A link clicked while another computer is shown opens in this PC's browser, not in the window; a navigation guard keeps the window on Drift's own pages
+- [x] Subagents of subagents show in the sidebar, indented under the subagent that started them, while they run, wait on the user or are open
 
 ## Readability and tooling pass
 
