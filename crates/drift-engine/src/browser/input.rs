@@ -254,6 +254,11 @@ impl Key {
 }
 
 impl MouseInput {
+    /// Whether Control or Meta is held, so a wheel turn zooms rather than scrolls.
+    pub(crate) fn is_shortcut(&self) -> bool {
+        self.modifiers & (CONTROL | META) != 0
+    }
+
     /// The protocol's `Input.dispatchMouseEvent` parameters, or `None` for an event it has no name for.
     pub(crate) fn event(&self) -> Option<Value> {
         let kind = match self.event.as_str() {

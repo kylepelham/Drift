@@ -70,6 +70,16 @@ Tabs open with `background: true` and switching never calls `browsingContext.act
 paints, and neither a foreground create nor an activate is ever answered, which held all the pane's input
 behind it for the call's 60-second timeout.
 
+Camoufox makes a tab usable only about 2 s after it is announced (Firefox, in 20 ms), and a navigate on it
+waits for that too, so one blank tab is kept ready out of sight: a new tab, the pane's + or the agent's, takes
+it at once and the next is made in the background. Even an unwaited (`wait: "none"`) navigate is answered only
+once the server responds, so the pane's address bar, back, forward and reload run beside its input and the
+page's load events tell the rest; the agent's navigate still waits for the load. Pictures are taken apart from
+the browser's events, and the page's CSS size is asked again only when the picture's size changes, a load
+finishes, or a shortcut or Ctrl+wheel may have zoomed. A pane key is sent with the modifiers it was pressed
+with held around it, so Ctrl+C copies even when Control went down before the pane had the focus.
+Launching takes about 2.2 s and the first tab another 2 s, which is Camoufox's own.
+
 ### IE mode
 
 IEDriverServer starts on a free port inside the browser's job, and a session asks it for Edge in IE mode
@@ -367,7 +377,9 @@ the credential is refused.
   (`navigator.clipboard.writeText` or `execCommand('copy')`). A headless browser keeps a clipboard of its own,
   so after each click, Enter, Space or Ctrl/Cmd chord the engine asks the page helper what the page last
   copied (its `copy` and `cut` events) and, on secure pages, what the browser's clipboard holds; it checks again
-  after 100, 400 and 1200 ms and sends any new text as `copied`, which the pane writes to the clipboard.
+  after 100, 400 and 1200 ms and sends any new text as `copied`, which the pane writes to the clipboard. The
+  input waits at most 150 ms for that first look, so a busy page never holds clicks back, and the keys of one
+  chord (Control, then C) tell one copy once.
   For this, hidden Chrome and Edge get `clipboard-read` (`Browser.setPermission`; `grantPermissions` would deny
   every other permission, write included) and focus emulation, and each page shown is brought to front, since
   an unfocused page's clipboard calls fail and the launch tab otherwise leaves keys in the hidden omnibox, so

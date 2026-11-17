@@ -98,6 +98,7 @@ pub(crate) async fn apply_inputs(
     mut queued: mpsc::UnboundedReceiver<ViewInput>,
     notices: mpsc::UnboundedSender<Notice>,
 ) {
+    let reported = Arc::new(std::sync::Mutex::new(Clipboard::default()));
     while let Some(first) = queued.recv().await {
         let mut batch = vec![first];
         while let Ok(next) = queued.try_recv() {
@@ -105,17 +106,28 @@ pub(crate) async fn apply_inputs(
         }
 
         for input in coalesce(batch) {
+            // A busy page answers late, and the input must not wait on it; that input is then not followed.
             let before = match may_copy(&input) {
-                true => Some(driver.clipboard().await),
+                true => tokio::time::timeout(CLIPBOARD_BEFORE_WAIT, driver.clipboard())
+                    .await
+                    .ok(),
                 false => None,
             };
             let _ = driver.input(input).await;
             if let Some(before) = before {
-                tokio::spawn(follow_copy(driver.clone(), before, notices.clone()));
+                let follow = Follow {
+                    driver: driver.clone(),
+                    notices: notices.clone(),
+                    reported: reported.clone(),
+                };
+                tokio::spawn(follow.copy_since(before));
             }
         }
     }
 }
+
+/// The longest an input waits for the clipboard as it was before it.
+const CLIPBOARD_BEFORE_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// A click, or a key that may run a copy button or a shortcut: Control or Meta held, Enter, or Space.
 fn may_copy(input: &ViewInput) -> bool {
@@ -126,15 +138,45 @@ fn may_copy(input: &ViewInput) -> bool {
     }
 }
 
-/// Looks at the clipboard a few times after the input, since a page often copies once a promise settles.
-async fn follow_copy(driver: Arc<dyn Driver>, before: Clipboard, notices: mpsc::UnboundedSender<Notice>) {
-    for wait in COPY_CHECKS {
-        tokio::time::sleep(wait).await;
-        if let Some(text) = driver.clipboard().await.copied_since(&before) {
-            let _ = notices.send(Notice::Copied { text });
+/// A shortcut key, or a wheel turn with Control or Meta held: either may zoom the page.
+pub(crate) fn may_zoom(input: &ViewInput) -> bool {
+    match input {
+        ViewInput::Mouse(mouse) => mouse.event == "wheel" && mouse.is_shortcut(),
+        ViewInput::Key(key) => key.is_shortcut(),
+        _ => false,
+    }
+}
+
+/// Watches the clipboard after one input that may copy.
+struct Follow {
+    driver: Arc<dyn Driver>,
+    notices: mpsc::UnboundedSender<Notice>,
+    /// The clipboard as last told to the pane, so the inputs of one shortcut (Control, then C) tell a copy once.
+    reported: Arc<std::sync::Mutex<Clipboard>>,
+}
+
+impl Follow {
+    /// Looks at the clipboard a few times after the input, since a page often copies once a promise settles.
+    async fn copy_since(self, before: Clipboard) {
+        for wait in COPY_CHECKS {
+            tokio::time::sleep(wait).await;
+            let now = self.driver.clipboard().await;
+            let Some(text) = now.copied_since(&before) else {
+                continue;
+            };
+            if newly_reported(&self.reported, now) {
+                let _ = self.notices.send(Notice::Copied { text });
+            }
             return;
         }
     }
+}
+
+/// Whether the clipboard differs from what the pane was last told, which it then becomes.
+fn newly_reported(reported: &std::sync::Mutex<Clipboard>, now: Clipboard) -> bool {
+    let mut reported = reported.lock().unwrap();
+
+    std::mem::replace(&mut *reported, now.clone()) != now
 }
 
 /// The waits between looks at the clipboard after an input that may copy: 0.1 s, 0.4 s and 1.2 s after it.
@@ -352,6 +394,36 @@ mod tests {
         assert!(!may_copy(&mouse("move", 1.0, None, 0)));
         assert!(!may_copy(&key("down")));
         assert!(!may_copy(&ViewInput::Text { text: "a".into() }));
+    }
+
+    #[test]
+    fn the_keys_of_one_shortcut_tell_its_copy_once() {
+        let reported = std::sync::Mutex::new(Clipboard::default());
+        let copied = held(Some((2.0, "picked")), Some("picked"));
+
+        assert!(newly_reported(&reported, copied.clone()), "Control finds the copy");
+        assert!(!newly_reported(&reported, copied), "C finds the same copy");
+        assert!(
+            newly_reported(&reported, held(Some((3.0, "picked")), Some("picked"))),
+            "copying it again is a new copy"
+        );
+    }
+
+    #[test]
+    fn a_shortcut_or_a_held_wheel_turn_may_zoom() {
+        let turn = |modifiers| mouse("wheel", 1.0, Some(-120.0), modifiers);
+        let control_key = match key("down") {
+            ViewInput::Key(key) => ViewInput::Key(KeyInput { modifiers: 2, ..key }),
+            _ => unreachable!(),
+        };
+
+        assert!(may_zoom(&turn(2)));
+        assert!(may_zoom(&turn(4)));
+        assert!(may_zoom(&control_key));
+        assert!(!may_zoom(&turn(0)));
+        assert!(!may_zoom(&turn(8)));
+        assert!(!may_zoom(&key("down")));
+        assert!(!may_zoom(&mouse("up", 1.0, None, 2)));
     }
 
     #[test]
