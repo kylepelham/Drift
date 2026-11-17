@@ -1125,6 +1125,7 @@ export const drift = {
     "drift.process.open": "Відкрити",
     "drift.process.stopHint": "Зупиняє цей процес і все, що він запустив.",
     "drift.process.stopFailed": "Не вдалося зупинити процес",
+    "drift.browser.filesTooLarge": "Не надіслано в браузер, понад 25 МБ разом: {{files}}",
     "drift.browser.view": "Сторінка браузера",
     "drift.browser.waiting": "Очікування сторінки...",
     "drift.browser.loading": "Завантаження вкладки",

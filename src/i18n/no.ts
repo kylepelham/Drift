@@ -1125,6 +1125,7 @@ export const drift = {
     "drift.process.open": "Åpne",
     "drift.process.stopHint": "Stopper denne prosessen og alt den har startet.",
     "drift.process.stopFailed": "Prosessen kunne ikke stoppes",
+    "drift.browser.filesTooLarge": "Ikke sendt til nettleseren, over 25 MB til sammen: {{files}}",
     "drift.browser.view": "Nettleserside",
     "drift.browser.waiting": "Venter på siden...",
     "drift.browser.loading": "Laster fanen",

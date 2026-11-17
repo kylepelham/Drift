@@ -62,9 +62,26 @@ pub enum ViewInput {
     Mouse(MouseInput),
     #[serde(rename = "key")]
     Key(KeyInput),
-    /// Pasted or composed text, typed into the focused element.
+    /// Composed text (an input method, a dead key), typed into the focused element.
     #[serde(rename = "text")]
     Text { text: String },
+    /// What the user pasted: a paste event the page sees with its text and files, then the text inserted.
+    #[serde(rename = "paste")]
+    Paste {
+        text: String,
+        #[serde(default)]
+        files: Vec<PaneFile>,
+    },
+    /// Text or files dropped on the pane at a point of the page.
+    #[serde(rename = "drop")]
+    Drop {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        files: Vec<PaneFile>,
+    },
     #[serde(rename = "select")]
     Select { page: String },
     #[serde(rename = "close")]
@@ -79,6 +96,41 @@ pub enum ViewInput {
     /// The size in CSS pixels the pane shows the page at, so the page can be laid out to fill it.
     #[serde(rename = "fit")]
     Fit { width: f64, height: f64 },
+}
+
+/// A file the pane pasted or dropped, its bytes in base64.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PaneFile {
+    pub name: String,
+    #[serde(default)]
+    pub mime: String,
+    pub data: String,
+}
+
+const PANE_JS: &str = include_str!("pane.js");
+
+/// An expression running one of the pane's page actions (`pane.js`) with its arguments.
+pub(crate) fn pane_script(action: &str, args: &serde_json::Value) -> String {
+    format!(
+        "({})({}, {})",
+        PANE_JS.trim().trim_end_matches(';'),
+        serde_json::Value::from(action),
+        args
+    )
+}
+
+/// The page action for a paste or drop, or `None` for any other input.
+pub(crate) fn data_script(input: &ViewInput) -> Option<String> {
+    let (action, args) = match input {
+        ViewInput::Paste { text, files } => ("paste", serde_json::json!({ "text": text, "files": files })),
+        ViewInput::Drop { x, y, text, files } => (
+            "drop",
+            serde_json::json!({ "x": x, "y": y, "text": text, "files": files }),
+        ),
+        _ => return None,
+    };
+
+    Some(pane_script(action, &args))
 }
 
 /// What the engine tells a pane besides frames, as JSON text.

@@ -1121,6 +1121,7 @@ export const drift = {
     "drift.process.open": "Otvori",
     "drift.process.stopHint": "Zaustavlja ovaj proces i sve što je pokrenuo.",
     "drift.process.stopFailed": "Proces nije moguće zaustaviti",
+    "drift.browser.filesTooLarge": "Nisu poslane pregledniku, preko 25 MB zajedno: {{files}}",
     "drift.browser.view": "Stranica preglednika",
     "drift.browser.waiting": "Čekanje na stranicu...",
     "drift.browser.loading": "Učitavanje taba",

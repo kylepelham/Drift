@@ -474,7 +474,7 @@ impl Ie {
                 self.helper(&active, &format!("scroll(0, {dy})"), json!([])).await?;
             }
             ViewInput::Key(key) => self.pane_key(&tab, &key).await?,
-            ViewInput::Text { text } => tab.type_text(&text).await?,
+            ViewInput::Text { text } | ViewInput::Paste { text, .. } => tab.type_text(&text).await?,
             ViewInput::Navigate { url } => tab.go(&url).await?,
             ViewInput::Dialog { accept, text } => tab.answer_dialog(accept, text.as_deref()).await?,
             _ => {}

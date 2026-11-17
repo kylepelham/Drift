@@ -1140,6 +1140,7 @@ export const drift = {
     "drift.process.open": "Öffnen",
     "drift.process.stopHint": "Stoppt diesen Prozess und alles, was er gestartet hat.",
     "drift.process.stopFailed": "Der Prozess konnte nicht gestoppt werden",
+    "drift.browser.filesTooLarge": "Nicht an den Browser gesendet, zusammen über 25 MB: {{files}}",
     "drift.browser.view": "Browserseite",
     "drift.browser.waiting": "Warten auf die Seite...",
     "drift.browser.loading": "Tab wird geladen",

@@ -1127,6 +1127,7 @@ export const drift = {
     "drift.process.open": "Aç",
     "drift.process.stopHint": "Bu işlemi ve başlattığı her şeyi durdurur.",
     "drift.process.stopFailed": "İşlem durdurulamadı",
+    "drift.browser.filesTooLarge": "Tarayıcıya gönderilmedi, toplam 25 MB'dan fazla: {{files}}",
     "drift.browser.view": "Tarayıcı sayfası",
     "drift.browser.waiting": "Sayfa bekleniyor...",
     "drift.browser.loading": "Sekme yükleniyor",

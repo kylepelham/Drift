@@ -141,6 +141,8 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     call(&sandbox, json!({ "action": "fill", "ref": textbox, "text": "" }))
         .await
         .unwrap();
+    // Typed with Control still down from a shortcut, as the pane sends a paste that falls back to typing.
+    instance.input(control_down()).await.unwrap();
     let typed = crate::browser::ViewInput::Text { text: "Grace".into() };
     instance.input(typed).await.unwrap();
     let value = call(
@@ -394,6 +396,16 @@ fn pane_mouse(event: &str, x: f64, y: f64, buttons: u8) -> ViewInput {
         delta_y: None,
         modifiers: 0,
         buttons,
+    })
+}
+
+fn control_down() -> ViewInput {
+    ViewInput::Key(KeyInput {
+        event: "down".into(),
+        key: "Control".into(),
+        code: "ControlLeft".into(),
+        key_code: 17,
+        modifiers: 2,
     })
 }
 
@@ -1031,4 +1043,115 @@ async fn camoufox_opens_switches_and_closes_tabs_from_the_pane() {
     assert_eq!(browser.active().as_deref(), Some(first.as_str()));
     quickly(crate::browser::ViewInput::Close { page: second }).await;
     call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+}
+
+const PARITY: &str = "<!doctype html><html><head><title>parity</title><style>body{margin:0;font:16px sans-serif}\
+#para{position:absolute;left:10px;top:10px}#drag{position:absolute;left:10px;top:60px;width:80px;height:40px;background:#fc6}\
+#target{position:absolute;left:200px;top:60px;width:200px;height:60px;background:#9cf}\
+#scroller{position:absolute;left:10px;top:150px;width:400px;height:60px;overflow-x:auto}#wide{width:3000px;height:40px}\
+#field{position:absolute;left:10px;top:230px;width:300px}</style></head><body>\
+<p id=para>Select this sentence by dragging across it.</p><div id=drag draggable=true>drag me</div><div id=target>drop here</div>\
+<div id=scroller><div id=wide></div></div><input id=field>\
+<script>window.events=[];const log=l=>events.push(l);\
+document.addEventListener('paste',e=>log('paste:'+e.clipboardData.getData('text')));\
+document.getElementById('drag').addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain','dragged');log('dragstart')});\
+const t=document.getElementById('target');t.addEventListener('dragover',e=>e.preventDefault());\
+t.addEventListener('drop',e=>{e.preventDefault();log('drop:'+e.dataTransfer.getData('text/plain')+[...e.dataTransfer.files].map(f=>f.name))});\
+document.getElementById('scroller').addEventListener('scroll',e=>log('hscroll'),{once:true});\
+document.addEventListener('mouseup',()=>{const s=String(getSelection()).trim();if(s)log('selected:'+s)});</script></body></html>";
+
+/// A press at `from`, ten moves with it held, and a release at `to`, as the pane sends a drag of an element.
+fn pane_drag_to(from: (f64, f64), to: (f64, f64)) -> Vec<ViewInput> {
+    let mut inputs = vec![pane_mouse("down", from.0, from.1, 1)];
+    for step in 1..=10 {
+        let part = f64::from(step) / 10.0;
+        let (x, y) = (from.0 + (to.0 - from.0) * part, from.1 + (to.1 - from.1) * part);
+        inputs.push(pane_mouse("move", x, y, 1));
+    }
+    inputs.push(pane_mouse("up", to.0, to.1, 0));
+    inputs
+}
+
+/// What the page saw of the pane's selecting, dragging, sideways scrolling, pasting and dropping.
+async fn pane_parity(engine: &str) -> (String, String) {
+    let sandbox = Sandbox::new(&format!("browser-parity-{engine}"));
+    if let Some(path) = std::env::var_os(format!("DRIFT_TEST_{}", engine.to_uppercase())) {
+        let kind = crate::browser::Kind::parse(engine).unwrap();
+        sandbox.ctx.engine.set_browser_path(kind, path.to_str()).unwrap();
+    }
+    let url = serve(PARITY).await;
+    call(&sandbox, json!({ "action": "open", "url": url, "engine": engine }))
+        .await
+        .unwrap();
+    let browser = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let mut inputs = pane_drag(12.0, 250.0, 30.0);
+    inputs.extend(pane_drag_to((40.0, 80.0), (300.0, 90.0)));
+    inputs.push(ViewInput::Mouse(MouseInput {
+        event: "wheel".into(),
+        x: 100.0,
+        y: 170.0,
+        button: None,
+        click_count: None,
+        delta_x: Some(200.0),
+        delta_y: Some(0.0),
+        modifiers: 0,
+        buttons: 0,
+    }));
+    inputs.extend(pane_click(50.0, 240.0));
+    inputs.push(crate::browser::ViewInput::Paste {
+        text: "hello".into(),
+        files: vec![],
+    });
+    let file = crate::browser::PaneFile {
+        name: "notes.txt".into(),
+        mime: "text/plain".into(),
+        data: "aGk=".into(),
+    };
+    inputs.push(crate::browser::ViewInput::Drop {
+        x: 300.0,
+        y: 90.0,
+        text: String::new(),
+        files: vec![file],
+    });
+    // Spaced as the pane sends them, a frame apart.
+    for input in inputs {
+        browser.input(input).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let seen = "JSON.stringify([events, document.getElementById('field').value])";
+    let seen = call(&sandbox, json!({ "action": "eval", "expression": seen }))
+        .await
+        .unwrap();
+    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+    (engine.to_string(), seen.output)
+}
+
+/// Text selection, an element dragged onto a drop target, a sideways scroll, a paste the page sees with its text, and
+/// a file dropped from the desktop. Chrome or Edge where installed; Camoufox with `DRIFT_TEST_CAMOUFOX`.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_drags_drops_scrolls_sideways_and_pastes_as_a_real_browser_does() {
+    let mut engines = Vec::new();
+    if crate::browser::installed().is_some() {
+        engines.push("chrome");
+    }
+    if std::env::var_os("DRIFT_TEST_CAMOUFOX").is_some() {
+        engines.push("camoufox");
+    }
+    for engine in engines {
+        let (engine, seen) = pane_parity(engine).await;
+        let seen: Value = serde_json::from_str(&seen).unwrap();
+        let events: Vec<&str> = seen[0].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        for expected in [
+            "selected:Select this sentence by dragging",
+            "dragstart",
+            "drop:dragged",
+            "hscroll",
+            "paste:hello",
+            "drop:notes.txt",
+        ] {
+            assert!(events.contains(&expected), "{engine}: {expected} in {events:?}");
+        }
+        assert_eq!(seen[1], "hello", "{engine}: the paste is inserted once");
+    }
 }

@@ -1099,6 +1099,7 @@ export const drift = {
     "drift.process.open": "فتح",
     "drift.process.stopHint": "يوقف هذه العملية وكل ما بدأته.",
     "drift.process.stopFailed": "تعذر إيقاف العملية",
+    "drift.browser.filesTooLarge": "لم تُرسل إلى المتصفح، أكثر من 25 ميجابايت معاً: {{files}}",
     "drift.browser.view": "صفحة المتصفح",
     "drift.browser.waiting": "بانتظار الصفحة...",
     "drift.browser.loading": "جارٍ تحميل علامة التبويب",

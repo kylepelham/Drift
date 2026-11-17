@@ -371,8 +371,21 @@ the credential is refused.
   pane's shape (height over width kept between 0.4 and 2.5), so pages keep their desktop layout and a pane
   narrower than that shows it scaled down. A size the agent chose with `viewport` wins until it asks for
   `desktop` again; the picture is then centred in the pane. IE mode keeps its own size.
-- Clicks, wheel and keys typed while the picture has focus go to the page, mapped to its CSS pixels. Pasting
-  sends the text as typed input.
+- Clicks, wheel (sideways too) and keys typed while the picture has focus go to the page, mapped to its CSS
+  pixels. Keys land in a hidden text box over the picture, since a desktop webview fires `paste` only into an
+  editable element; an input method or dead key composes there and what it settles on is typed into the page.
+- Pasting and dropping act as in a real browser. A paste (`paste` input: the clipboard's text and files) is a
+  `paste` event at the page's focused element carrying that data; unless the page cancels it, the text is
+  inserted once with `insertText`. Firefox drops the data a script's `ClipboardEvent` is made with, so the event
+  gets it as its own `clipboardData`. A cross-origin frame with focus gets the text typed instead. Text or files
+  dragged from the desktop onto the picture (`drop` input) go through `dragenter`, `dragover` and `drop` at that
+  point; a file input there takes the files as if chosen. Files are sent base64, at most 25 MB together; the
+  rest are named in a warning.
+- Dragging works as with a mouse: selecting text, and `draggable` elements dropped on a target. Chrome and Edge
+  drag natively. Firefox's BiDi actions start a native drag that never moves or ends, so the engine holds the
+  press until the pointer moves 4 px: over a `draggable` element the page helper runs the HTML drag events
+  itself (`dragstart`, `dragenter`/`dragover`/`dragleave` per move, `drop` and `dragend` on release) and the
+  release's click is swallowed; anywhere else the press and moves go to the page as they are, so text selects.
 - Copying reaches the user's clipboard: Ctrl+C or Ctrl+X on a selection and a site's own Copy button
   (`navigator.clipboard.writeText` or `execCommand('copy')`). A headless browser keeps a clipboard of its own,
   so after each click, Enter, Space or Ctrl/Cmd chord the engine asks the page helper what the page last
@@ -386,6 +399,8 @@ the credential is refused.
   Ctrl+C copied the address. Firefox gets `dom.events.testing.asyncClipboard`. IE mode handles Ctrl+C and
   Ctrl+X itself from the page's selection (cut deletes only inside a field). An off-screen window uses the
   real clipboard and gets none of this, so pages there cannot read the user's clipboard.
+- Not shown yet: `<select>` popups, the native file chooser (drop a file on the input instead) and the
+  browser's own right-click menu; a page's own context menu still works.
 - The pane shows the cursor the page would (all but IE mode). CSS cursors are not reported by the DevTools
   Protocol or BiDi, so after each pointer event the engine asks the page's isolated world what is under the point:
   the element's computed `cursor` (an image cursor gives its keyword fallback), or for `auto` an I-beam over

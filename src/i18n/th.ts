@@ -1102,6 +1102,7 @@ export const drift = {
     "drift.process.open": "เปิด",
     "drift.process.stopHint": "หยุดโปรเซสนี้และทุกอย่างที่มันเริ่มไว้",
     "drift.process.stopFailed": "ไม่สามารถหยุดโปรเซสได้",
+    "drift.browser.filesTooLarge": "ไม่ส่งไปยังเบราว์เซอร์ เกิน 25 MB รวมกัน: {{files}}",
     "drift.browser.view": "หน้าเบราว์เซอร์",
     "drift.browser.waiting": "กำลังรอหน้าเว็บ...",
     "drift.browser.loading": "กำลังโหลดแท็บ",

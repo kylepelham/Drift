@@ -1,4 +1,4 @@
-import { buttonName, isPasteShortcut, modifierBits, pagePoint } from "./browser-input";
+import { buttonName, composesOrPastes, modifierBits, pagePoint, paneFiles } from "./browser-input";
 import { createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { reservedKey } from "../state/keybinds";
 import { useEngine } from "../engine";
@@ -25,6 +25,8 @@ export function BrowserView(props: {
     const switching = () => !!size() && !!props.activePage && shownPage() !== props.activePage;
     let area!: HTMLDivElement;
     let canvas!: HTMLCanvasElement;
+    // Keys go to a hidden text box: a desktop webview fires paste only into an editable element, and input methods compose there.
+    let keys!: HTMLTextAreaElement;
     let latest: BrowserFrame | undefined;
     let drawing = false;
     let pendingMove: MouseEvent | undefined;
@@ -117,7 +119,7 @@ export function BrowserView(props: {
     }
 
     function key(kind: "down" | "up", event: KeyboardEvent) {
-        if (event.isComposing || isPasteShortcut(event) || reservedKey(event)) return;
+        if (composesOrPastes(event) || reservedKey(event)) return;
 
         event.preventDefault();
         view.send({
@@ -131,9 +133,46 @@ export function BrowserView(props: {
     }
 
     function paste(event: ClipboardEvent) {
-        const text = event.clipboardData?.getData("text") ?? "";
+        const data = event.clipboardData;
         event.preventDefault();
+        if (!data) return;
+        const text = data.getData("text/plain");
+        void sendFiles([...data.files], (files) => {
+            if (text || files.length) view.send({ type: "paste", text, files });
+        });
+    }
+
+    // What an input method or dead key settled on is typed into the page; the box is kept empty.
+    function composed(text: string) {
+        keys.value = "";
         if (text) view.send({ type: "text", text });
+    }
+
+    function droppable(event: DragEvent) {
+        const types = event.dataTransfer?.types ?? [];
+        if (!types.includes("Files") && !types.includes("text/plain")) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    }
+
+    function drop(event: DragEvent) {
+        const data = event.dataTransfer;
+        const at = point(event);
+        if (!data || !at) return;
+        event.preventDefault();
+        const text = data.files.length ? "" : data.getData("text/plain");
+        void sendFiles([...data.files], (files) => view.send({ type: "drop", ...at, text, files }));
+        keys.focus({ preventScroll: true });
+    }
+
+    async function sendFiles(list: File[], send: (files: Awaited<ReturnType<typeof paneFiles>>["files"]) => void) {
+        const { files, skipped } = await paneFiles(list);
+        send(files);
+        if (skipped.length)
+            engine.actions.notice({
+                message: t("drift.browser.filesTooLarge", { files: skipped.join(", ") }),
+                variant: "warning",
+            });
     }
 
     onMount(() => {
@@ -157,16 +196,30 @@ export function BrowserView(props: {
             ref={area}
             class="browser-view relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-raised/40"
         >
+            <textarea
+                ref={keys}
+                data-own-keys
+                class="pointer-events-none absolute top-0 left-0 size-px resize-none opacity-0"
+                aria-label={t("drift.browser.view")}
+                autocomplete="off"
+                spellcheck={false}
+                onKeyDown={(event) => key("down", event)}
+                onKeyUp={(event) => key("up", event)}
+                onPaste={paste}
+                onCompositionEnd={(event) => composed(event.data)}
+                onInput={(event) => {
+                    if (!event.isComposing) composed(keys.value);
+                }}
+            />
             <canvas
                 ref={canvas}
-                data-own-keys
-                tabIndex={0}
                 class="block max-h-full max-w-full outline-none"
                 classList={{ invisible: !size() }}
                 style={{ cursor: cursor() }}
-                aria-label={t("drift.browser.view")}
                 onMouseDown={(event) => {
-                    canvas.focus();
+                    // The press is the page's: Drift neither selects nor moves focus off the box.
+                    event.preventDefault();
+                    keys.focus({ preventScroll: true });
                     mouse("down", event, event.detail || 1);
                 }}
                 onMouseUp={(event) => {
@@ -176,9 +229,8 @@ export function BrowserView(props: {
                 }}
                 onMouseMove={move}
                 onContextMenu={(event) => event.preventDefault()}
-                onKeyDown={(event) => key("down", event)}
-                onKeyUp={(event) => key("up", event)}
-                onPaste={paste}
+                onDragOver={droppable}
+                onDrop={drop}
             />
             <Show when={!size()}>
                 <p class="absolute inset-x-0 top-1/3 text-center text-sm text-ink-faint">

@@ -2931,6 +2931,12 @@ export interface components {
             key: string;
             value: string;
         };
+        /** @description A file the pane pasted or dropped, its bytes in base64. */
+        PaneFile: {
+            data: string;
+            mime?: string;
+            name: string;
+        };
         Part: {
             text: string;
             /** @enum {string} */
@@ -3943,6 +3949,20 @@ export interface components {
             text: string;
             /** @enum {string} */
             type: "text";
+        } | {
+            files?: components["schemas"]["PaneFile"][];
+            text: string;
+            /** @enum {string} */
+            type: "paste";
+        } | {
+            files?: components["schemas"]["PaneFile"][];
+            text?: string;
+            /** @enum {string} */
+            type: "drop";
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
         } | {
             page: string;
             /** @enum {string} */

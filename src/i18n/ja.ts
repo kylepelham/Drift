@@ -1125,6 +1125,7 @@ export const drift = {
     "drift.process.open": "開く",
     "drift.process.stopHint": "このプロセスと、それが起動したすべてを停止します。",
     "drift.process.stopFailed": "プロセスを停止できませんでした",
+    "drift.browser.filesTooLarge": "ブラウザーに送信できません（合計で25 MB以上）: {{files}}",
     "drift.browser.view": "ブラウザーページ",
     "drift.browser.waiting": "ページを待機中...",
     "drift.browser.loading": "タブを読み込み中",

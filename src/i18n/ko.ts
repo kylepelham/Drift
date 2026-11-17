@@ -1111,6 +1111,7 @@ export const drift = {
     "drift.process.open": "열기",
     "drift.process.stopHint": "이 프로세스와 그것이 시작한 모든 것을 중지합니다.",
     "drift.process.stopFailed": "프로세스를 중지하지 못했습니다",
+    "drift.browser.filesTooLarge": "브라우저로 전송되지 않음, 합계 25MB 초과: {{files}}",
     "drift.browser.view": "브라우저 페이지",
     "drift.browser.waiting": "페이지 대기 중...",
     "drift.browser.loading": "탭 로딩 중",

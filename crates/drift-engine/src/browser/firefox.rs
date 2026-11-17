@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, watch};
 
 use super::bidi::{Bidi, Event, plain};
 use super::driver::{Common, Driver, Language, Pointer, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
-use super::input::{Key, KeyInput, parse_chord, webdriver_modifiers};
-use super::view::{Clipboard, Frame, PaneFit, ViewInput, may_zoom, pane_viewport};
+use super::input::{Key, KeyInput, MouseInput, parse_chord, webdriver_modifiers};
+use super::view::{Clipboard, Frame, PaneFit, ViewInput, may_zoom, pane_script, pane_viewport};
 use super::{DialogRecord, Kind, PageRecord, with_scheme};
 use crate::Engine;
 use crate::platform::process::{Tree, spawn_owned};
@@ -123,10 +123,23 @@ pub(crate) struct Firefox {
     unchanged: AtomicU32,
     pane_fit: PaneFit,
     pointer: Pointer,
+    drag: Mutex<PaneDrag>,
     /// A blank tab made ahead and kept out of sight, since Camoufox takes about 2 s to make a tab usable.
     spare: Mutex<Spare>,
     /// Held while a tab is made, so a new tab asked for meanwhile waits for the spare rather than making its own.
     making: tokio::sync::Mutex<()>,
+}
+
+/// How far a press moves before a drag starts, in CSS pixels, as browsers have it.
+const DRAG_DISTANCE: f64 = 4.0;
+
+/// Where the pane's left button is in a drag Firefox cannot carry itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum PaneDrag {
+    #[default]
+    Idle,
+    Pressed(f64, f64),
+    Dragging,
 }
 
 #[derive(Default)]
@@ -213,6 +226,7 @@ impl Firefox {
             unchanged: AtomicU32::new(0),
             pane_fit: PaneFit::default(),
             pointer: Pointer::default(),
+            drag: Mutex::default(),
             spare: Mutex::default(),
             making: tokio::sync::Mutex::default(),
         });
@@ -518,23 +532,17 @@ impl Firefox {
         if may_zoom(&input) {
             tab.state.lock().unwrap().size = None;
         }
-        match input {
-            ViewInput::Mouse(mouse) => {
-                let button = match mouse.button.as_deref() {
-                    Some("middle") => 1,
-                    Some("right") => 2,
-                    _ => 0,
-                };
-                let at = json!({ "type": "pointerMove", "x": mouse.x.round(), "y": mouse.y.round() });
-                let actions = match mouse.event.as_str() {
-                    "down" => vec![at, json!({ "type": "pointerDown", "button": button })],
-                    "up" => vec![at, json!({ "type": "pointerUp", "button": button })],
-                    "wheel" => return tab.wheel(mouse.x, mouse.y, mouse.delta_y.unwrap_or_default()).await,
-                    _ => vec![at],
-                };
-                tab.pointer(actions).await?;
-                self.follow_pointer(mouse.x, mouse.y);
+        if let Some(script) = super::view::data_script(&input) {
+            let done = tab.evaluate(&script, Language::JavaScript).await?;
+            if done == "frame"
+                && let ViewInput::Paste { text, .. } = input
+            {
+                tab.type_text(&text).await?;
             }
+            return Ok(());
+        }
+        match input {
+            ViewInput::Mouse(mouse) => self.mouse(&tab, &mouse).await?,
             ViewInput::Key(key) => tab.keys(key_actions(&key)).await?,
             ViewInput::Text { text } => tab.type_text(&text).await?,
             // Firefox answers even an unwaited navigate only once the server does, which input must not wait for.
@@ -546,6 +554,84 @@ impl Firefox {
         }
 
         Ok(())
+    }
+
+    async fn mouse(&self, tab: &FoxTab, mouse: &MouseInput) -> Result<(), String> {
+        if mouse.event == "wheel" {
+            return tab
+                .wheel(
+                    mouse.x,
+                    mouse.y,
+                    mouse.delta_x.unwrap_or_default(),
+                    mouse.delta_y.unwrap_or_default(),
+                )
+                .await;
+        }
+        if self.drags(tab, mouse).await? {
+            return Ok(());
+        }
+        let button = match mouse.button.as_deref() {
+            Some("middle") => 1,
+            Some("right") => 2,
+            _ => 0,
+        };
+        let at = json!({ "type": "pointerMove", "x": mouse.x.round(), "y": mouse.y.round() });
+        let actions = match mouse.event.as_str() {
+            "down" => vec![at, json!({ "type": "pointerDown", "button": button })],
+            "up" => vec![at, json!({ "type": "pointerUp", "button": button })],
+            _ => vec![at],
+        };
+        tab.pointer(actions).await?;
+        self.follow_pointer(mouse.x, mouse.y);
+
+        Ok(())
+    }
+
+    /// Carries a drag of a draggable element through the page's own events, since WebDriver input starts Firefox's
+    /// drag but never moves or ends it; true when the input was the drag's.
+    async fn drags(&self, tab: &FoxTab, mouse: &MouseInput) -> Result<bool, String> {
+        let state = *self.drag.lock().unwrap();
+        let held = mouse.buttons & 1 != 0;
+        let next = match (state, mouse.event.as_str()) {
+            (_, "down") if mouse.button.as_deref().unwrap_or("left") == "left" => {
+                *self.drag.lock().unwrap() = PaneDrag::Pressed(mouse.x, mouse.y);
+                return Ok(false);
+            }
+            (PaneDrag::Pressed(x, y), "move") if held && (mouse.x - x).hypot(mouse.y - y) > DRAG_DISTANCE => {
+                let args = json!({ "fromX": x, "fromY": y, "x": mouse.x, "y": mouse.y });
+                let started = tab
+                    .evaluate(&pane_script("dragStart", &args), Language::JavaScript)
+                    .await?;
+                if started != Value::Bool(true) {
+                    *self.drag.lock().unwrap() = PaneDrag::Idle;
+                    return Ok(false);
+                }
+                PaneDrag::Dragging
+            }
+            (PaneDrag::Dragging, "move") => PaneDrag::Dragging,
+            (PaneDrag::Dragging, "up") => {
+                let args = json!({ "x": mouse.x, "y": mouse.y });
+                tab.evaluate(&pane_script("dragEnd", &args), Language::JavaScript)
+                    .await?;
+                // Released where it was pressed, so the press ends without a native move that would drag.
+                tab.pointer(vec![json!({ "type": "pointerUp", "button": 0 })]).await?;
+                *self.drag.lock().unwrap() = PaneDrag::Idle;
+                return Ok(true);
+            }
+            (_, "up") => {
+                *self.drag.lock().unwrap() = PaneDrag::Idle;
+                return Ok(false);
+            }
+            _ => return Ok(false),
+        };
+        *self.drag.lock().unwrap() = next;
+        if next == PaneDrag::Dragging {
+            let args = json!({ "x": mouse.x, "y": mouse.y });
+            tab.evaluate(&pane_script("dragMove", &args), Language::JavaScript)
+                .await?;
+        }
+
+        Ok(next == PaneDrag::Dragging)
     }
 
     /// Lays every page out to fill the pane, as Chrome's are; pages opened later are laid out the same.
@@ -730,8 +816,9 @@ impl FoxTab {
             .await
     }
 
-    async fn wheel(&self, x: f64, y: f64, dy: f64) -> Result<(), String> {
-        let scroll = json!({ "type": "scroll", "x": x.round(), "y": y.round(), "deltaX": 0, "deltaY": dy.round() });
+    async fn wheel(&self, x: f64, y: f64, dx: f64, dy: f64) -> Result<(), String> {
+        let scroll =
+            json!({ "type": "scroll", "x": x.round(), "y": y.round(), "deltaX": dx.round(), "deltaY": dy.round() });
 
         self.perform(json!({ "type": "wheel", "id": "wheel", "actions": [scroll] }))
             .await
@@ -983,7 +1070,7 @@ impl Tab for FoxTab {
             self.helper(&format!("scroll({reference})")).await?;
             return Ok(format!("Scrolled ref {reference} into view."));
         }
-        self.wheel(400.0, 300.0, dy).await?;
+        self.wheel(400.0, 300.0, 0.0, dy).await?;
 
         Ok(format!("Scrolled {dy} pixels."))
     }

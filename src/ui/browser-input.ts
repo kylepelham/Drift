@@ -60,3 +60,45 @@ export function tabLabel(page: { title: string; url: string }) {
         return page.url;
     }
 }
+
+type PaneFile = { name: string; mime: string; data: string };
+
+/** The most a paste or drop sends to the browser at once, so one large file never stalls the pane's socket. */
+const paneFileLimit = 25 * 1024 * 1024;
+
+/** Files the user pasted or dropped, as the engine takes them; any past the limit are named instead of sent. */
+export async function paneFiles(list: Iterable<File>) {
+    const files: PaneFile[] = [];
+    const skipped: string[] = [];
+    let total = 0;
+    for (const file of list) {
+        total += file.size;
+        if (total > paneFileLimit) {
+            skipped.push(file.name);
+            continue;
+        }
+        files.push({ name: file.name, mime: file.type, data: await base64(file) });
+    }
+
+    return { files, skipped };
+}
+
+function base64(file: Blob) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+        reader.onerror = () => reject(reader.error ?? new Error("unreadable"));
+        reader.readAsDataURL(file);
+    });
+}
+
+/** Keys the hidden text box keeps for itself: an input method composing, a dead key, and Ctrl+V, whose paste event carries what is pasted. */
+export function composesOrPastes(event: KeyboardEvent) {
+    return (
+        event.isComposing ||
+        event.key === "Process" ||
+        event.key === "Dead" ||
+        event.keyCode === 229 ||
+        isPasteShortcut(event)
+    );
+}

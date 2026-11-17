@@ -446,6 +446,15 @@ impl Chromium {
 
         let id = self.active().ok_or("the browser has no page open")?;
         let page = self.page(&id).ok_or("the active page has closed")?;
+        if let Some(script) = super::view::data_script(&input) {
+            let done = page.evaluate_page(&script).await?;
+            if done == "frame"
+                && let ViewInput::Paste { text, .. } = input
+            {
+                page.send("Input.insertText", json!({ "text": text }));
+            }
+            return Ok(());
+        }
         match input {
             ViewInput::Mouse(mouse) => {
                 if let Some(event) = mouse.event() {
@@ -461,7 +470,12 @@ impl Chromium {
             ViewInput::Text { text } => page.send("Input.insertText", json!({ "text": text })),
             ViewInput::Navigate { url } => page.go_to(&url).await?,
             ViewInput::Dialog { accept, text } => page.answer(accept, text.as_deref()).await?,
-            ViewInput::Select { .. } | ViewInput::Close { .. } | ViewInput::NewPage {} | ViewInput::Fit { .. } => {}
+            ViewInput::Select { .. }
+            | ViewInput::Close { .. }
+            | ViewInput::NewPage {}
+            | ViewInput::Fit { .. }
+            | ViewInput::Paste { .. }
+            | ViewInput::Drop { .. } => {}
         }
 
         Ok(())

@@ -30,6 +30,7 @@ use crate::store::Workspace;
 use driver::{Driver, Spec};
 pub use input::{KeyInput, MouseInput};
 pub use project::BrowserProject;
+pub use view::PaneFile;
 pub(crate) use view::apply_inputs;
 pub use view::{Frame, Notice, ViewInput};
 
