@@ -540,6 +540,11 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] Subagents of subagents show in the sidebar, indented under the subagent that started them, while they run, wait on the user or are open
 - [x] A call you opened stays in view when the next call groups it: the group opens, and a group keeps your toggle as it grows, regroups or scrolls back in; changing the grouping setting still regroups everything closed
 
+## 2.6.1
+
+- [x] OpenRouter's one-hour cache option applies to Claude only: Qwen is never sent an hour's breakpoint, and GPT, Qwen and DeepSeek there (and Gemini on Vertex) are no longer counted warm for an hour; GPT 5.6 and later there is counted warm for 30 minutes as on OpenAI
+- [x] `bash` `detach: true` starts something meant to stay up (Docker Desktop, a browser, a service) outside the command's job, so the shell ending, Stop and Drift closing leave it running; the prompt points models there instead of WMI or scheduled-task workarounds
+
 ## Readability and tooling pass
 
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`

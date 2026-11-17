@@ -97,7 +97,9 @@ impl Engine {
     pub(in crate::session) fn hour_cache(&self, plan: &Plan) -> bool {
         let provider = plan.model_ref.provider.as_str();
         let worker = plan.session.visibility == crate::session::types::Visibility::Hidden;
-        if !provider_options::HOUR_CACHE_PROVIDERS.contains(&provider) || (worker && !self.worker_wants_hour(plan)) {
+        if !provider_options::caches_for_an_hour(provider, &plan.model_ref.model)
+            || (worker && !self.worker_wants_hour(plan))
+        {
             return false;
         }
 
@@ -128,9 +130,15 @@ impl Engine {
         }
 
         let billed_writes = plan.model.cost.cache_write > plan.model.cost.input;
-        match plan.model_ref.provider.as_str() {
-            "openai" if billed_writes => BILLED_WRITES_CACHE_MS,
-            _ => CACHE_MS,
+        let openai = match plan.model_ref.provider.as_str() {
+            "openai" => true,
+            "openrouter" => plan.model_ref.model.starts_with("openai/"),
+            _ => false,
+        };
+        if openai && billed_writes {
+            BILLED_WRITES_CACHE_MS
+        } else {
+            CACHE_MS
         }
     }
 

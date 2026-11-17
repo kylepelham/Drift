@@ -46,3 +46,38 @@ async fn dropping_the_run_future_also_stops_descendants() {
         "a descendant survived the future being dropped"
     );
 }
+
+#[tokio::test]
+async fn a_detached_command_outlives_its_call_and_stop() {
+    let sandbox = Sandbox::new("bash-detach");
+    let bash = Bash::detect();
+    let command = match bash.shell {
+        Shell::Bash(_) => "(sleep 2; echo late > detached.txt) & echo launched",
+        Shell::PowerShell(_) => {
+            "Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 2; Set-Content detached.txt late'; 'launched'"
+        }
+    };
+    let result = bash
+        .run(&sandbox.ctx, json!({ "command": command, "detach": true }))
+        .await
+        .unwrap();
+    assert!(result.output.contains("launched"), "{}", result.output);
+    assert!(result.output.contains("keeps running"), "{}", result.output);
+
+    sandbox.ctx.abort.cancel();
+    tokio::time::sleep(Duration::from_millis(4000)).await;
+    assert!(
+        sandbox.ctx.workspace.join("detached.txt").exists(),
+        "what a detached command started was stopped with its call"
+    );
+}
+
+#[tokio::test]
+async fn a_detached_launch_that_fails_says_so() {
+    let sandbox = Sandbox::new("bash-detach-fail");
+    let result = Bash::detect()
+        .run(&sandbox.ctx, json!({ "command": "exit 3", "detach": true }))
+        .await
+        .unwrap();
+    assert!(result.output.contains("exit code 3"), "{}", result.output);
+}

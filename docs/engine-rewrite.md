@@ -2398,7 +2398,11 @@ code until he picks.
   `session::turn::provider_options`) on the routes that take it for Claude: Anthropic by API key,
   Bedrock (`ttl` on `cache_control`, Claude 4.5 and later per the AWS prompt caching guide), Vertex
   (same field, Google's Claude prompt caching page) and OpenRouter (passed to Claude upstreams),
-  since writes then cost twice the input price instead of 1.25 times. Never for a ChatGPT sign-in.
+  since writes then cost twice the input price instead of 1.25 times. Never for a ChatGPT sign-in,
+  and only for Claude models (`caches_for_an_hour`): Gemini on Vertex and GPT, Qwen or DeepSeek through
+  OpenRouter keep their own lifetimes, and Qwen's breakpoints never carry an hour it does not take.
+  GPT through OpenRouter on a model that bills cache writes (5.6 and later) is counted warm for 30
+  minutes, as on OpenAI's own API.
   A worker starts at five minutes: most runs ask again well within it. Once its cache expires
   between two requests of the same run (the cache watch reports "Expired after", `Plan::cache_stretched`),
   the rest of that run asks for an hour on any route that has it, whatever the provider's option,
@@ -2974,6 +2978,14 @@ Settled after the first external review of M1; each has a regression test.
   (`NtResumeProcess`). Finding its thread instead took a snapshot of every thread on the machine:
   about 115ms per command on the runtime's own thread, so sixteen agents running commands at once
   went from 1.9s per step to 1.1s when it went.
+- `detach: true` is the one way out of that job (`tool/bash/detach.rs`): for a desktop app, a browser or
+  page, or a service the user wants left up, which a command's job would end with the shell. The shell starts
+  with no window, its own process group and out of any job around Drift (breakaway, when that job allows
+  it; a unix session of its own), its output going to a log under Drift's temp folder. The call watches it
+  for five seconds and returns what it printed: finished (what it started keeps running), failed with its
+  exit code, or still running with its process id and log. Stop, the conversation and Drift closing never
+  end it. The prompt points models here instead of WMI, scheduled tasks or `Start-Process` tricks, which
+  agents used to get around the job and which opened a console window each time.
 - What the agent starts (shells, background commands, checks, language servers, MCP servers,
   browsers) runs at below-normal priority (`BELOW_NORMAL_PRIORITY_CLASS`, unix `nice 10`), and what
   it starts inherits that. Drift's window and engine stay at normal, so a build on every core yields

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 mod approval;
 mod background;
+mod detach;
 mod output;
 mod shell;
 
@@ -108,6 +109,10 @@ impl Tool for Bash {
         Box::pin(async move {
             let command = required_str(&input, "command")?;
             let directory = workdir(context, &input)?;
+            let title = input["description"].as_str().unwrap_or(command).to_string();
+            if input["detach"].as_bool() == Some(true) {
+                return detach::start(context, &self.shell, command, &directory, title).await;
+            }
             let background = input["background"].as_bool() == Some(true);
             if background && !context.engine.background_processes() {
                 return Err(ToolError(
@@ -116,7 +121,7 @@ impl Tool for Bash {
             }
             let started = Started {
                 command: command.to_string(),
-                title: input["description"].as_str().unwrap_or(command).to_string(),
+                title,
                 running: spawn(shell_for(&self.shell, command, &directory, background, context))?,
             };
 
@@ -164,6 +169,7 @@ impl Bash {
             "description": { "type": "string", "description": "Always give one: five to ten words saying what the command does, such as \"Run the engine tests\". The user sees this in place of the command, so leave it out only for a command that already reads as plain words." },
             "workdir": { "type": "string", "description": "Directory to run in instead of changing directory first. One outside the workspace asks first. Default: the workspace root." }
         });
+        properties["detach"] = json!({ "type": "boolean", "description": "Start something meant to keep running on its own after this call, Stop and Drift closing: a desktop app (Docker Desktop, an editor), a browser or page the user asked to see, or a service they asked you to start and leave up. The call returns after a few seconds with what the launch printed; Drift does not watch, collect output from or stop it. Never for work whose output you need. Default false." });
         if limits.background {
             properties["background"] = json!({ "type": "boolean", "description": "Start it in the background and return its process id at once. Only for servers, watchers, or work you will do something else during; never for a command you would only wait for. Default false." });
         }
