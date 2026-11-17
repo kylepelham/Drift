@@ -381,6 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_connection_or_a_stray_visit_does_not_end_the_wait() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let waiting = tokio::spawn(async move { next_answer(&listener, "/callback", "s").await.unwrap().1 });
@@ -419,6 +420,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_browser_connection_still_reading_survives_a_stray_answered_meanwhile() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let waiting = tokio::spawn(async move { next_answer(&listener, "/callback", "s").await.unwrap().1 });
@@ -442,6 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_server_error_ends_the_wait_and_its_text_is_escaped_on_the_page() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let waiting = tokio::spawn(async move {

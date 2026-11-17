@@ -171,8 +171,9 @@ pub(super) fn confined(root: &Path, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;
     };
+    let given = root;
     let root = crate::tool::canonical(root);
-    let Some(resolved) = resolve_within(&root, relative) else {
+    let Some(resolved) = resolve_within(&root, given, relative) else {
         return false;
     };
     let in_vcs = resolved.strip_prefix(&root).is_ok_and(|inside| {
@@ -187,8 +188,9 @@ pub(super) fn confined(root: &Path, path: &Path) -> bool {
 }
 
 /// `relative` under `root`, each link followed by reading where it points rather than opening it; `None` once a
-/// step leaves `root`, so a link to another drive or a share is refused unopened.
-fn resolve_within(root: &Path, relative: &Path) -> Option<PathBuf> {
+/// step leaves `root`, so a link to another drive or a share is refused unopened. An absolute target may name the
+/// root as `given` spells it (a short 8.3 name, say) rather than as canonicalizing does.
+fn resolve_within(root: &Path, given: &Path, relative: &Path) -> Option<PathBuf> {
     const MAX_LINKS: usize = 40;
     let mut pending = steps(relative)?;
     let mut current = root.to_path_buf();
@@ -215,7 +217,9 @@ fn resolve_within(root: &Path, relative: &Path) -> Option<PathBuf> {
         if !relative_entry(&target) {
             // An absolute target (a junction's always is) is followed only when it names a place inside `root`.
             current = root.to_path_buf();
-            pending.extend(steps(crate::tool::strip_verbatim(target).strip_prefix(root).ok()?)?);
+            let target = crate::tool::strip_verbatim(target);
+            let inside = target.strip_prefix(root).or_else(|_| target.strip_prefix(given)).ok()?;
+            pending.extend(steps(inside)?);
             continue;
         }
         pending.extend(steps(&target)?);
