@@ -211,6 +211,7 @@ change the plan there when a decision changes.
 - [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
 - [x] A cyber fallback sets only that chat to the verified account (as `/account` does), so other chats keep the order and the chat stays there across restarts
 - [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
+- [x] A subagent refused or blocked by a safety classifier (`cyber_policy`, content filters) tells its parent only that it stopped early and to rephrase the request, with no filter named and no partial text, so the refusal does not cascade; calls a refused reply never ran say the same
 - [x] A chat can be set to one provider account with `/account`; it uses it while it has usage left, then the order, and returns once it frees; subagents and spawned threads inherit it
 - [x] Inline code paths: a double click selects the whole span, and copying it copies the full path, found from the files the chat touched in a drive-root workspace
 - [x] A workspace command typed in a chat that has sent nothing runs on the composer's model instead of failing with no model selected

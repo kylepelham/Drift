@@ -34,7 +34,7 @@ async fn a_worker_cut_off_at_its_output_limit_is_incomplete_not_an_answer() {
 }
 
 #[tokio::test]
-async fn a_worker_whose_reply_the_provider_refused_says_so_not_that_it_was_cut_off() {
+async fn a_worker_whose_reply_the_provider_refused_stopped_early_and_names_no_filter() {
     let h = harness().await;
     let refused = vec![
         Chunk::TextStart,
@@ -58,7 +58,37 @@ async fn a_worker_whose_reply_the_provider_refused_says_so_not_that_it_was_cut_o
     assert_eq!(call.metadata.unwrap().outcome.as_deref(), Some("refused"));
     let output = call.output.unwrap();
     assert!(
-        output.contains("safety filter") && !output.contains("output limit"),
+        output.contains("stopped early") && output.contains("Rephrase"),
         "{output}"
     );
+    assert!(
+        !output.contains("safety") && !output.contains("I can"),
+        "neither the filter nor the refused text reaches the parent: {output}"
+    );
+}
+
+#[tokio::test]
+async fn a_worker_whose_request_a_safety_classifier_blocked_stopped_early_too() {
+    let h = harness().await;
+    h.provider
+        .push_for(
+            "PARENT",
+            launches(&[json!({ "description": "Look into it", "prompt": "CHILD look" })]),
+        )
+        .push_for("PARENT", text("it stopped early"))
+        .push_error(crate::llm::Error::api(
+            400,
+            "cyber_policy",
+            "This content was flagged for possible cybersecurity risk.",
+        ));
+    h.engine.submit(&h.session.id, prompt("PARENT report")).await.unwrap();
+    until_idle(&h).await;
+
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let call = tool(&transcript[1].parts[0]);
+    assert_eq!(call.status, ToolStatus::Error);
+    assert_eq!(call.metadata.unwrap().outcome.as_deref(), Some("refused"));
+    let output = call.output.unwrap();
+    assert!(output.contains("stopped early"), "{output}");
+    assert!(!output.contains("cyber"), "{output}");
 }

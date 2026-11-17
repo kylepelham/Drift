@@ -698,7 +698,9 @@ impl Tool for ReadThread {
                     "It kept repeating the same calls with the same results and wrote up where it got to:\n{}",
                     clip(&write_up, SUMMARY_CHARS)
                 )),
-                Attempt::Refused(_) => lines.push("Its latest reply was ended by the provider's safety filter.".into()),
+                Attempt::Refused => lines.push(
+                    "Its latest reply stopped early without finishing; rephrase the request and try again.".into(),
+                ),
                 Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
                 Attempt::Replied(_) | Attempt::None => {}
             }

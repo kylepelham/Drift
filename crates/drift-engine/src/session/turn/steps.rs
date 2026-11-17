@@ -539,7 +539,7 @@ fn mark_ending(message: &mut Message, streamed: &mut Streamed, request: &Request
         )),
         StopReason::Refused => Some((
             REFUSED_ENDING.to_string(),
-            "the provider's safety filter ended the reply before this call ran.",
+            "the reply stopped early before this call ran; rephrase the request and try again.",
         )),
         StopReason::ContextFull => {
             message.status = MessageStatus::Error;

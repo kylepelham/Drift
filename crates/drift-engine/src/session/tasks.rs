@@ -698,18 +698,7 @@ impl Engine {
                 );
                 (TaskState::Failed, text, "incomplete")
             }
-            Attempt::Refused(partial) => {
-                let before = if partial.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!(" What it had written:\n\n{}", clip(&partial, RESULT_CHARS))
-                };
-                (
-                    TaskState::Failed,
-                    format!("The provider's safety filter ended the subagent's reply; this is not an answer.{before}"),
-                    "refused",
-                )
-            }
+            Attempt::Refused => (TaskState::Failed, STOPPED_EARLY.into(), "refused"),
             Attempt::Failed(error) => (TaskState::Failed, format!("The subagent failed: {error}"), "failed"),
             Attempt::Stopped => (TaskState::Stopped, STOPPED.into(), "stopped"),
             Attempt::None => (
@@ -943,6 +932,8 @@ impl Engine {
 }
 
 const STOPPED: &str = "The subagent was stopped before it finished.";
+/// Says nothing of a safety filter, so the parent's own reply is not refused in turn.
+const STOPPED_EARLY: &str = "The subagent stopped early without finishing. Rephrase the request and try again.";
 
 /// A finished worker's result as the part that carries it into its parent.
 pub(super) fn result_part(task: &TaskRecord) -> Part {
@@ -962,8 +953,8 @@ pub(crate) enum Attempt {
     Incomplete(String),
     /// The repeat check stopped it; the text is its write-up of unfinished work.
     Limited(String),
-    /// The provider's safety filter ended it; the text is whatever came before.
-    Refused(String),
+    /// A provider's safety filter ended it or blocked the request; what it wrote is dropped, lest it trip the filter again.
+    Refused,
     Failed(String),
     Stopped,
     None,
@@ -991,16 +982,17 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     };
 
     match last.info.status {
-        MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
+        MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused,
         MessageStatus::Done if last.info.ending == Some(Ending::Limit) => Attempt::Limited(text()),
         // New replies carry a typed ending; older replies are recognised by their error text.
         MessageStatus::Done if last.info.ending == Some(Ending::Length) || last.info.error.is_some() => {
             Attempt::Incomplete(text())
         }
         MessageStatus::Done => Attempt::Replied(text()),
-        MessageStatus::Error | MessageStatus::Paused => {
-            Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into()))
-        }
+        MessageStatus::Error | MessageStatus::Paused => match last.info.error.clone() {
+            Some(error) if crate::llm::mentions_safety_block(&error) => Attempt::Refused,
+            error => Attempt::Failed(error.unwrap_or_else(|| "unknown error".into())),
+        },
         MessageStatus::Aborted => Attempt::Stopped,
         MessageStatus::Streaming => Attempt::None,
     }

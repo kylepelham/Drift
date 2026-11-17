@@ -217,8 +217,11 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   chars) is the result; a failed or stopped turn fails the call, never falling back to an earlier
   reply or a summary. A reply that stopped at the output limit is `incomplete`: its partial text is
   kept in the result, marked as not a complete answer, and the call and task fail. A reply the
-  provider's safety filter ended is `refused`, said as such, and fails the same way; which of the
-  two is read from the message's typed `ending`, never from its error text. Either way the call
+  provider's safety filter ended, or whose request a safety classifier blocked outright (OpenAI's
+  `cyber_policy` 400, a content filter error), is `refused` and fails the same way. Its result only
+  says the subagent stopped early and to rephrase the request: it names no filter and drops the
+  partial text, so the parent's own reply does not trip the filter in turn. Incomplete and refused
+  are read from the message's typed `ending`; the blocked request from its error. Either way the call
   keeps `metadata.sessionId` and `metadata.outcome` (`replied`, `incomplete`, `refused`, `failed`,
   `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
@@ -2635,7 +2638,8 @@ Settled after the first external review of M1; each has a regression test.
 - A reply the provider's safety filter ended (Anthropic `refusal`, Chat Completions and OpenAI
   `content_filter`, Gemini `SAFETY` and its kin) runs none of its calls and stays `done` with
   `error: "The provider's safety filter ended the reply."`; the UI shows it with finish
-  `content-filter`, so a refusal with no text never ends in silence.
+  `content-filter`, so a refusal with no text never ends in silence. The calls' results, which
+  later requests replay, say only that the reply stopped early and to rephrase the request.
 - How a `done` reply ended when not by itself is typed: `message.ending` is `length` or `refused`
   (migration 25, which also marks earlier replies by their wording). The UI decides by it, never by
   `error`'s words, which are only for reading.
