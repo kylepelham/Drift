@@ -3870,6 +3870,7 @@ export interface components {
             timedOut?: boolean | null;
             total?: number | null;
             truncated?: boolean | null;
+            unchanged?: boolean | null;
             unrecorded?: string[] | null;
             uri?: string | null;
             withheld?: number | null;

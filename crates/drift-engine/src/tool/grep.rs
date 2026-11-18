@@ -15,6 +15,8 @@ use search::{FileHits, Search, Tally};
 
 /// Entries shown when the call does not say.
 const DEFAULT_LIMIT: usize = 250;
+/// A default page stops here, about where Claude Code moves output to a file; an explicit `head_limit` gets the full result.
+const DEFAULT_PAGE_BYTES: usize = 20 * 1024;
 /// Entries a search collects at most, however many it is asked to show.
 const MAX_COLLECTED: usize = 20_000;
 const MAX_LINE_CHARS: usize = 300;
@@ -127,6 +129,8 @@ struct Options {
     file_type: Option<String>,
     /// Entries to show; none shows all.
     limit: Option<usize>,
+    /// Bytes of entries a page holds before it stops and points at the next offset.
+    page_bytes: usize,
     offset: usize,
     include_ignored: bool,
 }
@@ -141,7 +145,8 @@ impl Options {
         };
         let number = |key: &str| input[key].as_u64().map(|value| value as usize);
         let context = number("-C").or_else(|| number("context")).unwrap_or(0);
-        let limit = number("head_limit").unwrap_or(DEFAULT_LIMIT);
+        let asked = number("head_limit");
+        let limit = asked.unwrap_or(DEFAULT_LIMIT);
         let flag = |key: &str, default: bool| input[key].as_bool().unwrap_or(default);
 
         Ok(Self {
@@ -157,6 +162,10 @@ impl Options {
                 .filter(|kind| !kind.is_empty())
                 .map(str::to_string),
             limit: (limit > 0).then_some(limit),
+            page_bytes: match asked {
+                Some(_) => super::spool::MAX_RESULT_BYTES - 1024,
+                None => DEFAULT_PAGE_BYTES,
+            },
             offset: number("offset").unwrap_or(0),
             include_ignored: flag("include_ignored", false),
         })
@@ -350,12 +359,22 @@ impl Found {
     fn output(&self, options: &Options, base: &Path, title: &str) -> Output {
         let entries = self.entries(options, base);
         let total = entries.len();
+        let mut used = 0;
         let page: Vec<&(bool, String)> = entries
             .iter()
             .skip(options.offset)
             .take(options.limit.unwrap_or(usize::MAX))
+            .take_while(|(_, line)| {
+                used += line.len() + 1;
+                used <= options.page_bytes || used == line.len() + 1
+            })
             .collect();
         let more = total > options.offset + page.len();
+        let cut = page.len()
+            < options
+                .limit
+                .unwrap_or(usize::MAX)
+                .min(total.saturating_sub(options.offset));
         let mut text = String::new();
         for (index, (apart, line)) in page.iter().enumerate() {
             if *apart && index > 0 {
@@ -368,7 +387,7 @@ impl Found {
         if text.is_empty() {
             text = self.nothing(options.offset, total);
         }
-        self.notes(&mut text, options, page.len(), total);
+        self.notes(&mut text, options, (page.len(), total), cut);
 
         Output {
             title: title.into(),
@@ -394,7 +413,8 @@ impl Found {
     }
 
     /// A note for each limit or skip that hid anything.
-    fn notes(&self, text: &mut String, options: &Options, shown: usize, total: usize) {
+    /// `cut` is a page that stopped at its byte budget before its line limit.
+    fn notes(&self, text: &mut String, options: &Options, (shown, total): (usize, usize), cut: bool) {
         let mut note = |line: String| {
             text.push_str("\n(");
             text.push_str(&line);
@@ -408,7 +428,8 @@ impl Found {
         }
         if self.stopped_early {
             note("more matches exist; the search stopped once it had enough to show, so these are the first it found, not the first by path. Narrow the pattern, `path`, `include` or `type`".into());
-        } else if total > options.offset + shown {
+        }
+        if (cut || !self.stopped_early) && total > options.offset + shown {
             let next = options.offset + shown;
             note(format!(
                 "{} to {next} of {total}; pass `offset: {next}` for more, or narrow the search",

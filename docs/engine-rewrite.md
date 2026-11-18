@@ -1505,7 +1505,7 @@ goal retires them.
     a server a wrapper script started counts as running. Output is decoded across reads, so a
     character split between two reads is never broken; one cut short at the very end becomes U+FFFD.
   - A `process` tool lists, reads output (only what is new since the model last read, its newest
-    32 KB, or the lines matching a regex), types input, interrupts, stops, and waits up to ten
+    20 KB, or the lines matching a regex), types input, interrupts, stops, and waits up to ten
     minutes until a new line matches or the process exits. Background processes get an input
     pipe; a command moved there at its limit keeps its closed one. Typing input asks like `bash`
     does. Interrupt is SIGINT to the process group on unix; Windows has no console to send Ctrl+C
@@ -2907,10 +2907,17 @@ Settled after the first external review of M1; each has a regression test.
   grows the buffer with the file's size. Memory holds one page;
   it gives no line count, which would mean reading the whole file, and says whether more lines
   follow. Such a file can be read but not edited: undo keeps nothing over 10 MB.
+- Reading the same lines of an unchanged text file again answers with a one-line note pointing at
+  the earlier result, as Claude Code does, with `metadata.unchanged` (the row says "unchanged"). The
+  session's files remember each file's last page by a SHA-256 of its text, the lines asked for and
+  the call (`SessionFiles::shown_page`, shared with speculative reads). The note is sent only while
+  that call finished, its result is not cleared, and no undo hides it; a compaction forgets every
+  page, and a restart starts with none.
 - `grep` searches on several threads, as ripgrep does, and takes Claude Code's `Grep` options:
   `output_mode` (`content`, the default, `files_with_matches`, `count`), `-A`, `-B`, `-C`/`context`,
   `-i`, `-n`, `type` (ripgrep's file types), `multiline`, `head_limit` (default 250, 0 for all) and
-  `offset`, beside Drift's own `include` glob. Results are sorted by path. It stops once it has one
+  `offset`, beside Drift's own `include` glob. A default page also stops at 20 KB of entries and
+  names the offset to go on from; an explicit `head_limit` gets the full 64 KB result. Results are sorted by path. It stops once it has one
   entry past the page (not for `count`, nor for a later page, which needs the whole search in
   order) and says more exist; then the entries are the first it found, not the first by path. It
   collects 20000 entries at most. A Stop ends the walk and the file search in progress.
@@ -2972,9 +2979,9 @@ Settled after the first external review of M1; each has a regression test.
   takes those notes off the end of a shell's output and shows them under the shell box
   (`splitNotes`). opencode wrapped the same kind of note in a `<shell_metadata>` block that its UI
   printed as part of the output.
-- A shell's output never sits whole in memory: the engine keeps its first and last 16 KB (`tool::spool`)
+- A shell's output never sits whole in memory: the engine keeps its first and last 10 KB (`tool::spool`)
   and writes the rest to `tool-output/` (at most 64 MB per call, kept a week); while it runs, the UI is
-  sent only its last 4 KB every half second, and afterwards the stored result, about 33 KB at most. The
+  sent only its last 4 KB every half second, and afterwards the stored result, about 21 KB at most. The
   line marking the cut is for the model; the UI shows it as a divider naming the size left out, with
   a link that opens the saved file (`splitOmitted`).
 - Each failed attempt the engine retries stays in the transcript as an errored reply. The UI shows
@@ -3045,7 +3052,7 @@ Settled after the first external review of M1; each has a regression test.
   or are contained in, the one asked for ("Did you mean one of these?"), as opencode does; both
   names must be three characters or more, so a file named `a` is not offered for every miss.
 - Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order,
-  whole while under 32 KB, then only the first and last 16 KB in memory with everything (up to
+  whole while under 20 KB, then only the first and last 10 KB in memory with everything (up to
   64 MB) in `<data>/tool-output/<session>/<call>.log`. The result names that file and carries
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
   Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
@@ -3120,7 +3127,7 @@ Settled after the first external review of M1; each has a regression test.
 - Every tool result reaches the model within 64 KB (`tool::spool::MAX_RESULT_BYTES`). `read`
   pages within it by itself (whole lines, at least one per page, with the offset to continue from)
   and a directory listing shows 1,000 entries and counts the rest. Anything else past the bound
-  (MCP results, skills, fetched pages, tools yet to come) is cut to its first and last 16 KB in
+  (MCP results, skills, fetched pages, tools yet to come) is cut to its first and last 10 KB in
   `run_call`, with the whole result in `<data>/tool-output/<session>/<call>.result.log` and
   `metadata.resultFile` pointing at it. A session reads files under its own
   `<data>/tool-output/<session>/` without asking (paths resolved first, so `..` cannot leave it);

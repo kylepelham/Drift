@@ -6,7 +6,7 @@ Runs a command in {shell} from the workspace root and returns its combined outpu
 {limits}
 - Everything a command starts ends with it. To open an app, a browser or a page, or start a service the user wants left running, pass `detach: true` with the command that launches it (on Windows, `start` the program or the address); never work around this with WMI, scheduled tasks or `Start-Process` tricks.
 - Never `sleep` in a loop to wait for something: run it with `background: true` and use `process` `wait` with `until`, or the `lock` tool when it is offered.
-- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it. Filter build and test output to what you need (the failures, the summary); `read` or `grep` the saved file when you need all of it.
+- Output over 20 KB keeps only its first and last 10 KB; the result then names a file holding all of it. Filter build and test output to what you need (the failures, the summary); `read` or `grep` the saved file when you need all of it.
 - Give a short `description` of what the command does; it is shown to the user while it runs.
 
 Git:

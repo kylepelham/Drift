@@ -112,6 +112,8 @@ test("native tool status and timing produce the same visible row state without m
     expect(toolDisplay({ ...read, status: "running" }).time.end).toBeUndefined();
     expect(toolDisplay({ ...read, status: "pending" }).status).toBe("pending");
     expect(toolDisplay({ ...read, status: "denied", output: "Permission denied by the user." }).status).toBe("error");
+    expect(toolInfo(tool("read", { path: "a.rs" }, { shown: 12 })).subtitle).toBe("a.rs · 12 lines");
+    expect(toolInfo(tool("read", { path: "a.rs" }, { unchanged: true })).subtitle).toBe("a.rs · unchanged");
 });
 
 test("a call denied before starting has no duration", () => {

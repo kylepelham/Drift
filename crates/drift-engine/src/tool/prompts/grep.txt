@@ -1,7 +1,7 @@
 Searches file contents with a regular expression, using ripgrep's engine. Respects `.gitignore`.
 
 - `output_mode`: `content` (default) shows `path:line: text` for each match, by file then line; `files_with_matches` lists the files; `count` gives `path:count`.
-- Shows up to `head_limit` lines or entries (default 250; 0 for all) and pages with `offset`. A search stops once it has enough to show, and after 20 s answers with what it found; narrow the pattern, `path`, `include` or `type` when it says so.
+- Shows up to `head_limit` lines or entries (default 250 within 20 KB; 0 for all) and pages with `offset`. A search stops once it has enough to show, and after 20 s answers with what it found; narrow the pattern, `path`, `include` or `type` when it says so.
 - `include` narrows the files searched by glob, such as `*.rs` or `src/**/*.tsx`; `type` by ripgrep's file type, such as `rust` or `ts`.
 - `-A`, `-B` and `-C` add context lines, `-i` ignores case, `multiline` lets a pattern span lines.
 - node_modules, target, dist, build and similar folders, and files over 10 MB, are skipped unless `path` names them or `include_ignored` is set; the result says what was skipped.

@@ -113,6 +113,32 @@ async fn many_files_list_in_order_and_page_with_offset() {
 }
 
 #[tokio::test]
+async fn a_default_page_stops_at_its_byte_budget_and_names_the_next_offset() {
+    let sandbox = Sandbox::new("grep-bytes");
+    let wide = format!("hit {}\n", "w".repeat(200));
+    sandbox.file("wide.txt", &wide.repeat(200));
+    let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
+    let shown = out.metadata.count.unwrap();
+    assert!(out.output.len() <= DEFAULT_PAGE_BYTES + 200, "{}", out.output.len());
+    assert!((80..200).contains(&shown), "{shown}");
+    assert!(
+        out.output.contains(&format!("pass `offset: {shown}`")),
+        "{}",
+        &out.output[out.output.len() - 120..]
+    );
+
+    let asked = Grep
+        .run(&sandbox.ctx, json!({ "pattern": "hit", "head_limit": 200 }))
+        .await
+        .unwrap();
+    assert_eq!(
+        asked.metadata.count,
+        Some(200),
+        "an explicit limit gets the full result"
+    );
+}
+
+#[tokio::test]
 async fn a_broad_search_stops_once_it_has_enough_to_show() {
     let sandbox = Sandbox::new("grep-enough");
     for i in 0..30 {

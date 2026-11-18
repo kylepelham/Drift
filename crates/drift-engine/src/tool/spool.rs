@@ -5,8 +5,9 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
 
-pub const HEAD_BYTES: usize = 16 * 1024;
-pub const TAIL_BYTES: usize = 16 * 1024;
+/// Start and end kept of a long output: 20 KB in all, about where Claude Code moves output to a file.
+pub const HEAD_BYTES: usize = 10 * 1024;
+pub const TAIL_BYTES: usize = 10 * 1024;
 /// Past this, the file stops growing; the start and end are still kept.
 pub const MAX_SPOOLED_BYTES: u64 = 64 * 1024 * 1024;
 /// The most any tool result puts in front of the model. Tools that page (read) stay under it by

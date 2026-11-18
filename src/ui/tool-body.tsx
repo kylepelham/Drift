@@ -19,7 +19,7 @@ import type { ToolPart } from "../engine/parts";
 
 // Tool output beyond this is clipped before rendering; long outputs otherwise stall the view.
 const maxInlineOutputChars = 4000;
-// A tool's own result is what the card is opened for, so it keeps far more; the engine already caps it near 32 KB.
+// A tool's own result is what the card is opened for, so it keeps far more; the engine already caps it near 20 KB.
 const maxReturnedChars = 20_000;
 
 export function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {

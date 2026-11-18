@@ -142,6 +142,7 @@ metadata_fields! {
     provider: String => "provider",
     cost: f64 => "cost",
     cleared: bool => "cleared",
+    unchanged: bool => "unchanged",
     references: Vec<String> => "references",
     findings: Vec<ReviewFinding> => "findings",
     level: String => "level",

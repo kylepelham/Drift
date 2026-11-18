@@ -106,3 +106,65 @@ async fn a_cold_request_with_little_to_clear_is_sent_as_it_was() {
 
     assert_eq!(results_in(&h, 13), (0, 12));
 }
+
+/// The newest tool result in request `index`.
+fn last_result(h: &Harness, index: usize) -> String {
+    let requests = h.provider.requests.lock().unwrap();
+    requests[index]
+        .messages
+        .iter()
+        .flat_map(|message| message.blocks.iter())
+        .rev()
+        .find_map(|block| match block {
+            Block::ToolResult { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn an_unchanged_reread_points_back_while_the_earlier_result_is_still_sent() {
+    let h = harness().await;
+    let file = h._dir.join("ws/notes.txt");
+    std::fs::write(&file, "the retry loop backs off\n").unwrap();
+    let turn = async |steps: &[usize], said: &str| {
+        for index in steps {
+            h.provider.push(read_call(*index, "notes.txt"));
+        }
+        h.provider.push(text("Done."));
+        h.engine.submit(&h.session.id, prompt(said)).await.await_ok();
+        until_idle(&h).await;
+    };
+
+    turn(&[0, 1], "Read the notes").await;
+    assert!(last_result(&h, 1).contains("1: the retry loop backs off"));
+    assert!(
+        last_result(&h, 2).contains("is unchanged since your earlier read"),
+        "{}",
+        last_result(&h, 2)
+    );
+
+    std::fs::write(&file, "the retry loop gives up\n").unwrap();
+    turn(&[2], "Again").await;
+    assert!(
+        last_result(&h, 4).contains("1: the retry loop gives up"),
+        "changed content is sent whole"
+    );
+
+    let mut part = h
+        .engine
+        .store
+        .call_part(&h.session.id, "toolu_read_2")
+        .unwrap()
+        .unwrap();
+    if let Part::ToolCall { metadata, .. } = &mut part.part {
+        metadata.get_or_insert_with(Box::default).cleared = Some(true);
+    }
+    h.engine.store.save_part(&part).unwrap();
+    turn(&[3, 4], "Once more").await;
+    assert!(
+        last_result(&h, 6).contains("1: the retry loop gives up"),
+        "a cleared result is not pointed back to"
+    );
+    assert!(last_result(&h, 7).contains("is unchanged"));
+}

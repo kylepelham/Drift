@@ -790,6 +790,7 @@ export const drift = {
     "drift.file.created": "已创建",
     "drift.tool.create": "创建",
     "drift.tool.delete": "删除",
+    "drift.tool.read.unchanged": "未改变",
     "drift.file.deleted": "已删除",
     "drift.file.moved": "已移动",
     "drift.lightbox.actualSize": "实际大小",

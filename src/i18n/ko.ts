@@ -816,6 +816,7 @@ export const drift = {
     "drift.file.created": "생성됨",
     "drift.tool.create": "생성",
     "drift.tool.delete": "삭제",
+    "drift.tool.read.unchanged": "변경되지 않음",
     "drift.file.deleted": "삭제됨",
     "drift.file.moved": "이동됨",
     "drift.lightbox.actualSize": "실제 크기",

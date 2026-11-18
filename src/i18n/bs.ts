@@ -823,6 +823,7 @@ export const drift = {
     "drift.file.created": "Kreirano",
     "drift.tool.create": "Kreiraj",
     "drift.tool.delete": "Obriši",
+    "drift.tool.read.unchanged": "Nepromenjeno",
     "drift.file.deleted": "Izbrisano",
     "drift.file.moved": "Premješteno",
     "drift.lightbox.actualSize": "Stvarna veličina",

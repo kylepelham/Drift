@@ -28,14 +28,19 @@ async fn a_turn_has_no_step_limit_even_when_an_old_config_sets_one() {
     );
 }
 
+/// The same search each time: an unchanged re-read answers with a note after its first result, a search does not.
+fn search_a() -> Vec<Chunk> {
+    tool_call("grep", r#"{"pattern": "a", "path": "a.txt"}"#)
+}
+
 #[tokio::test]
 async fn a_paused_turn_carries_on_with_a_message_and_the_pause_is_not_replayed() {
     let h = harness().await;
     limits(&h, r#"{ "repeats": 2 }"#);
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     h.provider
-        .push(read_a())
-        .push(read_a())
+        .push(search_a())
+        .push(search_a())
         .push(text("WRAPPED: stuck on a.txt"))
         .push(text("finished"));
     h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
@@ -66,9 +71,9 @@ async fn the_same_calls_with_the_same_results_pause_the_turn() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     h.provider
-        .push(read_a())
-        .push(read_a())
-        .push(read_a())
+        .push(search_a())
+        .push(search_a())
+        .push(search_a())
         .push(text("WRAPPED: stuck on a.txt"))
         .push(text("never"));
     h.engine.submit(&h.session.id, prompt("loop")).await.await_ok();
@@ -111,8 +116,8 @@ async fn a_subagent_stopped_for_repeating_hands_back_what_it_found() {
             "task",
             r#"{"description": "scout", "prompt": "look around", "subagent_type": "scout"}"#,
         ))
-        .push(read_a())
-        .push(read_a())
+        .push(search_a())
+        .push(search_a())
         .push(text("FINDINGS: a.txt holds a"))
         .push(text("thanks"));
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
@@ -144,8 +149,8 @@ async fn a_wrap_up_that_calls_a_tool_anyway_runs_nothing() {
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
     h.provider
-        .push(read_a())
-        .push(read_a())
+        .push(search_a())
+        .push(search_a())
         .push(tool_call("read", r#"{"path": "b.txt"}"#));
     h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
     until_idle(&h).await;

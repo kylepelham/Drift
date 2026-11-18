@@ -810,6 +810,7 @@ export const drift = {
     "drift.file.created": "สร้างแล้ว",
     "drift.tool.create": "สร้าง",
     "drift.tool.delete": "ลบ",
+    "drift.tool.read.unchanged": "ไม่เปลี่ยนแปลง",
     "drift.file.deleted": "ลบแล้ว",
     "drift.file.moved": "ย้ายแล้ว",
     "drift.lightbox.actualSize": "ขนาดจริง",

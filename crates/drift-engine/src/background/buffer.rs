@@ -10,7 +10,7 @@ use crate::tool::spool::MAX_SPOOLED_BYTES;
 /// How much of the newest output stays in memory.
 const KEPT_BYTES: usize = 256 * 1024;
 /// The most new output one read hands the model; older new output stays in the log.
-pub(super) const READ_BYTES: usize = 32 * 1024;
+pub(super) const READ_BYTES: usize = crate::tool::spool::SHORT_RESULT_BYTES;
 
 pub(super) struct Buffer {
     /// The newest output; `start` is the offset of its first byte in everything printed.

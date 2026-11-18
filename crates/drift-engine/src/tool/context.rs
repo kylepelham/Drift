@@ -20,6 +20,17 @@ pub struct SessionFiles {
     shell_runs: Mutex<Vec<(SystemTime, SystemTime)>>,
     /// Where the reads are kept, so they outlast a restart; none in a bare test context.
     kept: Option<(Arc<crate::store::Store>, String)>,
+    /// Each text file's last page shown this run, so an unchanged re-read can point back at it; shared
+    /// with speculative reads, whose thrown-away results name calls that never finish and so are never pointed at.
+    pages: Arc<Mutex<HashMap<PathBuf, ShownPage>>>,
+}
+
+/// A page a read showed: the file's content digest, the lines asked for, and the call whose result holds them.
+#[derive(Clone)]
+pub struct ShownPage {
+    pub digest: String,
+    pub span: String,
+    pub call_id: String,
 }
 
 pub struct Context {
@@ -116,9 +127,10 @@ impl SessionFiles {
         }
     }
 
-    /// After a compaction the reads that carried instruction files are summarised away; show them again.
+    /// After a compaction the reads that carried instruction files and pages are summarised away; show them again.
     pub fn forget_shown(&self) {
         self.shown.lock().unwrap().clear();
+        self.pages.lock().unwrap().clear();
         if let Some((store, session_id)) = &self.kept {
             let _ = store.forget_shown(session_id);
         }
@@ -142,6 +154,20 @@ impl SessionFiles {
 
     pub fn was_read(&self, path: &Path) -> bool {
         self.read.lock().unwrap().contains(path)
+    }
+
+    /// The call that last showed these lines of the file with the same content.
+    pub fn shown_page(&self, path: &Path, digest: &str, span: &str) -> Option<String> {
+        let pages = self.pages.lock().unwrap();
+        let page = pages
+            .get(path)
+            .filter(|page| page.digest == digest && page.span == span)?;
+
+        Some(page.call_id.clone())
+    }
+
+    pub fn showed_page(&self, path: &Path, page: ShownPage) {
+        self.pages.lock().unwrap().insert(path.to_path_buf(), page);
     }
 
     pub fn shell_ran(&self, started: SystemTime, ended: SystemTime) {
@@ -188,6 +214,7 @@ impl SessionFiles {
             claims: Mutex::default(),
             shell_runs: Mutex::new(shell_runs),
             kept: None,
+            pages: self.pages.clone(),
         }
     }
 

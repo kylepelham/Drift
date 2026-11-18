@@ -830,6 +830,7 @@ export const drift = {
     "drift.file.created": "Created",
     "drift.tool.create": "Create",
     "drift.tool.delete": "Delete",
+    "drift.tool.read.unchanged": "unchanged",
     "drift.file.deleted": "Deleted",
     "drift.file.moved": "Moved",
     "drift.lightbox.actualSize": "Actual size",

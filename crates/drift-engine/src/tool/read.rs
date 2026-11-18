@@ -3,6 +3,7 @@ use std::fmt::Write;
 use serde_json::{Value, json};
 
 use super::ToolMetadata;
+use super::context::ShownPage;
 use super::encoding::{Encoding, decode};
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
@@ -103,6 +104,16 @@ enum From {
     Last(usize),
 }
 
+impl Span {
+    /// The same lines asked for again, as text a shown page is keyed by.
+    fn key(self) -> String {
+        match self.from {
+            From::Line(line) => format!("{line}+{}", self.limit),
+            From::Last(count) => format!("-{count}+{}", self.limit),
+        }
+    }
+}
+
 impl From {
     fn of(input: &Value) -> Self {
         match input["offset"].as_i64() {
@@ -200,6 +211,10 @@ fn read_text(
             "{name} has {total} lines, so offset {offset} is past its end"
         )));
     }
+    let page_key = (digest(text), span.key());
+    if let Some(note) = unchanged(ctx, path, &page_key) {
+        return Ok(note);
+    }
     warm_servers(ctx, path);
     // The reminders come first in the budget, so the page fits beside them within one result.
     let reminders = reminders(ctx, path);
@@ -228,6 +243,15 @@ fn read_text(
     }
     output.push_str(&reminders);
     ctx.files.mark_read(path);
+    let (digest, span) = page_key;
+    ctx.files.showed_page(
+        path,
+        ShownPage {
+            digest,
+            span,
+            call_id: ctx.call_id.clone(),
+        },
+    );
     if crate::config::is_instruction_file(path) {
         ctx.files.first_showing(path, &crate::config::clip(text));
     }
@@ -237,6 +261,49 @@ fn read_text(
         metadata: ToolMetadata {
             lines: Some(Some(total)),
             shown: Some(shown),
+            files: Some(vec![read_file(path)]),
+            ..Default::default()
+        },
+    })
+}
+
+fn digest(text: &str) -> String {
+    use sha2::Digest;
+
+    format!("{:x}", sha2::Sha256::digest(text.as_bytes()))
+}
+
+/// A short note in place of a page this conversation already holds unchanged: the earlier result
+/// finished, was not cleared, and is not hidden by an undo (a compaction forgets every page).
+fn unchanged(ctx: &Context, path: &std::path::Path, (digest, span): &(String, String)) -> Option<Output> {
+    let earlier = ctx.files.shown_page(path, digest, span)?;
+    let part = ctx.engine.store.call_part(&ctx.session_id, &earlier).ok()??;
+    let hidden_from = ctx
+        .engine
+        .store
+        .session(&ctx.session_id)
+        .ok()??
+        .revert
+        .map(|revert| revert.message_id);
+    let crate::session::types::Part::ToolCall { status, metadata, .. } = &part.part else {
+        return None;
+    };
+    let in_view = *status == crate::session::types::ToolStatus::Done
+        && metadata.as_ref().is_none_or(|metadata| metadata.cleared.is_none())
+        && hidden_from.is_none_or(|from| part.message_id < from);
+    if !in_view {
+        return None;
+    }
+
+    ctx.files.mark_read(path);
+    let name = display(path, ctx.workdir());
+    Some(Output {
+        title: name.clone(),
+        output: format!(
+            "{name} is unchanged since your earlier read of these lines in this conversation; that result is still current, so use it instead of reading again."
+        ),
+        metadata: ToolMetadata {
+            unchanged: Some(true),
             files: Some(vec![read_file(path)]),
             ..Default::default()
         },

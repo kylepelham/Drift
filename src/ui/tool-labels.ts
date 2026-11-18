@@ -143,6 +143,18 @@ export function toolInfo(part: ToolPart): ToolInfo {
     }
 }
 
+/** A read names its file and the lines it showed, or that the file was unchanged since an earlier read. */
+function readInfo(path: string, output: string, meta: Record<string, unknown>): ToolInfo {
+    // The output also holds the read's paging note and reminders, so its own count comes first.
+    const shown = typeof meta.shown === "number" ? meta.shown : undefined;
+    const lines = shown ?? (output ? output.split("\n").length : undefined);
+    const suffix = meta.unchanged
+        ? ` · ${t("drift.tool.read.unchanged")}`
+        : toolCount(lines, meta.truncated, "drift.count.line.one", "drift.count.line.other");
+
+    return { title: t("settings.permissions.tool.read.title"), subtitle: `${path}${suffix}` };
+}
+
 function contextToolInfo(
     part: ToolPart,
     input: Record<string, unknown>,
@@ -154,15 +166,8 @@ function contextToolInfo(
         toolCount(value, meta.truncated, singular, plural);
 
     switch (part.name) {
-        case "read": {
-            // The lines the read showed; the output also holds its paging note and reminders.
-            const shown = typeof meta.shown === "number" ? meta.shown : undefined;
-            const lines = shown ?? (output() ? output().split("\n").length : undefined);
-            const path = toolFilename(text("filePath")) ?? "";
-            const suffix = count(lines, "drift.count.line.one", "drift.count.line.other");
-
-            return { title: t("settings.permissions.tool.read.title"), subtitle: `${path}${suffix}` };
-        }
+        case "read":
+            return readInfo(toolFilename(text("filePath")) ?? "", output(), meta);
         case "list": {
             const path = toolFilename(text("path")) ?? "";
             const suffix = count(meta.count, "drift.count.entry.one", "drift.count.entry.other");

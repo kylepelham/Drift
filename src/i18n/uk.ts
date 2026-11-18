@@ -826,6 +826,7 @@ export const drift = {
     "drift.file.created": "Створено",
     "drift.tool.create": "Створення",
     "drift.tool.delete": "Видалення",
+    "drift.tool.read.unchanged": "Без змін",
     "drift.file.deleted": "Видалено",
     "drift.file.moved": "Переміщено",
     "drift.lightbox.actualSize": "Фактичний розмір",

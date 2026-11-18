@@ -825,6 +825,7 @@ export const drift = {
     "drift.file.created": "作成",
     "drift.tool.create": "作成",
     "drift.tool.delete": "削除",
+    "drift.tool.read.unchanged": "未変更",
     "drift.file.deleted": "削除",
     "drift.file.moved": "移動",
     "drift.lightbox.actualSize": "実際のサイズ",
