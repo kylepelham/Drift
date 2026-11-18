@@ -270,6 +270,61 @@ fn only_lines_of_known_readers_count_as_reading() {
 }
 
 #[test]
+fn builtins_text_tools_and_listing_forms_read_unless_an_argument_writes() {
+    for line in [
+        "sort -o out.txt a.txt",
+        "sort --output=out.txt a.txt",
+        "uniq in.txt out.txt",
+        "xxd -r dump.hex out.bin",
+        "fd -e rs -x rm",
+        "yq -i '.a = 1' f.yaml",
+        "date -s 2020-01-01",
+        "git branch new-branch",
+        "git branch -D old",
+        "git tag v1",
+        "git remote add origin url",
+        "git stash",
+        "git stash pop",
+        "git config user.name x",
+        "git config --unset --get user.name",
+        "git reflog expire --all",
+        "npm test",
+        "cargo --version && cargo build",
+    ] {
+        assert!(!reads_only(Dialect::Bash, line), "{line}");
+    }
+    for line in [
+        "sleep 1; echo p1",
+        "export X=1",
+        ":",
+        "exit 3",
+        "test -f a.rs && [ -d src ]",
+        "seq 1 5 | sort -r | uniq -c",
+        "sort a.txt | tr a-z A-Z | nl | column -t",
+        "jq .name package.json",
+        "fd -e rs src",
+        "ps aux | grep node",
+        "git branch -a --sort=-committerdate",
+        "git branch",
+        "git tag -l",
+        "git remote -v",
+        "git config --get user.name",
+        "git stash list",
+        "git log --oneline | head -5",
+        "git cat-file -p HEAD",
+        "cargo --version",
+        "node --help",
+        "uniq -c a.txt",
+    ] {
+        assert!(reads_only(Dialect::Bash, line), "{line}");
+    }
+    assert!(reads_only(
+        Dialect::PowerShell,
+        "Start-Sleep 1; Get-Process | Sort-Object CPU | Select-Object -First 5"
+    ));
+}
+
+#[test]
 fn a_line_that_prints_files_names_them_and_anything_else_names_none() {
     assert_eq!(files_read(Dialect::Bash, "cat src/a.rs"), ["src/a.rs"]);
     assert_eq!(files_read(Dialect::Bash, "sed -n '1,80p' src/a.rs"), ["src/a.rs"]);

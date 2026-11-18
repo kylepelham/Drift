@@ -123,8 +123,9 @@ const INLINE_CODE: [(&str, &[&str]); 9] = [
 /// device: `> nul` there creates a file.
 const BASH_SINKS: [&str; 5] = ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"];
 const POWERSHELL_SINKS: [&str; 1] = ["$null"];
-/// Programs that only read, whatever their arguments; `cd` and friends only move.
-const READERS: [&str; 53] = [
+/// Programs that only read and print, whatever their arguments save those in [`WRITING_ARGS`]; `cd` and friends
+/// only move, and the shell builtins here change nothing but the shell that runs the line and ends with it.
+const READERS: [&str; 137] = [
     "ls",
     "dir",
     "cat",
@@ -139,6 +140,7 @@ const READERS: [&str; 53] = [
     "rg",
     "which",
     "where",
+    "whereis",
     "whoami",
     "date",
     "file",
@@ -151,14 +153,6 @@ const READERS: [&str; 53] = [
     "cd",
     "pushd",
     "popd",
-    "get-childitem",
-    "get-content",
-    "get-location",
-    "select-string",
-    "test-path",
-    "get-item",
-    "write-output",
-    "set-location",
     "od",
     "hexdump",
     "strings",
@@ -167,40 +161,152 @@ const READERS: [&str; 53] = [
     "nm",
     "md5sum",
     "sha1sum",
+    "sha224sum",
     "sha256sum",
+    "sha384sum",
     "sha512sum",
     "b2sum",
     "cksum",
     "cut",
     "diff",
     "cmp",
+    "comm",
     "basename",
     "dirname",
     "realpath",
+    "readlink",
     "true",
+    "false",
+    ":",
+    "test",
+    "[",
+    "[[",
+    "sleep",
+    "seq",
+    "sort",
+    "tr",
+    "nl",
+    "paste",
+    "column",
+    "tac",
+    "rev",
+    "fold",
+    "expand",
+    "unexpand",
+    "fmt",
+    "numfmt",
+    "expr",
+    "tsort",
+    "pr",
+    "jq",
+    "yq",
+    "fd",
+    "fdfind",
+    "base64",
+    "id",
+    "groups",
+    "nproc",
+    "uptime",
+    "cal",
+    "locale",
+    "getconf",
+    "printenv",
+    "ps",
+    "pgrep",
+    "netstat",
+    "ss",
+    "lsof",
+    "tasklist",
+    "less",
+    "more",
+    "export",
+    "unset",
+    "set",
+    "local",
+    "declare",
+    "typeset",
+    "readonly",
+    "shift",
+    "exit",
+    "return",
+    "wait",
+    "jobs",
+    "get-childitem",
+    "get-content",
+    "get-location",
+    "select-string",
+    "test-path",
+    "get-item",
+    "get-itemproperty",
+    "write-output",
+    "write-host",
+    "set-location",
+    "start-sleep",
+    "get-process",
+    "get-command",
+    "get-date",
+    "get-filehash",
+    "get-alias",
+    "get-variable",
+    "get-help",
+    "get-member",
+    "measure-object",
+    "select-object",
+    "sort-object",
+    "group-object",
+    "compare-object",
+    "format-table",
+    "format-list",
+    "out-string",
+    "resolve-path",
+    "split-path",
+    "join-path",
+    "convertto-json",
+    "convertfrom-json",
 ];
-/// Git subcommands that only read.
-const GIT_READERS: [&str; 9] = [
+/// Git subcommands that only read, whatever their arguments; [`git_reads`] judges the ones that also write.
+const GIT_READERS: [&str; 21] = [
     "status",
     "diff",
     "log",
     "show",
     "rev-parse",
     "ls-files",
+    "ls-tree",
+    "ls-remote",
     "blame",
     "describe",
     "grep",
+    "cat-file",
+    "rev-list",
+    "shortlog",
+    "merge-base",
+    "name-rev",
+    "for-each-ref",
+    "count-objects",
+    "check-ignore",
+    "whatchanged",
+    "version",
 ];
 /// Arguments that make an otherwise reading program change or write files, or run another program:
-/// `find`'s actions and file outputs (`-fprint`, `-fprint0`, `-fprintf`, `-fls`), `tree -o`, `rg --pre`.
-const WRITING_ARGS: [(&str, &[&str]); 3] = [
+/// `find`'s actions and file outputs (`-fprint`, `-fprint0`, `-fprintf`, `-fls`), `tree -o`, `rg --pre`, `sort -o`,
+/// `fd --exec`, `yq -i` and `date --set`.
+const WRITING_ARGS: [(&str, &[&str]); 7] = [
     (
         "find",
         &["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls"],
     ),
     ("tree", &["-o"]),
     ("rg", &["--pre"]),
+    ("sort", &["-o", "--output"]),
+    ("fd", &["-x", "--exec", "-X", "--exec-batch"]),
+    ("yq", &["-i", "--inplace"]),
+    ("date", &["-s", "--set"]),
 ];
+/// Programs whose second file argument is written: `uniq in out`, `xxd in out`.
+const OUTPUT_OPERAND: [&str; 2] = ["uniq", "xxd"];
+/// A lone argument that asks any program for its version or help, which prints and exits.
+const ASKS_ABOUT: [&str; 3] = ["--version", "--help", "-h"];
 /// Programs that print a file they are given, so a run that succeeded has shown the model that file.
 const PRINTERS: [&str; 6] = ["cat", "type", "get-content", "head", "tail", "sed"];
 /// The printers' options whose value is the next word, so `head -n 20` never takes `20` for a file.
@@ -381,9 +487,12 @@ fn reader(command: &str) -> bool {
         .next()
         .unwrap_or(first)
         .trim_end_matches(".exe");
+    if matches!(&words[1..], [only] if ASKS_ABOUT.contains(&only.as_str())) {
+        return true;
+    }
     let writing = WRITING_ARGS
         .iter()
-        .find(|(name, _)| *name == program)
+        .find(|(name, _)| *name == if program == "fdfind" { "fd" } else { program })
         .map_or(&[][..], |(_, arguments)| *arguments);
     // Prefix matching also catches joined flag values such as --pre=cmd and -ofile.
     if words
@@ -396,17 +505,86 @@ fn reader(command: &str) -> bool {
 
     match program {
         "git" => {
-            words
-                .get(1)
-                .is_some_and(|subcommand| GIT_READERS.contains(&subcommand.as_str()))
-                && !words.iter().any(|word| word.starts_with("--output"))
-                && !opens_pager(command)
+            git_reads(&words[1..]) && !words.iter().any(|word| word.starts_with("--output")) && !opens_pager(command)
         }
         "find" => true,
+        _ if OUTPUT_OPERAND.contains(&program) => words[1..].iter().filter(|word| !word.starts_with('-')).count() <= 1,
         "sed" => printed_range(&words[1..]),
         // `command -v` names where a program is; `command name` would run it.
         "command" => words.get(1).is_some_and(|flag| flag == "-v"),
         _ => READERS.contains(&program),
+    }
+}
+
+/// Whether `git <arguments>` only reads: a reading subcommand, or the listing forms of those that also change
+/// things (`git branch -a`, `git tag -l`, `git remote -v`, `git config --get`, `git stash list`).
+fn git_reads(arguments: &[String]) -> bool {
+    let Some((subcommand, rest)) = arguments.split_first() else {
+        return false;
+    };
+    let flags_only = |allowed: &[&str]| {
+        rest.iter().all(|word| {
+            allowed
+                .iter()
+                .any(|flag| word == flag || word.starts_with(&format!("{flag}=")))
+        })
+    };
+
+    match subcommand.as_str() {
+        "branch" => flags_only(&[
+            "-a",
+            "--all",
+            "-r",
+            "--remotes",
+            "-v",
+            "-vv",
+            "--verbose",
+            "--show-current",
+            "-l",
+            "--list",
+            "--contains",
+            "--merged",
+            "--no-merged",
+            "--sort",
+            "--format",
+            "--no-color",
+            "--color",
+        ]),
+        "tag" => flags_only(&[
+            "-l",
+            "--list",
+            "-n",
+            "--contains",
+            "--merged",
+            "--no-merged",
+            "--sort",
+            "--format",
+        ]),
+        "remote" => {
+            rest.is_empty()
+                || flags_only(&["-v", "--verbose"])
+                || matches!(rest.first().map(String::as_str), Some("show" | "get-url"))
+        }
+        "stash" => matches!(rest.first().map(String::as_str), Some("list" | "show")),
+        "reflog" => rest.is_empty() || rest.first().is_some_and(|word| word == "show"),
+        "config" => {
+            rest.iter()
+                .any(|word| matches!(word.as_str(), "--get" | "--get-all" | "--get-regexp" | "-l" | "--list"))
+                && !rest.iter().any(|word| {
+                    matches!(
+                        word.as_str(),
+                        "--add"
+                            | "--unset"
+                            | "--unset-all"
+                            | "--replace-all"
+                            | "--rename-section"
+                            | "--remove-section"
+                            | "-e"
+                            | "--edit"
+                    )
+                })
+        }
+        other => GIT_READERS.contains(&other),
     }
 }
 

@@ -547,6 +547,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] Settings > Execution > Turns: retry a cyber refusal once with `.`; refused again, the `.` is removed and the refusal ends the conversation
 - [x] Settings > Execution > Web search: an eye on each saved key shows it in full, to copy out (`GET /websearch/keys`)
 - [x] Browser pane parity: paste reaches the page as a paste event with its text and files (Camoufox included), files and text dropped from the desktop, element drag and drop in Firefox and Camoufox, sideways wheel in Firefox, input-method composition
+- [x] Shell lines that only read skip the undo capture: builtins (`export`, `test`, `sleep`), text tools (`sort`, `jq`, `fd`), listing forms of `git branch`/`tag`/`remote`/`config`, and `--version`/`--help`; a writing line's capture walks the tree once with `git status` (2.1 s to 41 ms for `:` on a 139,000-file repo)
 
 ## Readability and tooling pass
 

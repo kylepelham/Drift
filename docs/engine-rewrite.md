@@ -747,8 +747,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   (`Tool::touches`), so exactly those files are recorded before and after the call, after
   formatters run. A shell command can change anything, so the tree (the workspace's `.gitignore`
   applies) is compared just before and after it, unless the line only reads (`command::reads_only`:
-  every command a known reader such as `git status`, `ls`, `rg` or `Get-Content`, nothing hidden,
-  no redirection that writes), which is neither captured nor waited for like a write
+  every command a known reader such as `git status`, `git branch -a`, `ls`, `rg`, `sort`, `jq`,
+  `sleep`, `Get-Content`, a shell builtin like `export` or `test` that ends with the shell, or any
+  program asked only for `--version` or `--help`; nothing hidden, no redirection or argument that
+  writes, such as `sort -o`, `fd -x` or `uniq in out`), which is neither captured nor waited for like a write
   (`Tool::call_mutates`). That comparison shows what changed, not who changed
   it: the user, an editor or another session may have written during the command. Those changes are
   recorded with `observed: true`, and undo and redo never apply them; they are listed as
@@ -790,10 +792,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   record, where before it was recorded nowhere. A file tool's capture records undoable changes, so
   its write breaks the chain (the next command captures afresh, or the file tool's write would be
   taken as observed and its undo lost), and the chain never crosses steps.
-- Whole-tree captures are cut to what changed (`snapshot::capture`). In a repository the two scans
-  for changed and untracked files run at once; when neither finds anything and the shadow index is
-  as it was when its last tree was written, that tree is reused without `add` or `write-tree`, and
-  two equal trees skip `diff-tree`. Captures serialize on the shadow index, so one that began after a
+- Whole-tree captures are cut to what changed (`snapshot::capture`). In a repository one
+  `git status --porcelain -uall` finds changed and untracked files in a single walk; each new tree is
+  committed as the shadow repo's HEAD so that listing names only what changed since, not every file.
+  On a 139,000-file Unreal checkout that walk is 335 ms where `diff-files` and `ls-files --others`
+  took 870 ms (the latter runs without Git for Windows' fscache). With nothing found, `add` is
+  skipped; when the shadow index is also as it was when its last tree was written, that tree is
+  reused without `write-tree`, and two equal trees skip `diff-tree`. Captures serialize on the shadow index, so one that began after a
   caller asked already holds everything that caller would see and is shared with it instead of run
   again. Shadow-repo git runs `<arch>\bin\git.exe` directly rather than through Git for Windows'
   `cmd\git.exe` launcher (`platform::process::plumbing_git`), which nearly doubled each call's

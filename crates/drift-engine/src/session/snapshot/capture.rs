@@ -46,18 +46,20 @@ impl Snapshots {
         };
         let id = match self.unchanged_tree(workspace).await.filter(|_| !pending) {
             Some(id) => id,
-            None => self.write_tree(workspace, source).await?,
+            None => self.write_tree(workspace, source, pending).await?,
         };
 
         Ok(Tree { id, oversized })
     }
 
-    /// Adds every change to the shadow index and writes it as a tree, remembered against the index it came from.
-    async fn write_tree(&self, workspace: &Path, source: Option<&Source>) -> Result<String, Error> {
+    /// Adds every pending change to the shadow index and writes it as a tree, remembered against the index it came from.
+    async fn write_tree(&self, workspace: &Path, source: Option<&Source>, pending: bool) -> Result<String, Error> {
         // --ignore-errors can exit nonzero after indexing usable files; write-tree decides capture success.
-        let _ = self
-            .run_with(workspace, &["add", "-A", "--ignore-errors", "--", "."], None, source)
-            .await;
+        if pending {
+            let _ = self
+                .run_with(workspace, &["add", "-A", "--ignore-errors", "--", "."], None, source)
+                .await;
+        }
         let write: &[&str] = if source.is_some() {
             &["write-tree", "--missing-ok"]
         } else {
@@ -65,6 +67,15 @@ impl Snapshots {
         };
         let raw = self.run_with(workspace, write, None, source).await?;
         let id = String::from_utf8_lossy(&raw).trim().to_string();
+        let previous = self
+            .trees
+            .lock()
+            .unwrap()
+            .get(&self.git_dir(workspace))
+            .map(|(_, id)| id.clone());
+        if source.is_some() && previous.as_ref() != Some(&id) {
+            self.point_head_at(workspace, &id, source).await;
+        }
         if let Some(stamp) = self.index_stamp(workspace).await {
             self.trees
                 .lock()
@@ -73,6 +84,19 @@ impl Snapshots {
         }
 
         Ok(id)
+    }
+
+    /// Commits the tree as HEAD, so the next status lists only what changed since rather than every file.
+    async fn point_head_at(&self, workspace: &Path, tree: &str, source: Option<&Source>) {
+        let commit = self
+            .run_with(workspace, &["commit-tree", tree, "-m", "capture"], None, source)
+            .await;
+        if let Ok(commit) = commit {
+            let commit = String::from_utf8_lossy(&commit).trim().to_string();
+            let _ = self
+                .run_with(workspace, &["update-ref", "--no-deref", "HEAD", &commit], None, source)
+                .await;
+        }
     }
 
     /// The tree last written from this shadow index, if nothing has written the index since.
@@ -138,28 +162,28 @@ impl Snapshots {
         workspace: &Path,
         source: &Source,
     ) -> Result<(Vec<(String, Stamp)>, bool), Error> {
-        let (modified, untracked) = tokio::try_join!(
-            self.run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source)),
-            self.run_with(
+        // One walk for modified and untracked files; against HEAD, the last capture, it lists only what changed.
+        let status = self
+            .run_with(
                 workspace,
-                &["ls-files", "--others", "--exclude-standard", "-z"],
+                &[
+                    "status",
+                    "--porcelain",
+                    "-z",
+                    "-uall",
+                    "--no-renames",
+                    "--ignore-submodules=dirty",
+                ],
                 None,
                 Some(source),
-            ),
-        )?;
-        let changed = !modified.is_empty() || !untracked.is_empty();
+            )
+            .await?;
+        let mut candidates = worktree_changes(&String::from_utf8_lossy(&status));
+        let changed = !candidates.is_empty();
 
         let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info/exclude"))
             .await
             .unwrap_or_default();
-
-        let listed = [modified, untracked].map(|raw| String::from_utf8_lossy(&raw).into_owned());
-        let mut candidates: Vec<String> = listed
-            .iter()
-            .flat_map(|text| text.split('\0'))
-            .filter(|path| !path.is_empty())
-            .map(str::to_string)
-            .collect();
         candidates.extend(
             excluded
                 .lines()
@@ -302,6 +326,15 @@ pub(super) fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stam
     }
 
     Some(large)
+}
+
+/// Paths `status --porcelain -z` reports as changed or untracked in the working tree; staged-only entries are left out.
+fn worktree_changes(status: &str) -> Vec<String> {
+    status
+        .split('\0')
+        .filter(|entry| entry.len() > 3 && entry.as_bytes()[1] != b' ')
+        .map(|entry| entry[3..].to_string())
+        .collect()
 }
 
 /// The path an exclude pattern written by `escape_pattern` matches.

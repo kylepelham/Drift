@@ -273,7 +273,7 @@ async fn a_user_edit_made_while_a_command_runs_survives_undo() {
     allow_shell(&h);
     std::fs::write(h._dir.join("ws/mine.txt"), "draft\n").unwrap();
     h.provider
-        .push(tool_call("bash", r#"{"command": "sleep 1"}"#))
+        .push(tool_call("bash", r#"{"command": "mkdir -p cache && sleep 1"}"#))
         .push(text("waited"));
     h.engine.submit(&h.session.id, prompt("wait a second")).await.unwrap();
     until_running_call(&h).await;

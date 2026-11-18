@@ -67,8 +67,8 @@ async fn a_repository_is_captured_from_its_own_index_whatever_its_size_and_conve
         .expect("a repository has no file limit");
     let counted = snapshots.git(&workspace, &["count-objects"]).await.unwrap();
     assert!(
-        counted.starts_with("0 objects"),
-        "the repository's files were not copied in: {counted}"
+        counted.starts_with("1 objects"),
+        "only the capture's commit is stored; the repository's files were not copied in: {counted}"
     );
 
     std::fs::write(workspace.join("a.txt"), "a changed\r\n").unwrap();
