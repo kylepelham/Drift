@@ -504,6 +504,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "API 키 붙여넣기",
     "drift.settings.webSearch.addKey": "키 추가",
     "drift.settings.webSearch.removeKey": "키 {{key}} 제거",
+    "drift.settings.webSearch.showKey": "키 {{key}} 표시",
+    "drift.settings.webSearch.hideKey": "키 {{key}} 숨기기",
     "drift.settings.webSearch.moveUp": "먼저 시도",
     "drift.settings.webSearch.credits.title": "크레딧",
     "drift.settings.webSearch.credits.description":

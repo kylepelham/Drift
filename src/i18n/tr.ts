@@ -510,6 +510,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Bir API anahtarı yapıştırın",
     "drift.settings.webSearch.addKey": "Anahtar ekle",
     "drift.settings.webSearch.removeKey": "{{key}} anahtarını kaldır",
+    "drift.settings.webSearch.showKey": "{{key}} anahtarını göster",
+    "drift.settings.webSearch.hideKey": "{{key}} anahtarını gizle",
     "drift.settings.webSearch.moveUp": "Daha önce dene",
     "drift.settings.webSearch.credits.title": "Krediler",
     "drift.settings.webSearch.credits.description":

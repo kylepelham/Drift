@@ -492,6 +492,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "貼上 API 金鑰",
     "drift.settings.webSearch.addKey": "新增金鑰",
     "drift.settings.webSearch.removeKey": "移除金鑰 {{key}}",
+    "drift.settings.webSearch.showKey": "顯示金鑰 {{key}}",
+    "drift.settings.webSearch.hideKey": "隱藏金鑰 {{key}}",
     "drift.settings.webSearch.moveUp": "提前嘗試",
     "drift.settings.webSearch.credits.title": "額度",
     "drift.settings.webSearch.credits.description": "詢問每個金鑰的提供者剩餘額度。檢查不消耗額度。",

@@ -518,6 +518,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "API-Schlüssel einfügen",
     "drift.settings.webSearch.addKey": "Schlüssel hinzufügen",
     "drift.settings.webSearch.removeKey": "Schlüssel {{key}} entfernen",
+    "drift.settings.webSearch.showKey": "Schlüssel {{key}} anzeigen",
+    "drift.settings.webSearch.hideKey": "Schlüssel {{key}} ausblenden",
     "drift.settings.webSearch.moveUp": "Früher versuchen",
     "drift.settings.webSearch.credits.title": "Guthaben",
     "drift.settings.webSearch.credits.description":

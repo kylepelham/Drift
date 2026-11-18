@@ -1,5 +1,5 @@
+import { IconArrowUp, IconEye, IconEyeOff, IconTrash } from "./icons";
 import { createSignal, For, onMount, Show } from "solid-js";
-import { IconArrowUp, IconTrash } from "./icons";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -68,6 +68,16 @@ export function WebSearchGroup() {
         }
     }
 
+    async function fullKey(provider: string, index: number) {
+        setError("");
+        try {
+            return await engine.actions.webSearchKey(provider, index);
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+            return undefined;
+        }
+    }
+
     const choose = (provider: string) => void run(engine.actions.putWebSearch({ ...state()!.settings, provider }));
     const moveUp = (id: string) => {
         const order = orderedProviders(state()!).map((provider) => provider.id);
@@ -121,6 +131,7 @@ export function WebSearchGroup() {
                                     canMoveUp={current().settings.provider === "auto" && index() > 0}
                                     onMoveUp={() => moveUp(provider.id)}
                                     onAdd={(key) => run(engine.actions.addWebSearchKey(provider.id, key))}
+                                    onShow={(at) => fullKey(provider.id, at)}
                                     onRemove={(at) => run(engine.actions.removeWebSearchKey(provider.id, at))}
                                 />
                             )}
@@ -201,6 +212,7 @@ function ProviderRow(props: {
     canMoveUp: boolean;
     onMoveUp: () => void;
     onAdd: (key: string) => Promise<void>;
+    onShow: (index: number) => Promise<string | undefined>;
     onRemove: (index: number) => Promise<void>;
 }) {
     const [draft, setDraft] = createSignal("");
@@ -236,26 +248,12 @@ function ProviderRow(props: {
         >
             <For each={props.provider.keys}>
                 {(key, index) => (
-                    <div class={panelLine}>
-                        <span class="min-w-0 flex-1 font-mono text-xs text-ink-muted">
-                            {"\u2022".repeat(4)} {key.replace(/^\.+/, "")}
-                        </span>
-                        <Show when={props.checks.find((check) => check.index === index())}>
-                            {(check) => (
-                                <span class={`min-w-0 truncate text-xs ${resultTone(check())}`}>
-                                    {keyResult(check())}
-                                </span>
-                            )}
-                        </Show>
-                        <button
-                            class={panelRemove}
-                            aria-label={t("drift.settings.webSearch.removeKey", { key })}
-                            title={t("drift.settings.webSearch.removeKey", { key })}
-                            onClick={() => void props.onRemove(index())}
-                        >
-                            <IconTrash class="size-3.5" />
-                        </button>
-                    </div>
+                    <KeyLine
+                        masked={key}
+                        check={props.checks.find((check) => check.index === index())}
+                        onShow={() => props.onShow(index())}
+                        onRemove={() => void props.onRemove(index())}
+                    />
                 )}
             </For>
             <Show when={props.checks.find((check) => check.index == null)}>
@@ -283,5 +281,42 @@ function ProviderRow(props: {
                 </button>
             </div>
         </SettingsDisclosure>
+    );
+}
+
+/** A saved key by its last four characters; its eye fetches and shows it in full, to copy out. */
+function KeyLine(props: {
+    masked: string;
+    check: KeyCheck | undefined;
+    onShow: () => Promise<string | undefined>;
+    onRemove: () => void;
+}) {
+    const [full, setFull] = createSignal<string>();
+    const toggle = async () => setFull(full() ? undefined : await props.onShow());
+    const label = () =>
+        t(full() ? "drift.settings.webSearch.hideKey" : "drift.settings.webSearch.showKey", {
+            key: props.masked,
+        });
+
+    return (
+        <div class={panelLine}>
+            <span class="min-w-0 flex-1 font-mono text-xs break-all text-ink-muted select-text">
+                {full() ?? `${"\u2022".repeat(4)} ${props.masked.replace(/^\.+/, "")}`}
+            </span>
+            <Show when={props.check}>
+                {(check) => <span class={`min-w-0 truncate text-xs ${resultTone(check())}`}>{keyResult(check())}</span>}
+            </Show>
+            <button class={panelRemove} aria-label={label()} title={label()} onClick={() => void toggle()}>
+                {full() ? <IconEyeOff class="size-3.5" /> : <IconEye class="size-3.5" />}
+            </button>
+            <button
+                class={panelRemove}
+                aria-label={t("drift.settings.webSearch.removeKey", { key: props.masked })}
+                title={t("drift.settings.webSearch.removeKey", { key: props.masked })}
+                onClick={() => props.onRemove()}
+            >
+                <IconTrash class="size-3.5" />
+            </button>
+        </div>
     );
 }

@@ -1510,7 +1510,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** One saved key in full; the state lists keys only by their last four characters. */
+        get: operations["getWebSearchKey"];
         put?: never;
         /** Adds a key to a built-in provider's list; keys set aside as refused are all tried again. */
         post: operations["addWebSearchKey"];
@@ -2392,6 +2393,9 @@ export interface components {
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
+        FullKey: {
+            key: string;
+        };
         /** @description A TextMate grammar a plugin adds, as the app loads it into its highlighter. */
         Grammar: {
             aliases: string[];
@@ -7028,6 +7032,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KeyCheck"][];
+                };
+            };
+        };
+    };
+    getWebSearchKey: {
+        parameters: {
+            query: {
+                /** @description The key's place in the provider's list, from 0. */
+                index: number;
+                provider: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullKey"];
                 };
             };
         };

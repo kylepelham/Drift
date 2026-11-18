@@ -490,6 +490,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "粘贴 API 密钥",
     "drift.settings.webSearch.addKey": "添加密钥",
     "drift.settings.webSearch.removeKey": "移除密钥 {{key}}",
+    "drift.settings.webSearch.showKey": "显示密钥 {{key}}",
+    "drift.settings.webSearch.hideKey": "隐藏密钥 {{key}}",
     "drift.settings.webSearch.moveUp": "提前尝试",
     "drift.settings.webSearch.credits.title": "额度",
     "drift.settings.webSearch.credits.description": "询问每个密钥的提供方还剩多少。检查不消耗额度。",

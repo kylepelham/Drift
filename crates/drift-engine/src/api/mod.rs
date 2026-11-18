@@ -109,7 +109,7 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::tools))
         .routes(routes!(settings::fetch_registry))
         .routes(routes!(websearch::get, websearch::put))
-        .routes(routes!(websearch::add_key, websearch::remove_key))
+        .routes(routes!(websearch::get_key, websearch::add_key, websearch::remove_key))
         .routes(routes!(websearch::check))
 }
 

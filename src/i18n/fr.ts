@@ -521,6 +521,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Collez une clé d'API",
     "drift.settings.webSearch.addKey": "Ajouter une clé",
     "drift.settings.webSearch.removeKey": "Retirer la clé {{key}}",
+    "drift.settings.webSearch.showKey": "Afficher la clé {{key}}",
+    "drift.settings.webSearch.hideKey": "Masquer la clé {{key}}",
     "drift.settings.webSearch.moveUp": "Essayer plus tôt",
     "drift.settings.webSearch.credits.title": "Crédits",
     "drift.settings.webSearch.credits.description":

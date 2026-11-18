@@ -508,6 +508,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "API キーを貼り付け",
     "drift.settings.webSearch.addKey": "キーを追加",
     "drift.settings.webSearch.removeKey": "キー {{key}} を削除",
+    "drift.settings.webSearch.showKey": "キー {{key}} を表示",
+    "drift.settings.webSearch.hideKey": "キー {{key}} を隠す",
     "drift.settings.webSearch.moveUp": "先に試す",
     "drift.settings.webSearch.credits.title": "クレジット",
     "drift.settings.webSearch.credits.description":

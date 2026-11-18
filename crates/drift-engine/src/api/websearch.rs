@@ -82,6 +82,24 @@ pub(super) struct KeyAt {
     pub index: usize,
 }
 
+#[derive(Serialize, ToSchema)]
+pub(super) struct FullKey {
+    pub key: String,
+}
+
+/// One saved key in full; the state lists keys only by their last four characters.
+#[utoipa::path(get, path = "/websearch/keys", operation_id = "getWebSearchKey", params(KeyAt), responses((status = 200, body = FullKey)))]
+pub(super) async fn get_key(
+    State(engine): State<Arc<Engine>>,
+    Query(query): Query<KeyAt>,
+) -> Result<Json<FullKey>, ApiError> {
+    let key = engine
+        .search_key(&query.provider, query.index)
+        .map_err(|error| ApiError::new(StatusCode::NOT_FOUND, "key", error))?;
+
+    Ok(Json(FullKey { key }))
+}
+
 #[utoipa::path(delete, path = "/websearch/keys", operation_id = "removeWebSearchKey", params(KeyAt), responses((status = 200, body = WebSearchState)))]
 pub(super) async fn remove_key(
     State(engine): State<Arc<Engine>>,

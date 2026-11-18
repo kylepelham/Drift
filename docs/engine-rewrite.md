@@ -1773,8 +1773,9 @@ listed there.
   - Built (2.4.0). `websearch/` routes and holds the three wire shapes (`providers.rs`); the tool
     is `tool/websearch.rs`, offered only while `web_search_available()` (not off, and some key or
     plugin provider exists). Keys are a JSON list per provider in the credential store under
-    `websearch:<id>`, then the environment variable's; Settings shows only their last four
-    characters. Refusals (401 to 403, Tavily's 432 and 433) set a key aside until a key is added; a
+    `websearch:<id>`, then the environment variable's; Settings lists only their last four
+    characters, and its eye button fetches one key in full (`GET /websearch/keys`, 2.6.1), since
+    Drift may be the only place the user keeps it. Refusals (401 to 403, Tavily's 432 and 433) set a key aside until a key is added; a
     429 cools it for its `Retry-After`, 60 s when it names none. Only those move to the provider's
     next key: a timeout, a 5xx or a page it could not read would fail the same way on every key, so
     that request skips the provider's other keys and goes to the next provider (2.4.2; eleven
@@ -1784,7 +1785,7 @@ listed there.
     a failure says how long until a paused key is free. Each provider is sent at most four requests
     at once and the rest queue, so a burst of searches is not a burst of 429s. "Always" on a search
     grants `websearch *`, as v2 saves it, because an exact query never repeats. API:
-    `GET/PUT /websearch`, `POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
+    `GET/PUT /websearch`, `GET/POST/DELETE /websearch/keys`. The example plugin is `plugins/searxng`.
   - Decision taken while Kyle slept: no `websearch.provider` in drift.json. The keys live in the
     credential store and Settings manages both, so a second source would only add a precedence
     rule; it can come later if a team wants it set in a file.

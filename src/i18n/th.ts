@@ -501,6 +501,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "วางคีย์ API",
     "drift.settings.webSearch.addKey": "เพิ่มคีย์",
     "drift.settings.webSearch.removeKey": "ลบคีย์ {{key}}",
+    "drift.settings.webSearch.showKey": "แสดงคีย์ {{key}}",
+    "drift.settings.webSearch.hideKey": "ซ่อนคีย์ {{key}}",
     "drift.settings.webSearch.moveUp": "ลองก่อน",
     "drift.settings.webSearch.credits.title": "เครดิต",
     "drift.settings.webSearch.credits.description": "ถามผู้ให้บริการของแต่ละคีย์ว่าเหลือเท่าไหร่ ตรวจสอบไม่ใช้เครดิต",

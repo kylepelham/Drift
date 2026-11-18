@@ -513,6 +513,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Paste an API key",
     "drift.settings.webSearch.addKey": "Add key",
     "drift.settings.webSearch.removeKey": "Remove key {{key}}",
+    "drift.settings.webSearch.showKey": "Show key {{key}}",
+    "drift.settings.webSearch.hideKey": "Hide key {{key}}",
     "drift.settings.webSearch.moveUp": "Try earlier",
     "drift.settings.webSearch.credits.title": "Credits",
     "drift.settings.webSearch.credits.description":

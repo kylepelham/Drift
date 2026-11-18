@@ -428,6 +428,23 @@ async fn off_removes_the_tool_and_refuses_a_search() {
     );
 }
 
+#[tokio::test]
+async fn a_saved_key_is_listed_by_its_last_four_and_given_in_full_on_request() {
+    let behaviour = Arc::new(Behaviour::default());
+    let (engine, _) = engine(&behaviour).await;
+    engine.add_search_key("exa", "exa-first-1234").unwrap();
+    engine.add_search_key("exa", "exa-second-5678").unwrap();
+
+    let exa = engine
+        .search_providers()
+        .into_iter()
+        .find(|provider| provider.id == "exa")
+        .unwrap();
+    assert_eq!(exa.keys, ["...1234", "...5678"]);
+    assert_eq!(engine.search_key("exa", 1).unwrap(), "exa-second-5678");
+    assert!(engine.search_key("exa", 2).is_err());
+}
+
 #[cfg(feature = "wasm-plugins")]
 #[tokio::test]
 async fn a_plugin_provider_answers() {

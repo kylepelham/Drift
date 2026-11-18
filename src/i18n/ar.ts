@@ -501,6 +501,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "الصق مفتاح API",
     "drift.settings.webSearch.addKey": "إضافة مفتاح",
     "drift.settings.webSearch.removeKey": "إزالة المفتاح {{key}}",
+    "drift.settings.webSearch.showKey": "إظهار المفتاح {{key}}",
+    "drift.settings.webSearch.hideKey": "إخفاء المفتاح {{key}}",
     "drift.settings.webSearch.moveUp": "جرّبه أولًا",
     "drift.settings.webSearch.credits.title": "الأرصدة",
     "drift.settings.webSearch.credits.description": "يسأل مزود كل مفتاح عما تبقى لديه. لا ينفق الفحص أي رصيد.",

@@ -507,6 +507,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Zalijepite API ključ",
     "drift.settings.webSearch.addKey": "Dodaj ključ",
     "drift.settings.webSearch.removeKey": "Ukloni ključ {{key}}",
+    "drift.settings.webSearch.showKey": "Prikaži ključ {{key}}",
+    "drift.settings.webSearch.hideKey": "Sakrij ključ {{key}}",
     "drift.settings.webSearch.moveUp": "Probaj ranije",
     "drift.settings.webSearch.credits.title": "Krediti",
     "drift.settings.webSearch.credits.description":

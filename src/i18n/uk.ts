@@ -509,6 +509,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Вставте ключ API",
     "drift.settings.webSearch.addKey": "Додати ключ",
     "drift.settings.webSearch.removeKey": "Вилучити ключ {{key}}",
+    "drift.settings.webSearch.showKey": "Показати ключ {{key}}",
+    "drift.settings.webSearch.hideKey": "Сховати ключ {{key}}",
     "drift.settings.webSearch.moveUp": "Пробувати раніше",
     "drift.settings.webSearch.credits.title": "Кредити",
     "drift.settings.webSearch.credits.description":

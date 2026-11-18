@@ -509,6 +509,8 @@ export const drift = {
     "drift.settings.webSearch.keyPlaceholder": "Lim inn en API-nøkkel",
     "drift.settings.webSearch.addKey": "Legg til nøkkel",
     "drift.settings.webSearch.removeKey": "Fjern nøkkelen {{key}}",
+    "drift.settings.webSearch.showKey": "Vis nøkkelen {{key}}",
+    "drift.settings.webSearch.hideKey": "Skjul nøkkelen {{key}}",
     "drift.settings.webSearch.moveUp": "Prøv tidligere",
     "drift.settings.webSearch.credits.title": "Kreditter",
     "drift.settings.webSearch.credits.description":

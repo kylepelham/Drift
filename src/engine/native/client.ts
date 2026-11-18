@@ -144,6 +144,11 @@ export function createClient(target: Target) {
             request<Json<"putWebSearch", 200>>("PUT", "/websearch", body),
         addWebSearchKey: (provider: string, key: string) =>
             request<Json<"addWebSearchKey", 200>>("POST", "/websearch/keys", { provider, key }),
+        webSearchKey: (provider: string, index: number) =>
+            request<Json<"getWebSearchKey", 200>>(
+                "GET",
+                `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
+            ),
         removeWebSearchKey: (provider: string, index: number) =>
             request<Json<"removeWebSearchKey", 200>>(
                 "DELETE",

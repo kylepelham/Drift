@@ -256,6 +256,14 @@ impl Engine {
         Ok(())
     }
 
+    /// A saved key in full, for the user to see in Settings.
+    pub fn search_key(&self, provider: &str, index: usize) -> Result<String, String> {
+        self.saved_keys(provider)
+            .into_iter()
+            .nth(index)
+            .ok_or_else(|| format!("{provider} has no key {index}"))
+    }
+
     pub fn remove_search_key(&self, provider: &str, index: usize) -> Result<(), String> {
         let mut keys = self.saved_keys(provider);
         if index >= keys.len() {
