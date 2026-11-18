@@ -157,19 +157,7 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     sees_a_tall_page_small_clicks_where_seen_and_zooms(&sandbox).await;
     a_phone_screenshot_never_reaches_the_pane_zoomed(&sandbox).await;
 
-    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
-    let reopened = call(
-        &sandbox,
-        json!({ "action": "open", "url": "data:text/html,<title>Again</title>" }),
-    )
-    .await
-    .expect("an open right after a stop waits for the old browser and starts a new one");
-    assert!(reopened.output.contains("Again"), "{}", reopened.output);
-    assert!(!std::sync::Arc::ptr_eq(
-        &sandbox.ctx.engine.browsers.get("ses_test").unwrap(),
-        &instance
-    ));
-
+    reopens_right_after_a_stop(&sandbox, &instance).await;
     call(&sandbox, json!({ "action": "stop" })).await.unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
     while sandbox.ctx.engine.browsers.record("ses_test").is_some() {
@@ -178,6 +166,20 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     }
     let profile = sandbox.ctx.engine.data_dir.join("browsers/sessions/ses_test");
     assert!(!profile.exists(), "an isolated profile goes with its browser");
+}
+
+/// An open right after a stop waits for the closing browser to go and starts a new one.
+async fn reopens_right_after_a_stop(sandbox: &Sandbox, before: &std::sync::Arc<dyn crate::browser::driver::Driver>) {
+    call(sandbox, json!({ "action": "stop" })).await.unwrap();
+    let reopened = call(
+        sandbox,
+        json!({ "action": "open", "url": "data:text/html,<title>Again</title>" }),
+    )
+    .await
+    .expect("the closing browser is waited out");
+    assert!(reopened.output.contains("Again"), "{}", reopened.output);
+    let now = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    assert!(!std::sync::Arc::ptr_eq(&now, before), "a new browser");
 }
 
 /// A tall page's screenshot costs a desktop one's, a click at its points lands, and zoom enlarges a region of it.
