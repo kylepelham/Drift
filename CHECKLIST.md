@@ -550,6 +550,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] Shell lines that only read skip the undo capture: builtins (`export`, `test`, `sleep`), text tools (`sort`, `jq`, `fd`), listing forms of `git branch`/`tag`/`remote`/`config`, and `--version`/`--help`; a writing line's capture walks the tree once with `git status` (2.1 s to 41 ms for `:` on a 139,000-file repo)
 - [x] Less context per step: an unchanged re-read of the same lines answers with a note while the earlier result is still sent; grep's default page stops at 20 KB; shell, fetch and MCP output past 20 KB keeps its first and last 10 KB with the rest in a file
 - [x] A summary request cuts long strings in tool inputs and very long texts, so a turn pushed over the window by a huge `write` compacts and carries on instead of failing on refused summaries
+- [x] Browser `open` right after `stop` waits for the closing browser and starts a new one instead of failing to open a tab
 
 ## Readability and tooling pass
 

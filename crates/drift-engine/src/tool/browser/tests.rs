@@ -158,6 +158,19 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     a_phone_screenshot_never_reaches_the_pane_zoomed(&sandbox).await;
 
     call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+    let reopened = call(
+        &sandbox,
+        json!({ "action": "open", "url": "data:text/html,<title>Again</title>" }),
+    )
+    .await
+    .expect("an open right after a stop waits for the old browser and starts a new one");
+    assert!(reopened.output.contains("Again"), "{}", reopened.output);
+    assert!(!std::sync::Arc::ptr_eq(
+        &sandbox.ctx.engine.browsers.get("ses_test").unwrap(),
+        &instance
+    ));
+
+    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
     while sandbox.ctx.engine.browsers.record("ses_test").is_some() {
         assert!(tokio::time::Instant::now() < deadline, "the browser ended");

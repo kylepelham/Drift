@@ -420,6 +420,8 @@ pub(crate) struct Common {
     pub(crate) frames: broadcast::Sender<Arc<Frame>>,
     pub(crate) stopping: CancellationToken,
     pub(crate) ended: AtomicBool,
+    /// Asked to close: it counts as ending from then on, so the next open waits for it to go instead of using it.
+    closing: AtomicBool,
     /// The CSS cursor the page shows under the pane's pointer.
     pub(crate) cursor: tokio::sync::watch::Sender<String>,
     used: Mutex<Instant>,
@@ -443,6 +445,7 @@ impl Common {
             frames: broadcast::channel(FRAMES_KEPT).0,
             stopping: CancellationToken::new(),
             ended: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
             cursor: tokio::sync::watch::channel("default".into()).0,
             used: Mutex::new(Instant::now()),
             viewers: AtomicUsize::new(0),
@@ -474,9 +477,14 @@ impl Common {
         self.stopping.cancel();
     }
 
+    /// The browser was asked to close and is on its way out.
+    pub(crate) fn mark_closing(&self) {
+        self.closing.store(true, Ordering::SeqCst);
+    }
+
     /// Whether the browser has ended or is ending.
     pub(crate) fn is_ended(&self) -> bool {
-        self.stopping.is_cancelled()
+        self.stopping.is_cancelled() || self.closing.load(Ordering::SeqCst)
     }
 
     /// Returns once the browser has ended or is ending.

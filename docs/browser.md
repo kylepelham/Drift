@@ -160,7 +160,10 @@ page polls. Traces and Lighthouse need a debugging port, so they are not availab
   elsewhere), as background shells do, so a crash of Drift cannot leave one behind.
 - A browser that exits on its own is reported as stopped; the next `open` starts a fresh one.
 - No client hears of a browser before the API can return it, and a browser still ending is waited out
-  before its replacement starts, so the new one never starts on a profile folder being deleted.
+  before its replacement starts, so the new one never starts on a profile folder being deleted. A
+  browser counts as ending from the moment `stop` asks it to close (`Common::mark_closing`), not once
+  it has gone: an `open` right after `stop` used to reach the closing browser and fail with
+  "Target.createTarget: Failed to open a new tab"; now it waits for it to exit (about 0.7 s) and starts a new one.
 
 ## Profiles and disk
 

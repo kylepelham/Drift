@@ -1291,6 +1291,7 @@ impl Driver for Firefox {
     }
 
     fn stop(&self) {
+        self.common.mark_closing();
         let Some(firefox) = self.me.upgrade() else {
             return;
         };

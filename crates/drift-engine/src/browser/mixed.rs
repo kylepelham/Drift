@@ -613,6 +613,7 @@ impl Driver for Mixed {
 
     /// Closes Edge's windows, which ends it, and ends it anyway if it does not close.
     fn stop(&self) {
+        self.common.mark_closing();
         if let Some(ie) = self.ie() {
             ie.stop();
         }

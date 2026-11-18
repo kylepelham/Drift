@@ -640,6 +640,7 @@ impl Driver for Chromium {
 
     /// Asks the browser to close, so a shared profile writes its cookies out, and ends it if it does not.
     fn stop(&self) {
+        self.common.mark_closing();
         let Some(chromium) = self.me.upgrade() else {
             return;
         };
