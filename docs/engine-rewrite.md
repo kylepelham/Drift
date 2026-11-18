@@ -1497,8 +1497,9 @@ goal retires them.
   is today. Background processes are the one exception, on by default. `/watch-pr` needs no
   switch, since it starts only when the user runs it.
 - Background processes, first (built; `crate::background`, `tool::process`, `session::processes`):
-  - `bash` takes `background: true` and returns a process id after at most a second, so a command
-    that fails at once says so in its own result. A command still running at its time limit moves
+  - `bash` takes `background: true` and returns a process id after at most 250 ms (a second for
+    PowerShell, which takes up to 700 ms just to start), so a command that fails at once says so in
+    its own result. A command still running at its time limit moves
     to the background with its output so far, instead of being killed: the call returns that
     output and the process id, and is not a failed call.
   - The engine owns each process: a watcher task reads its output into a 256 KB tail in memory
@@ -3022,7 +3023,7 @@ Settled after the first external review of M1; each has a regression test.
   after Drift started is found. The tool text names the one it runs, and how to chain steps in it:
   `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which has no
   `&&`.
-- Bash gets its command in `DRIFT_COMMAND` and runs `export -n DRIFT_COMMAND; eval "$DRIFT_COMMAND"`,
+- Bash gets its command in `DRIFT_COMMAND` and runs `export -n DRIFT_COMMAND; exec 2>&1; eval "$DRIFT_COMMAND"`,
   never as `-c <command>`. Git Bash (MSYS) reads its Windows command line by other rules than the
   ones Rust quotes for: `\\` came out as `\`, and only the first 8186 characters of a quoted
   argument arrived, so a long heredoc was cut short. Over 30 days of Kyle's conversations, 427 of
@@ -3054,7 +3055,9 @@ Settled after the first external review of M1; each has a regression test.
 - `read` on a path that does not exist names up to three entries beside it whose names contain,
   or are contained in, the one asked for ("Did you mean one of these?"), as opencode does; both
   names must be three characters or more, so a file named `a` is not offered for every miss.
-- Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order,
+- Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order
+  (in bash one pipe, `exec 2>&1`, so lines written close together keep the order they were written in;
+  two pipes read at once had shown a later error before an earlier line),
   whole while under 20 KB, then only the first and last 10 KB in memory with everything (up to
   64 MB) in `<data>/tool-output/<session>/<call>.log`. The result names that file and carries
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles

@@ -60,6 +60,20 @@ async fn a_heredoc_reaches_bash_byte_for_byte_however_long() {
 }
 
 #[tokio::test]
+async fn errors_and_output_written_close_together_keep_their_order() {
+    let bash = Bash::detect();
+    if !matches!(bash.shell, Shell::Bash(_)) {
+        return;
+    }
+    let sandbox = Sandbox::new("bash-order");
+    let command = "for i in 1 2 3 4 5 6 7 8; do echo out$i; echo err$i >&2; done";
+
+    let output = bash.run(&sandbox.ctx, json!({ "command": command })).await.unwrap();
+    let expected: Vec<String> = (1..=8).flat_map(|i| [format!("out{i}"), format!("err{i}")]).collect();
+    assert_eq!(output.output, expected.join("\n"));
+}
+
+#[tokio::test]
 async fn a_workdir_is_where_it_runs_and_one_outside_the_workspace_asks() {
     let sandbox = Sandbox::new("bash-workdir");
     let file = sandbox.file("sub/here.txt", "here\n");

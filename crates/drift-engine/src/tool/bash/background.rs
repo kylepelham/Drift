@@ -2,22 +2,28 @@
 
 use std::time::Duration;
 
-use super::Started;
 use super::output::without_blank_ends;
+use super::{Shell, Started};
 use crate::background::{Exit, Handle, Start, Watching};
 use crate::session::types::Visibility;
 use crate::tool::spool::Spooled;
 use crate::tool::{Context, Output, ToolMetadata, add_note};
 
-/// How long a background start waits, so a command that fails at once says so in its own result.
-const SETTLE: Duration = Duration::from_secs(1);
+/// How long a background start waits, so a command that fails at once says so in its own result: past bash's
+/// start and a missing command, which take about 50 ms; PowerShell alone takes up to 700 ms to start.
+const BASH_SETTLE: Duration = Duration::from_millis(250);
+const POWERSHELL_SETTLE: Duration = Duration::from_secs(1);
 
-/// Hands the command to the background and reports how its first second went.
-pub(super) async fn start(context: &Context, started: Started, seen: Vec<u8>) -> Output {
+/// Hands the command to the background and reports how its first moments went.
+pub(super) async fn start(context: &Context, shell: &Shell, started: Started, seen: Vec<u8>) -> Output {
     let title = started.title.clone();
-    // Watched until the result is written, so an exit within the first second is said here and not also later.
+    // Watched until the result is written, so an exit while settling is said here and not also later.
     let handle = hand_over(context, started, seen);
-    handle.wait(None, SETTLE, &context.abort).await;
+    let settle = match shell {
+        Shell::Bash(_) => BASH_SETTLE,
+        Shell::PowerShell(_) => POWERSHELL_SETTLE,
+    };
+    handle.wait(None, settle, &context.abort).await;
 
     let unread = handle.unread();
     let mut output = Output {

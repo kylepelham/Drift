@@ -126,7 +126,7 @@ impl Tool for Bash {
             };
 
             if background {
-                return Ok(background::start(context, started, Vec::new()).await);
+                return Ok(background::start(context, &self.shell, started, Vec::new()).await);
             }
 
             Ok(self.foreground(context, &input, started, &directory).await)
@@ -410,11 +410,14 @@ fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {
     match shell {
         // Not on the command line: Git Bash reads one with other quoting rules, so `\\` and `\"` came out changed,
         // and it keeps only the first 8186 characters of a quoted argument, cutting long heredocs short.
+        // Errors share the output's pipe, so the two arrive in the order the command wrote them.
         Shell::Bash(path) => {
             let mut command = tokio::process::Command::new(path);
             command
                 .arg("-c")
-                .arg(format!("export -n {COMMAND_VARIABLE}; eval \"${COMMAND_VARIABLE}\""))
+                .arg(format!(
+                    "export -n {COMMAND_VARIABLE}; exec 2>&1; eval \"${COMMAND_VARIABLE}\""
+                ))
                 .env(COMMAND_VARIABLE, line);
             command
         }
