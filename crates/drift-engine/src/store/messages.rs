@@ -10,6 +10,12 @@ use std::collections::HashMap;
 #[path = "tests/messages.rs"]
 mod tests;
 
+// Ordered by the message's own id, which its index already yields, so only each message's few parts are sorted:
+// ordering by `p.message_id` sorted every row, its JSON with it, and took 10 ms of a 13 ms load at 4.7 MB.
+const PARTS_IN_RANGE: &str = "SELECT p.id, p.session_id, p.json, p.message_id, p.provider_signature
+     FROM message m JOIN part p ON p.message_id = m.id
+     WHERE m.session_id = ?1 AND m.id >= ?2 AND m.id <= ?3 ORDER BY m.id, p.id";
+
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss";
 
 pub(super) struct NewMessage<'a> {
@@ -334,10 +340,7 @@ fn with_parts_in(
         return Ok(Vec::new());
     };
     let mut by_message: HashMap<String, Vec<PartRow>> = HashMap::new();
-    let mut statement = connection.prepare_cached(
-        "SELECT p.id, p.session_id, p.json, p.message_id, p.provider_signature FROM message m JOIN part p ON p.message_id = m.id
-         WHERE m.session_id = ?1 AND m.id >= ?2 AND m.id <= ?3 ORDER BY p.message_id, p.id"
-    )?;
+    let mut statement = connection.prepare_cached(PARTS_IN_RANGE)?;
     let rows = statement.query_map(params![session_id, first.id, last.id], |row| {
         let message_id: String = row.get(3)?;
         Ok((message_id.clone(), map_part(row, &message_id)?))

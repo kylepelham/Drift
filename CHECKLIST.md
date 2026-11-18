@@ -552,6 +552,7 @@ From a whole-system review and two weeks of `drift.db` (162,000 tool calls).
 - [x] A summary request cuts long strings in tool inputs and very long texts, so a turn pushed over the window by a huge `write` compacts and carries on instead of failing on refused summaries
 - [x] Browser `open` right after `stop` waits for the closing browser and starts a new one instead of failing to open a tab
 - [x] A background start answers after 250 ms in bash (1 s in PowerShell) instead of a second; bash errors share the output's pipe, so they keep the order they were written in
+- [x] Each step loads its history without sorting every part's JSON (ordered by message id from its index): 13 to 5 ms at 4.7 MB
 
 ## Readability and tooling pass
 

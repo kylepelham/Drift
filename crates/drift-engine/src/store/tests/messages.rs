@@ -309,3 +309,14 @@ fn startup_closes_streaming_replies_without_reading_every_message() {
         "{plan:?}"
     );
 }
+
+#[test]
+fn a_transcript_sorts_only_each_messages_parts_not_every_row() {
+    let steps = crate::store::tree::tests::plan(&store(), PARTS_IN_RANGE, ["ses", "a", "z"]);
+
+    assert!(
+        steps.iter().any(|step| step.contains("INDEX idx_part_message"))
+            && !steps.iter().any(|step| step == "USE TEMP B-TREE FOR ORDER BY"),
+        "{steps:?}"
+    );
+}
