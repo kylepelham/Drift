@@ -242,3 +242,31 @@ Search speed and its partial-result behaviour on huge trees, loop overhead, memo
 page reads on Windows, UTF-16, editing large files, typographic-quote and dash tolerance, edits that keep an
 outside change while refusing a stale whole-file write, fetch of local hosts with raw content, and worktree,
 browser and background-process tools in one engine.
+
+## After the fixes
+
+Measured again on the same fixtures and mock, Drift only, after the changes on `next/2.6.0`:
+
+| Case | Before | After | Change |
+| --- | --- | --- | --- |
+| `:` or `export` on UE source (139k files) | 2.1 s | 42 ms | `sleep`, `export`, `test`, `sort`, `jq`, `fd`, listing forms of `git branch`/`tag`/`remote`/`config`, `--version` and more now count as reading, so no undo capture |
+| Writing command on UE source, steady | about 2.1 s | 0.88 s | one `git status -uall` walk against a HEAD commit of the last capture replaces `diff-files` plus `ls-files --others` (870 ms, no fscache) |
+| Four parallel 1 s sleeps | 5.0 s | 1.1 s | read-only now, so they run together |
+| `export` (410 files) | 289 ms | 49 ms | |
+| Background start | 1.27 s | 0.27 s | settles 250 ms in bash, 1 s in PowerShell, which takes up to 700 ms to start |
+| Interleaved stdout and stderr | order mixed | exact order | bash runs `exec 2>&1` first |
+| Step 199 of 200 (2 MB history) | 19 ms | 13 ms | parts load in message order from the index; ordering by `p.message_id` sorted every row's JSON |
+| Last request, 200-step read loop | 2.0 MB | 629 KB | unchanged re-reads answer with a note while the earlier result is still sent |
+| Last request, 22 search steps (low) | 317 KB | 268 KB | grep's default page stops at 20 KB; shell, fetch and MCP keep 10 KB of each end past 20 KB. Claude: 190 KB |
+| 4.5 MB `write` over the window | 7 refused requests, error | 1 refused request, compacts, finishes | the summary request cuts long strings in tool inputs and texts over 40,000 characters |
+| Browser `open` right after `stop` | "Failed to open a new tab" | new browser in 0.72 s | a browser asked to close counts as ending at once |
+
+- The first writing command in a fresh session still pays the first capture (about 0.9 s on 410 files, 3.3 s
+  on UE source). With `seq` now read-only, the shell suite's first capture moved from the 10 MB output step
+  (696 to 87 ms) to the mixed-output step (351 ms to 1.17 s): the same one-time cost on another step.
+- The 30 s first browser launch did not happen again in four fresh data dirs (0.47 to 1.4 s); Chrome itself
+  starts on a new profile in about 0.3 s. It happened while three agents ran heavy suites at once, so the launch
+  timeout is unchanged.
+- The request window is not cached in memory: with the sort gone, a step at 2 MB of history costs less than
+  Claude's (13 ms against 17 ms), and a cache would have to follow every writer of a session's parts.
+- No `NotebookEdit`: a notebook is JSON that `edit` and `apply_patch` already change exactly.
