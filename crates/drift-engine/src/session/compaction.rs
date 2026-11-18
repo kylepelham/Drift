@@ -29,6 +29,8 @@ const TAIL_MAX_TOKENS: u64 = 15_000;
 const RETURNED_IMAGE_TOKENS: usize = 1_600;
 /// Character limit for each tool result in a summary request; images and PDFs are replaced by a mention.
 const SUMMARY_TOOL_CHARS: usize = 2_000;
+/// A message's text past this is cut for the summary too: a pasted log could otherwise refuse every summary.
+const SUMMARY_TEXT_CHARS: usize = 40_000;
 const SUMMARY_MAX_TOKENS: u32 = 8_192;
 const CACHE_WARM_MS: i64 = 5 * 60 * 1000;
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
@@ -705,7 +707,8 @@ impl Spent {
     }
 }
 
-/// What a summary needs of the history: images and PDFs only by mention, each tool result's start.
+/// What a summary needs of the history: images and PDFs only by mention, the start of each tool result,
+/// each long string a tool was given (a whole file to write) and each very long text.
 fn lean(messages: &mut [ChatMessage]) {
     for block in messages.iter_mut().flat_map(|message| message.blocks.iter_mut()) {
         match block {
@@ -713,12 +716,27 @@ fn lean(messages: &mut [ChatMessage]) {
                 *block = Block::Text(format!("[a {mime} file was attached here]"));
             }
             Block::Pdf { .. } => *block = Block::Text("[a PDF was attached here]".into()),
-            Block::ToolResult { content, .. } if content.chars().count() > SUMMARY_TOOL_CHARS => {
-                let kept: String = content.chars().take(SUMMARY_TOOL_CHARS).collect();
-                *content = format!("{kept}\n[... cut for the summary]");
-            }
+            Block::ToolResult { content, .. } => cut(content, SUMMARY_TOOL_CHARS),
+            Block::ToolUse { input, .. } => cut_strings(input),
+            Block::Text(text) => cut(text, SUMMARY_TEXT_CHARS),
             _ => {}
         }
+    }
+}
+
+fn cut(text: &mut String, keep: usize) {
+    if let Some((end, _)) = text.char_indices().nth(keep) {
+        text.truncate(end);
+        text.push_str("\n[... cut for the summary]");
+    }
+}
+
+fn cut_strings(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => cut(text, SUMMARY_TOOL_CHARS),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(cut_strings),
+        serde_json::Value::Object(fields) => fields.values_mut().for_each(cut_strings),
+        _ => {}
     }
 }
 

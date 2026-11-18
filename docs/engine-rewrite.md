@@ -459,7 +459,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     The summary then covers the kept tail too.
   - *Lean*: otherwise, or when the cached reply is unusable or too long. The previous summary and
     the history before the tail, no system prompt, images and PDFs as a one-line mention and each
-    tool result cut to 2,000 characters, as opencode sends them. If the provider says it is too
+    tool result cut to 2,000 characters, as opencode sends them; so is each string in a tool's
+    input (a whole file given to `write`), and any text over 40,000 characters. Without that, one
+    4.5 MB `write` in the summarised part made every summary as long as the request it replaces,
+    and an overflowing turn ended after seven refused requests. If the provider says it is too
     long, the oldest fifth of its turns is dropped with a note, up to three times, but never the
     last turn: a summary of zero turns is never sent.
   The summary message is charged like a reply: its `usage` and `cost` are what its requests used,

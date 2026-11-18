@@ -242,3 +242,45 @@ async fn a_lean_summary_still_defines_the_workspaces_mcp_tools_its_history_may_c
         summarised.tools.iter().map(|tool| &tool.name).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn a_summary_cuts_a_huge_tool_input_and_a_huge_paste_so_it_fits() {
+    let content = "0123456789abcdef".repeat(290_000);
+    let mut messages = vec![
+        ChatMessage {
+            role: crate::llm::Role::User,
+            blocks: vec![Block::Text("log ".repeat(50_000))],
+        },
+        ChatMessage {
+            role: crate::llm::Role::Assistant,
+            blocks: vec![Block::ToolUse {
+                id: "w".into(),
+                name: "write".into(),
+                input: serde_json::json!({ "path": "huge.txt", "content": content, "lines": [content] }),
+            }],
+        },
+    ];
+
+    super::super::lean(&mut messages);
+
+    let size: usize = messages
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .map(|block| match block {
+            Block::Text(text) => text.len(),
+            Block::ToolUse { input, .. } => input.to_string().len(),
+            _ => 0,
+        })
+        .sum();
+    assert!(size < 50_000, "{size}");
+    let Block::ToolUse { input, .. } = &messages[1].blocks[0] else {
+        panic!()
+    };
+    assert_eq!(input["path"], "huge.txt", "short values stay whole");
+    assert!(
+        input["content"]
+            .as_str()
+            .unwrap()
+            .ends_with("[... cut for the summary]")
+    );
+}
