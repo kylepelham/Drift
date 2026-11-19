@@ -567,6 +567,9 @@ impl Firefox {
                 )
                 .await;
         }
+        if let Some(script) = super::view::pick_script(mouse) {
+            let _ = tokio::time::timeout(super::view::PICK_WAIT, tab.evaluate(&script, Language::JavaScript)).await;
+        }
         if self.drags(tab, mouse).await? {
             return Ok(());
         }

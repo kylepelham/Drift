@@ -254,6 +254,11 @@ impl Key {
 }
 
 impl MouseInput {
+    /// A left press, which may open a select's list.
+    pub(crate) fn presses(&self) -> bool {
+        self.event == "down" && self.button.as_deref().is_none_or(|button| button == "left")
+    }
+
     /// Whether Control or Meta is held, so a wheel turn zooms rather than scrolls.
     pub(crate) fn is_shortcut(&self) -> bool {
         self.modifiers & (CONTROL | META) != 0

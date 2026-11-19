@@ -389,6 +389,16 @@ the credential is refused.
   press until the pointer moves 4 px: over a `draggable` element the page helper runs the HTML drag events
   itself (`dragstart`, `dragenter`/`dragover`/`dragleave` per move, `drop` and `dragend` on release) and the
   release's click is swallowed; anywhere else the press and moves go to the page as they are, so text selects.
+- Drop-downs open in the page. A `<select>`'s own list is drawn by the browser outside the page (a separate window
+  in Chrome and Edge, the parent process in headless Firefox and Camoufox), so the pane's picture never showed it
+  and a click seemed to do nothing. Before each left press reaches the page, `pane.js`'s `pick` looks under it,
+  through open shadow roots and same-origin frames: on a single-choice select it cancels the press's default so
+  the browser's list never opens, focuses the select and draws the list in the page (a closed shadow root over
+  everything, below the select or above it when there is more room, up to 20 rows, groups and disabled options
+  shown as such). A click on a row, or arrows, Home, End, Page Up/Down and Enter or Space, chooses it and fires
+  `input` and `change`; Escape, Tab, a press elsewhere, a scroll or a resize closes it, and a press on the select
+  again closes it as a native one does. The look-up waits at most 250 ms, so a busy page or an open dialog never
+  holds the press up. IE mode is unchanged.
 - Copying reaches the user's clipboard: Ctrl+C or Ctrl+X on a selection and a site's own Copy button
   (`navigator.clipboard.writeText` or `execCommand('copy')`). A headless browser keeps a clipboard of its own,
   so after each click, Enter, Space or Ctrl/Cmd chord the engine asks the page helper what the page last

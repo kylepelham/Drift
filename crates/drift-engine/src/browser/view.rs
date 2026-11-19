@@ -133,6 +133,16 @@ pub(crate) fn data_script(input: &ViewInput) -> Option<String> {
     Some(pane_script(action, &args))
 }
 
+/// The longest a press waits for `pick_script`: a busy page, or one showing a dialog, answers it late or never.
+pub(crate) const PICK_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The page action that opens a select's list drawn in the page, run before a pane's press reaches the page.
+pub(crate) fn pick_script(mouse: &MouseInput) -> Option<String> {
+    mouse
+        .presses()
+        .then(|| pane_script("pick", &serde_json::json!({ "x": mouse.x, "y": mouse.y })))
+}
+
 /// What the engine tells a pane besides frames, as JSON text.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]

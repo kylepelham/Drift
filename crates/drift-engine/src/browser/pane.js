@@ -1,5 +1,5 @@
-// What the pane does in a page that input alone cannot: paste and drop with their data, and a drag Firefox's
-// WebDriver input cannot carry. Called as `(this script)(action, args)`; runs in the page's own world, so the page's
+// What the pane does in a page that input alone cannot: paste and drop with their data, a drag Firefox's
+// WebDriver input cannot carry, and a select's list, which the browser draws outside the page's picture. Called as `(this script)(action, args)`; runs in the page's own world, so the page's
 // listeners see the events and the data they carry.
 (action, args) => {
     const state = (window.__driftPane ??= {});
@@ -71,6 +71,180 @@
             (target.ownerDocument ?? document).execCommand("insertText", false, args.text);
         }
         return "dropped";
+    }
+
+    // The deepest element at the point, through open shadow roots and same-origin frames, with the frame's offset.
+    const deepAt = (x, y) => {
+        let node = document.elementFromPoint(x, y);
+        let [dx, dy] = [0, 0];
+        for (let depth = 0; node && depth < 32; depth++) {
+            const inner = node.shadowRoot?.elementFromPoint(x - dx, y - dy);
+            if (inner && inner !== node) {
+                node = inner;
+                continue;
+            }
+            const inside = node.tagName === "IFRAME" ? node.contentDocument : null;
+            if (!inside) break;
+            const box = node.getBoundingClientRect();
+            dx += box.left + node.clientLeft;
+            dy += box.top + node.clientTop;
+            node = inside.elementFromPoint(x - dx, y - dy);
+        }
+        return { node, dx, dy };
+    };
+
+    // The press that opens or closes the list must not open the browser's own, which the pane cannot show.
+    const holdBack = (select) => {
+        const view = select.ownerDocument.defaultView;
+        const block = (event) => {
+            view.removeEventListener("mousedown", block, true);
+            if (!event.composedPath().includes(select)) return;
+            event.preventDefault();
+            select.focus();
+        };
+        view.addEventListener("mousedown", block, true);
+        setTimeout(() => view.removeEventListener("mousedown", block, true), 1000);
+    };
+
+    const rows = (select) => {
+        const found = [];
+        for (const child of select.children) {
+            if (child.tagName === "OPTGROUP") {
+                found.push({ label: child.label, group: true });
+                for (const option of child.children)
+                    if (option.tagName === "OPTION" && !option.hidden)
+                        found.push({ option, nested: true, disabled: child.disabled || option.disabled });
+            } else if (child.tagName === "OPTION" && !child.hidden) {
+                found.push({ option: child, disabled: child.disabled });
+            }
+        }
+        return found;
+    };
+
+    const ROW = 24;
+    const PICKER_CSS = `:host{all:initial}
+        .list{position:fixed;box-sizing:border-box;overflow-y:auto;background:Canvas;color:CanvasText;
+            border:1px solid #8f8f9d;border-radius:3px;box-shadow:0 2px 8px rgba(0,0,0,.25);padding:2px 0}
+        .row{box-sizing:border-box;height:${ROW}px;line-height:${ROW - 4}px;padding:2px 8px;white-space:pre;cursor:default}
+        .nested{padding-left:20px}.group{font-weight:bold}.disabled{opacity:.5}
+        .active{background:Highlight;color:HighlightText}`;
+
+    const pick = (select, dx, dy) => {
+        const doc = document;
+        const view = select.ownerDocument.defaultView;
+        const host = doc.createElement("div");
+        const root = host.attachShadow({ mode: "closed" });
+        const style = doc.createElement("style");
+        style.textContent = PICKER_CSS;
+        const list = doc.createElement("div");
+        list.className = "list";
+        list.setAttribute("role", "listbox");
+        const look = getComputedStyle(select);
+        Object.assign(list.style, {
+            fontFamily: look.fontFamily,
+            fontSize: look.fontSize,
+            colorScheme: look.colorScheme,
+        });
+        const items = rows(select).map((row) => {
+            const item = doc.createElement("div");
+            item.className = ["row", row.group && "group", row.nested && "nested", row.disabled && "disabled"]
+                .filter(Boolean)
+                .join(" ");
+            item.textContent = row.group ? row.label : row.option.label || row.option.text;
+            list.append(item);
+            return { ...row, item };
+        });
+        const choosable = items.filter((row) => row.option && !row.disabled);
+        let active = choosable.find((row) => row.option.selected);
+        const activate = (row) => {
+            active?.item.classList.remove("active");
+            active = row;
+            row?.item.classList.add("active");
+            row?.item.scrollIntoView({ block: "nearest" });
+        };
+
+        const box = select.getBoundingClientRect();
+        const [top, bottom] = [box.top + dy, box.bottom + dy];
+        const tall = Math.min(items.length, 20) * ROW + 6;
+        const below = innerHeight - bottom;
+        const down = below >= tall || below >= top;
+        const height = Math.min(tall, Math.max(below, top) - 4);
+        Object.assign(list.style, {
+            left: `${Math.max(0, box.left + dx)}px`,
+            top: `${down ? bottom : top - height}px`,
+            minWidth: `${box.width}px`,
+            maxHeight: `${height}px`,
+        });
+        root.append(style, list);
+        Object.assign(host.style, { position: "fixed", left: 0, top: 0, zIndex: 2147483647 });
+        doc.documentElement.append(host);
+        activate(active);
+
+        const choose = (row) => {
+            close();
+            select.focus();
+            if (row.option.selected) return;
+            row.option.selected = true;
+            select.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        // The press that opened the list reaches the select after it; a later press there is `pick`'s to close it.
+        const outside = (event) => {
+            const path = event.composedPath();
+            if (!path.includes(host) && !path.includes(select)) close();
+        };
+        const keys = (event) => {
+            const at = choosable.indexOf(active);
+            const step = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 }[event.key];
+            if (step) activate(choosable[Math.min(Math.max(at + step, 0), choosable.length - 1)]);
+            else if (event.key === "Home" || event.key === "End")
+                activate(event.key === "Home" ? choosable[0] : choosable.at(-1));
+            else if ((event.key === "Enter" || event.key === " ") && active) choose(active);
+            else if (event.key === "Escape" || event.key === "Tab") close();
+            else return;
+            if (event.key === "Tab") return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        const moved = (event) => {
+            if (!event.composedPath().includes(list)) close();
+        };
+        const listeners = [
+            [window, "mousedown", outside],
+            [view, "mousedown", outside],
+            [view, "keydown", keys],
+            [window, "scroll", moved],
+            [window, "resize", close],
+        ];
+        function close() {
+            for (const [target, type, listener] of listeners) target.removeEventListener(type, listener, true);
+            host.remove();
+            if (window.__driftPicker?.select === select) window.__driftPicker = null;
+        }
+        for (const [target, type, listener] of listeners) target.addEventListener(type, listener, true);
+        list.addEventListener("mousedown", (event) => event.preventDefault());
+        list.addEventListener("mousemove", (event) => {
+            const row = choosable.find((row) => row.item === event.target);
+            if (row && row !== active) activate(row);
+        });
+        list.addEventListener("click", (event) => {
+            const row = choosable.find((row) => row.item === event.target);
+            if (row) choose(row);
+        });
+        window.__driftPicker = { select, host, close };
+    };
+
+    if (action === "pick") {
+        const { node, dx, dy } = deepAt(args.x, args.y);
+        const select = node?.closest?.("select");
+        const open = window.__driftPicker;
+        if (open && node === open.host) return "inside";
+        open?.close();
+        if (!select || select.disabled || select.multiple || select.size > 1) return false;
+        holdBack(select);
+        if (open?.select === select) return "closed";
+        pick(select, dx, dy);
+        return "opened";
     }
 
     if (action === "dragStart") {

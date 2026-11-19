@@ -457,6 +457,9 @@ impl Chromium {
         }
         match input {
             ViewInput::Mouse(mouse) => {
+                if let Some(script) = super::view::pick_script(&mouse) {
+                    let _ = tokio::time::timeout(super::view::PICK_WAIT, page.evaluate_page(&script)).await;
+                }
                 if let Some(event) = mouse.event() {
                     page.send("Input.dispatchMouseEvent", event);
                 }

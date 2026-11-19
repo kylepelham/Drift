@@ -1170,3 +1170,91 @@ async fn the_pane_drags_drops_scrolls_sideways_and_pastes_as_a_real_browser_does
         assert_eq!(seen[1], "hello", "{engine}: the paste is inserted once");
     }
 }
+
+const PICKER: &str = "<!doctype html><html><head><title>picker</title><style>body{margin:0;font:16px sans-serif}\
+#pick{position:absolute;left:20px;top:40px;width:160px;height:28px}</style></head><body>\
+<select id=pick><option value=a>Apple<option value=b>Banana<option value=c>Cherry<option value=d disabled>Date<option value=e>Elder</select>\
+<script>window.events=[];pick.addEventListener('change',()=>events.push('change:'+pick.value));</script></body></html>";
+
+fn pane_key(event: &str, key: &str, key_code: u32) -> ViewInput {
+    ViewInput::Key(KeyInput {
+        event: event.into(),
+        key: key.into(),
+        code: key.into(),
+        key_code,
+        modifiers: 0,
+    })
+}
+
+/// What the page held after the pane picked Cherry by clicking its row, then Elder by keys past a disabled Date.
+async fn pane_picks(engine: &str) -> Value {
+    let sandbox = Sandbox::new(&format!("browser-picker-{engine}"));
+    if let Some(path) = std::env::var_os(format!("DRIFT_TEST_{}", engine.to_uppercase())) {
+        let kind = crate::browser::Kind::parse(engine).unwrap();
+        sandbox.ctx.engine.set_browser_path(kind, path.to_str()).unwrap();
+    }
+    let url = serve(PICKER).await;
+    call(&sandbox, json!({ "action": "open", "url": url, "engine": engine }))
+        .await
+        .unwrap();
+    let browser = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let eval = async |expression: &str| {
+        let out = call(&sandbox, json!({ "action": "eval", "expression": expression }))
+            .await
+            .unwrap();
+        serde_json::from_str::<Value>(&out.output).unwrap_or(Value::String(out.output))
+    };
+    let send = async |inputs: Vec<ViewInput>| {
+        for input in inputs {
+            browser.input(input).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        }
+    };
+
+    send(pane_click(60.0, 54.0)).await;
+    let opened = eval("!!window.__driftPicker").await;
+    let bottom = eval("pick.getBoundingClientRect().bottom").await.as_f64().unwrap();
+    // Third row: the list's border and padding, then 24-pixel rows.
+    send(pane_click(60.0, bottom + 3.0 + 24.0 * 2.0 + 12.0)).await;
+    let clicked = eval("JSON.stringify([pick.value, !!window.__driftPicker])").await;
+
+    send(pane_click(60.0, 54.0)).await;
+    send(vec![
+        pane_key("down", "ArrowDown", 40),
+        pane_key("up", "ArrowDown", 40),
+        pane_key("down", "Enter", 13),
+        pane_key("up", "Enter", 13),
+    ])
+    .await;
+    let keyed = eval("JSON.stringify([pick.value, events, document.activeElement.id, !!window.__driftPicker])").await;
+    call(&sandbox, json!({ "action": "stop" })).await.unwrap();
+
+    json!({ "opened": opened, "clicked": clicked, "keyed": keyed })
+}
+
+/// A select's own list is drawn outside the page, where the pane's picture never shows it; the pane's press opens one
+/// drawn in the page. Chrome or Edge where installed; Camoufox with `DRIFT_TEST_CAMOUFOX`.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_opens_a_selects_list_in_the_page_and_picks_by_click_and_keys() {
+    let mut engines = Vec::new();
+    if crate::browser::installed().is_some() {
+        engines.push("chrome");
+    }
+    if std::env::var_os("DRIFT_TEST_CAMOUFOX").is_some() {
+        engines.push("camoufox");
+    }
+    for engine in engines {
+        let seen = pane_picks(engine).await;
+        let parse = |key: &str| match &seen[key] {
+            Value::String(text) => serde_json::from_str::<Value>(text).unwrap(),
+            value => value.clone(),
+        };
+        assert_eq!(seen["opened"], true, "{engine}: {seen}");
+        assert_eq!(parse("clicked"), json!(["c", false]), "{engine}: {seen}");
+        assert_eq!(
+            parse("keyed"),
+            json!(["e", ["change:c", "change:e"], "pick", false]),
+            "{engine}: {seen}"
+        );
+    }
+}
